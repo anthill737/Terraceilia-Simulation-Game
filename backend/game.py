@@ -3,13 +3,22 @@ from __future__ import annotations
 import collections, datetime as dt, json, os, random, re, shutil, subprocess, threading, time
 from pathlib import Path
 
-from agents import ASK, PROVIDERS, render_claude_event, ensure_codex_trust
+from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,
                     whisper_targets, visible_text, urges, mentions, validate_map)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 TURN_TIMEOUT = 1800
 TAIL = 400
+
+# Codex signs in with a subscription and rotates its refresh token. Several processes refreshing at the same
+# moment race, and the losers are refused with 401; a losing write can leave auth.json unusable. So each day
+# one Codex call is made on its own first, and the file it leaves behind is kept as the copy to fall back on.
+CODEX_PROVIDERS = ("Codex", "Codex (latest)")
+CODEX_401 = re.compile(r"\b401\b|unauthorized|missing bearer", re.I)
+CODEX_AUTH = Path.home() / ".codex" / "auth.json"
+CODEX_BACKUP = Path.home() / ".codex" / "auth.json.terraceilia-backup"
+CODEX_PRIME = "Reply with exactly the single word: ready"
 
 # ---------------------------------------------------------------- a game (persisted)
 class Game:
@@ -139,6 +148,8 @@ class Run:
         self.version = 0
         self.day_urges: dict[str, list[str]] = {}
         self.map_generating = False
+        self.blocked = ""                       # why the run is stuck, in words the convener can act on
+        self.codex_lock = threading.Lock(); self._in_codex_recovery = False
         self._sync_terms()
 
     def _sync_terms(self) -> None:
@@ -147,6 +158,70 @@ class Run:
         while len(self.terms) < n: self.terms.append({"lines": collections.deque(maxlen=TAIL), "state": "waiting", "count": 0})
 
     def busy(self) -> bool: return self.g.status == "running"
+
+    # ---- Codex, whose sign in rotates under everyone
+    def codex_provider(self) -> str | None:
+        """The one Codex install this game uses, or None if it uses none."""
+        names = [s["provider"] for s in self.g.seats if s["provider"] in CODEX_PROVIDERS]
+        return collections.Counter(names).most_common(1)[0][0] if names else None
+
+    def one_codex(self) -> None:
+        """Both Codex installs share one sign in, so a game never mixes them; every Codex seat gets the same one."""
+        keep = self.codex_provider()
+        if not keep: return
+        moved = [s["name"] for s in self.g.seats if s["provider"] in CODEX_PROVIDERS and s["provider"] != keep]
+        if not moved: return
+        for s in self.g.seats:
+            if s["provider"] in CODEX_PROVIDERS and s["provider"] != keep:
+                s["provider"] = keep; self.g.cli_sessions.pop(str(self.g.seats.index(s)), None)
+        self.g.save()
+        self._record("Engine", f"{', '.join(moved)} moved to {keep}. The two Codex installs share one sign in, so one game uses only one of them.", "system")
+
+    def _backup_codex(self) -> None:
+        try:
+            if CODEX_AUTH.is_file(): shutil.copy2(CODEX_AUTH, CODEX_BACKUP)
+        except OSError: pass
+
+    def _restore_codex(self) -> bool:
+        try:
+            if CODEX_BACKUP.is_file(): shutil.copy2(CODEX_BACKUP, CODEX_AUTH); return True
+        except OSError: pass
+        return False
+
+    def prime_codex(self, label: str) -> bool:
+        """One short call through Codex, alone, before the seats run in parallel. It refreshes the token once
+        instead of every seat refreshing at once, and the file it leaves is then kept as the copy to restore."""
+        prov = self.codex_provider()
+        if not prov: return True
+        model = next((s["model"] for s in self.g.seats if s["provider"] == prov), "")
+        out = self._invoke(0, CODEX_PRIME, f"Codex {label}", provider=prov, model=model)
+        ok = bool(out) and not CODEX_401.search(out)
+        if ok: self._backup_codex()
+        return ok
+
+    def _codex_refused(self) -> None:
+        """A seat was refused with 401. Pause at once, put the saved sign in back, prime again, and carry on if
+        that worked. If it did not, stay paused and say plainly what the convener has to do."""
+        with self.codex_lock:
+            if self._in_codex_recovery: return
+            self._in_codex_recovery = True
+        try:
+            self.pause_flag.set()
+            with self.lock:
+                self.g.status = "paused"; self.blocked = "Codex was refused. Putting the saved sign in back."; self.version += 1; self.g.save()
+            self._record("Engine", "A Codex seat was refused with 401, which is what a rotated sign in looks like. The run is paused while the saved sign in is restored and primed again.", "system")
+            self._restore_codex()
+            if self.prime_codex("priming again after a refusal"):
+                with self.lock:
+                    self.blocked = ""; self.g.status = "running"; self.version += 1; self.g.save()
+                self.pause_flag.clear()
+                self._record("Engine", "Codex answered again. The year carries on.", "system")
+            else:
+                with self.lock:
+                    self.blocked = "Codex signed out, sign in and press Resume"; self.version += 1; self.g.save()
+                self._record("Engine", "Codex is still signed out. Open the gear, then Connections, sign in to Codex, and press Resume.", "system")
+        finally:
+            with self.codex_lock: self._in_codex_recovery = False
 
     # ---- setup: the map, then the people
     def world_seat(self) -> dict:
@@ -172,18 +247,18 @@ class Run:
 
     def _generate_map(self) -> bool:
         """Ask the map model for the map through the same CLI path as everything else; one retry on an unusable reply."""
-        g = self.g; w = g.world; mm = self.map_model_used(); prompt = map_prompt(g.world_text)
+        g = self.g; w = g.world; mm = self.map_model_used()
         self._term(0, f"drawing the map from the description with {mm['provider']} {mm['model']}...")
-        ok = False
+        ok = False; problem = ""
         for attempt in range(2):
             if self.stop_flag.is_set(): break
-            out = self._invoke(0, prompt if attempt == 0 else prompt + "\n\nYour last reply had no usable map. Reply again with the fenced json block, following every rule above, and nothing else.",
-                               "map", provider=mm["provider"], model=mm["model"])
+            out = self._invoke(0, map_prompt(g.world_text, problem), "map", provider=mm["provider"], model=mm["model"])
             v = validate_map(extract_json(out or ""))
-            if v:
-                with self.lock: w.install_map(*v); self.version += 1
-                self._term(0, f"map: {v[0]}, {len(v[1])} places, {len(v[2]) or 'no'} names"); ok = True; break
-            self._term(0, "[no usable map in that reply]")
+            if v.get("ok"):
+                with self.lock: w.install_map(v); self.version += 1
+                self._term(0, f"map: {v['name']}, {len(v['places'])} places, {len(v['names']) or 'no'} names, {v['style']['water']['type']} water, {v['style']['sky']} sky"); ok = True; break
+            problem = v.get("why", "it could not be read")
+            self._term(0, f"[unusable map: {problem}]")
         g.cli_sessions.pop("0", None)      # the World begins its own session fresh
         g.save(); return ok
 
@@ -220,7 +295,7 @@ class Run:
             for i, n in enumerate(names): w.characters[n] = roll_character(n, i + 1, srng, places)
             self._sync_terms(); self.version += 1
         for i in range(len(g.seats)): g.seat_dir(i)
-        g.save()
+        self.one_codex(); g.save()
 
     # ---- controls
     def start(self) -> None:
@@ -231,7 +306,7 @@ class Run:
                 self.pause_flag.clear(); g.status = "running"; g.save(); return
             if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()     # the map and the people are made in the run, see _run
             if g.status in ("done", "stopped") and g.world.day > g.max_days: g.max_days = g.world.day + 5   # Continue: six more days
-            self.stop_flag.clear(); self.pause_flag.clear()
+            self.stop_flag.clear(); self.pause_flag.clear(); self.blocked = ""
             if not g.started_at: g.started_at = time.time()
             g.status = "running"; g.save()
             for i in range(len(g.seats)): g.seat_dir(i)
@@ -331,6 +406,9 @@ class Run:
             self.terms[i]["state"] = "waiting"; self.speaking.discard(i); self._set_current()
             if new_sid and provider is None: g.cli_sessions[str(i)] = new_sid
         if speech is None and prov["speech"] != "claude_stream": speech = "".join(out).strip()
+        if speech and prov["speech"] == "copilot": speech = clean_copilot(speech)
+        if (provider or seat["provider"]) in CODEX_PROVIDERS and not self._in_codex_recovery and CODEX_401.search("".join(out) + "\n".join(err_tail)):
+            threading.Thread(target=self._codex_refused, daemon=True).start()
         if not speech:
             self._term(i, f"[ended without an answer: exit {rc}]" + ("\n" + "\n".join(err_tail) if err_tail else ""))
             g.cli_sessions.pop(str(i), None); return None
@@ -439,6 +517,10 @@ class Run:
     def _player_phase(self) -> None:
         """Every living character gets one prompt; anyone named or whispered to gets one reaction. Then the day resolves."""
         g = self.g; w = g.world
+        if self.codex_provider() and not self.stop_flag.is_set():
+            if not self.prime_codex(f"priming for day {w.day}"): self._codex_refused()
+            while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
+            if self.stop_flag.is_set(): return
         alive = [i for i, seat in enumerate(g.seats) if i > 0 and seat["name"] in w.characters and w.characters[seat["name"]]["alive"] and not w.characters[seat["name"]]["banished"]]
         self.day_urges = {g.seats[i]["name"]: urges(w.characters[g.seats[i]["name"]], w, self.rng) for i in alive}
         acted: set[int] = set(); reacted: set[int] = set(); queue = list(alive); threads: dict[int, threading.Thread] = {}
@@ -515,9 +597,13 @@ class Run:
         g.save(chronicle=True)
 
     def _epilogue(self) -> None:
+        import telegram
         g = self.g; w = g.world
         prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "The year is over. Here is the final state:\n" + w.standings_table(),
                             "\nWrite the chronicle's closing: what became of the valley and of each person, living, dead, and banished, in the order they mattered. No json block."])
         out = self._invoke(0, prompt, "epilogue")
         self._record("World", (out or "The chronicle ends here.") + "\n\n" + w.standings_table(), "epilogue")
+        dead = [c["name"] for c in w.characters.values() if not c["alive"]]
+        telegram.notify(f"{g.title or 'Terraceilia'}: the year is over on day {w.day}. "
+                        f"{len(w.living())} still living, {len(dead)} dead" + (": " + ", ".join(dead[:8]) if dead else "") + ".", "finish")
 

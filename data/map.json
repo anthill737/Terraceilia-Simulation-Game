@@ -20,7 +20,10 @@
     "The forest road"
    ],
    "x": 500,
-   "y": 330
+   "y": 330,
+   "kind": "town",
+   "feature": "plain",
+   "elevation": 0
   },
   "The castle": {
    "desc": "The lord's seat on the hill above the town: a gate with a guard, a great hall, the steward's ledger room, a dungeon, and a wall that looks sound to every eye but one.",
@@ -35,7 +38,10 @@
     "Market town"
    ],
    "x": 500,
-   "y": 120
+   "y": 120,
+   "kind": "castle",
+   "feature": "mountain",
+   "elevation": 2
   },
   "The inn": {
    "desc": "A low timber inn at the edge of town that never quite sleeps: a taproom with a hearth, six rooms upstairs, and a stable with a loft behind.",
@@ -52,7 +58,10 @@
     "Oakstead"
    ],
    "x": 720,
-   "y": 300
+   "y": 300,
+   "kind": "inn",
+   "feature": "plain",
+   "elevation": 0
   },
   "The chapel": {
    "desc": "A small chapel with a bell, an altar, a leaking roof, a scriptorium at the back, and a graveyard where the valley buries its dead.",
@@ -68,7 +77,10 @@
     "Ashford"
    ],
    "x": 330,
-   "y": 220
+   "y": 220,
+   "kind": "chapel",
+   "feature": "plain",
+   "elevation": 0
   },
   "The mill": {
    "desc": "The mill on the millrace below Ashford: a great wheel, the millstones, a grain loft, and the miller's ledger of who owes what.",
@@ -84,7 +96,10 @@
     "Millbrook"
    ],
    "x": 210,
-   "y": 420
+   "y": 420,
+   "kind": "mill",
+   "feature": "coast",
+   "elevation": 0
   },
   "Ashford": {
    "desc": "The river village: a ford, fishing boats drawn up on the bank, farms behind fences, and grain bins that may or may not hold what their owners claim.",
@@ -101,7 +116,10 @@
     "Open country"
    ],
    "x": 300,
-   "y": 520
+   "y": 520,
+   "kind": "village",
+   "feature": "coast",
+   "elevation": 0
   },
   "Millbrook": {
    "desc": "The village by the tannery pits: weavers' cottages, the reek of hides, and a footbridge over the brook.",
@@ -116,7 +134,10 @@
     "Oakstead"
    ],
    "x": 520,
-   "y": 520
+   "y": 520,
+   "kind": "village",
+   "feature": "marsh",
+   "elevation": 0
   },
   "Oakstead": {
    "desc": "The village toward open country: sheep pasture, a healer's cottage, and the old oak where people meet who do not want to be seen meeting.",
@@ -131,7 +152,10 @@
     "Open country"
    ],
    "x": 760,
-   "y": 480
+   "y": 480,
+   "kind": "village",
+   "feature": "plain",
+   "elevation": 0
   },
   "The forest road": {
    "desc": "The road west into the trees: safe by day, not after dark. A hunter's blind by the treeline, and somewhere in the woods a camp that only a hunter knows about.",
@@ -147,7 +171,10 @@
     "Open country"
    ],
    "x": 880,
-   "y": 190
+   "y": 190,
+   "kind": "forest",
+   "feature": "forest",
+   "elevation": 1
   },
   "Open country": {
    "desc": "Fields and pasture running east to the road out of the valley. Wolves come down here in winter.",
@@ -162,7 +189,21 @@
     "The forest road"
    ],
    "x": 620,
-   "y": 680
+   "y": 680,
+   "kind": "fields",
+   "feature": "plain",
+   "elevation": 0
   }
- }
+ },
+ "palette": {
+  "ground": "#2a4a33",
+  "accent": "#5d7a3a",
+  "mid": "#1d3626",
+  "deep": "#0f1c14"
+ },
+ "water": {
+  "type": "river",
+  "color": "#4d9bbd"
+ },
+ "sky": "day"
 }

@@ -2,6 +2,7 @@
 games/*
 !games/.keep
 token.txt
+telegram.json
 *-everything.md
 *-settings.md
 *-chronicle.md

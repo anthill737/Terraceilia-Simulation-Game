@@ -1,6 +1,6 @@
 """Provider CLIs: how each agent process is launched, streamed, and identified."""
 from __future__ import annotations
-import json, os, shutil, subprocess, threading
+import json, os, re, shutil, subprocess, threading
 from pathlib import Path
 
 ASK = "Read the file {prompt_file} and respond exactly as it instructs. Your final message is your reply."
@@ -45,7 +45,31 @@ PROVIDERS = {
         "ro_cmd": 'gemini -p "{ask}" -m {model}',
         "models": ["gemini-3-pro", "gemini-3-flash", "gemini-3-flash-lite"],
     },
+    "GitHub Copilot CLI": {
+        "exe": "copilot", "speech": "copilot", "pkg": "@github/copilot",
+        "cmd": 'copilot -p "{ask}" --model {model} --allow-all-tools --no-color',
+        "resume": "",
+        "ro_cmd": 'copilot -p "{ask}" --model {model} --allow-tool read --no-color',
+        "models": ["auto"],
+    },
 }
+
+
+# ------------------------------------------------------------ copilot
+_COPILOT_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_COPILOT_FOOTER = re.compile(r"^(Changes|AI Credits|Tokens|Resume|Session|Total|Model)\b")
+
+
+def clean_copilot(text: str) -> str:
+    """Copilot prints the tools it used above its answer and a table of costs below it. Keep the answer."""
+    lines = []
+    for raw in _COPILOT_ANSI.sub("", text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        ln = raw.rstrip()
+        if _COPILOT_FOOTER.match(ln.strip()): break
+        s = ln.strip()
+        if s.startswith(("\u25cf", "\u2514", "\u251c", "\u2502")): continue   # its tool use tree
+        lines.append(ln)
+    return "\n".join(lines).strip()
 
 
 
@@ -130,53 +154,3 @@ def refresh_versions() -> None:
             latest = _ver_of(["npm", "view", prov["pkg"], "version"])
             with _ver_lock: VERSIONS.setdefault(name, {})["latest"] = latest
     threading.Thread(target=work, daemon=True).start()
-
-
-
-
-
-# ---------------------------------------------------------------- connecting a CLI
-HINTS = {
-    "Claude Code": {"install_mac": "curl -fsSL https://claude.ai/install.sh | bash", "install_win": "irm https://claude.ai/install.ps1 | iex",
-                    "login": "claude   (then follow the sign-in prompt; use /login inside it if needed)", "docs": "https://docs.claude.com/en/docs/claude-code"},
-    "Codex (latest)": {"install_mac": "npm install -g @openai/codex   (or nothing: Terraceilia runs the newest release through npx)", "install_win": "npm install -g @openai/codex   (or nothing: runs through npx)",
-                       "login": "npx -y @openai/codex@latest login", "docs": "https://developers.openai.com/codex"},
-    "Codex": {"install_mac": "npm install -g @openai/codex", "install_win": "npm install -g @openai/codex", "login": "codex login", "docs": "https://developers.openai.com/codex"},
-    "OpenCode": {"install_mac": "curl -fsSL https://opencode.ai/install | bash", "install_win": "npm install -g opencode-ai", "login": "opencode auth login", "docs": "https://opencode.ai/docs"},
-    "Gemini CLI": {"install_mac": "npm install -g @google/gemini-cli", "install_win": "npm install -g @google/gemini-cli", "login": "gemini   (choose Login with Google on first run)", "docs": "https://github.com/google-gemini/gemini-cli"},
-}
-
-
-def test_provider(name: str, model: str, folder: str) -> dict:
-    """Run a one-line prompt through the CLI exactly the way the game does. Returns ok, seconds, and what came back."""
-    import tempfile, time as _t
-    prov = PROVIDERS.get(name)
-    if not prov: return {"ok": False, "detail": "unknown provider"}
-    if shutil.which(prov["exe"]) is None: return {"ok": False, "detail": f"'{prov['exe']}' is not on PATH. Install it, then restart Terraceilia so it sees the new PATH."}
-    # The prompt file lives inside the folder the CLI runs in, as in a real turn: a sandboxed CLI (Codex) cannot always read outside it.
-    run = Path(folder) if Path(folder).is_dir() else Path(tempfile.mkdtemp(prefix="terra-test-")); pf = run / f"terraceilia-connection-test-{os.getpid()}.md"
-    pf.write_text("Reply with exactly the single word: ready", encoding="utf-8")
-    cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pf), model=model or prov["models"][0])
-    t0 = _t.time()
-    try:
-        r = subprocess.run(cmd, cwd=str(run), shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=240)
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "seconds": round(_t.time() - t0, 1), "detail": "no reply within 4 minutes; the CLI is probably waiting for a login prompt. Run its login command in a terminal first."}
-    finally:
-        try: pf.unlink()
-        except OSError: pass
-    out = (r.stdout or ""); err = (r.stderr or "").strip()
-    final = None
-    if prov["speech"] == "claude_stream":
-        for ln in out.splitlines():
-            try:
-                ev = json.loads(ln)
-                if ev.get("type") == "result": final = ev.get("result", "")
-            except Exception: pass
-    else: final = out.strip()
-    ok = r.returncode == 0 and bool(final) and "ready" in (final or "").lower()
-    detail = (final or "").strip()[:300] or err[-400:] or f"exit {r.returncode}, no output"
-    if not ok and err: detail = (detail + "\n" + err[-400:]).strip()
-    if not ok and "not supported when using Codex with a ChatGPT account" in (out + err):
-        detail += "\nA ChatGPT sign-in accepts only some models (gpt-5.4-mini and gpt-5.5 at the time of writing). Pick one of those for this provider."
-    return {"ok": ok, "seconds": round(_t.time() - t0, 1), "detail": detail, "exit": r.returncode}
