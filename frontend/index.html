@@ -18,7 +18,7 @@
   <div class="field"><label>The World (referee and chronicler)</label><div class="row"><select id="wm_p"></select><select id="wm_m"></select><input id="wm_c" placeholder="custom model" style="display:none"></div></div>
   <div class="two"><div class="field"><label>People, odd seats</label><div class="row"><select id="ma_p"></select><select id="ma_m"></select><input id="ma_c" placeholder="custom model" style="display:none"></div></div><div class="field"><label>People, even seats</label><div class="row"><select id="mb_p"></select><select id="mb_m"></select><input id="mb_c" placeholder="custom model" style="display:none"></div></div></div>
   <div class="field"><label>Folder the CLIs run in (empty and harmless; nothing is edited)</label><div class="row"><input id="repo"><button id="browse" class="btn">Browse</button></div></div>
-  <div class="field"><div id="vers" class="note"></div></div>
+  <div class="field"><label>Connections</label><div id="vers" class="note" style="margin-bottom:6px"></div><div id="connSetup"></div></div>
   <div class="field"><button id="start2" class="primary" style="padding:0 22px">Start the year</button></div>
  </div></section>
  <section id="map"><div id="making"><div><div class="spin"></div><b>The World is making the valley</b><div class="note" style="margin-top:6px">Rolling twenty lives, secrets, and grudges. This takes a minute or two. Watch the World's terminal on the right.</div></div></div><svg id="mapSvg" viewBox="0 0 1000 780" preserveAspectRatio="xMidYMid meet"></svg>
@@ -30,7 +30,7 @@
 <aside id="side"><div class="tabs"><button data-t="valley" class="on">Valley</button><button data-t="terms">Terminals</button></div><div id="valley" class="on"></div><div id="terms"></div></aside>
 <nav id="tabs"><button data-t="map" class="on">Map</button><button data-t="chron">Chronicle</button><button data-t="side">Valley</button><button data-t="rail">Games</button><button data-t="setup">Setup</button></nav>
 <div id="settings" class="sheetwrap"><div class="panel"><h1>Settings <button class="icon" id="settingsClose" aria-label="Close">&#10005;</button></h1>
- <div class="stabs"><button data-s="game" class="on">Game</button><button data-s="people">People</button></div>
+ <div class="stabs"><button data-s="game" class="on">Game</button><button data-s="people">People</button><button data-s="conn">Connections</button></div>
  <section id="sGame">
   <div class="field"><label>Title</label><input id="g_title"></div>
   <div class="field"><label>The world</label><textarea id="g_world" style="min-height:110px"></textarea></div>
@@ -39,6 +39,7 @@
   <div class="field"><label>The World's model</label><div class="row"><select id="g_wp"></select><select id="g_wm"></select><input id="g_wc" placeholder="custom model" style="display:none"></div></div>
   <div class="row"><button id="g_save" class="primary">Save game settings</button><span class="note" id="g_state">Changes apply immediately; the World's model on its next turn.</span></div>
  </section>
+ <section id="sConn" style="display:none"><div class="note" style="margin-bottom:10px">The agents are command-line tools you install and sign in to once; Terraceilia runs them for you. Test each one you plan to use. A test sends a one-line prompt through the CLI exactly as the game does and shows what came back.</div><div id="connList"></div></section>
  <section id="sPeople" style="display:none"><div class="note" style="margin-bottom:8px">Click a person to edit. Every change is recorded as fate and applies at once; a model change applies on their next turn.</div><div id="peopleList"></div></section>
 </div></div>
 <div id="picker"><div class="box"><b>Choose a folder</b><div class="row"><input id="pkPath"><button id="pkUp" class="btn">Up</button></div><ul id="pkList"></ul><div class="row" style="justify-content:flex-end"><button id="pkCancel" class="btn">Cancel</button><button id="pkUse" class="primary">Use this folder</button></div></div></div>

@@ -133,3 +133,44 @@ def refresh_versions() -> None:
 
 
 
+
+
+# ---------------------------------------------------------------- connecting a CLI
+HINTS = {
+    "Claude Code": {"install_mac": "curl -fsSL https://claude.ai/install.sh | bash", "install_win": "irm https://claude.ai/install.ps1 | iex",
+                    "login": "claude   (then follow the sign-in prompt; use /login inside it if needed)", "docs": "https://docs.claude.com/en/docs/claude-code"},
+    "Codex (latest)": {"install_mac": "npm install -g @openai/codex   (or nothing: Terraceilia runs the newest release through npx)", "install_win": "npm install -g @openai/codex   (or nothing: runs through npx)",
+                       "login": "npx -y @openai/codex@latest login", "docs": "https://developers.openai.com/codex"},
+    "Codex": {"install_mac": "npm install -g @openai/codex", "install_win": "npm install -g @openai/codex", "login": "codex login", "docs": "https://developers.openai.com/codex"},
+    "OpenCode": {"install_mac": "curl -fsSL https://opencode.ai/install | bash", "install_win": "npm install -g opencode-ai", "login": "opencode auth login", "docs": "https://opencode.ai/docs"},
+    "Gemini CLI": {"install_mac": "npm install -g @google/gemini-cli", "install_win": "npm install -g @google/gemini-cli", "login": "gemini   (choose Login with Google on first run)", "docs": "https://github.com/google-gemini/gemini-cli"},
+}
+
+
+def test_provider(name: str, model: str, folder: str) -> dict:
+    """Run a one-line prompt through the CLI exactly the way the game does. Returns ok, seconds, and what came back."""
+    import tempfile, time as _t
+    prov = PROVIDERS.get(name)
+    if not prov: return {"ok": False, "detail": "unknown provider"}
+    if shutil.which(prov["exe"]) is None: return {"ok": False, "detail": f"'{prov['exe']}' is not on PATH. Install it, then restart Terraceilia so it sees the new PATH."}
+    d = Path(tempfile.mkdtemp(prefix="terra-test-")); pf = d / "prompt.md"
+    pf.write_text("Reply with exactly the single word: ready", encoding="utf-8")
+    cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pf), model=model or prov["models"][0])
+    t0 = _t.time()
+    try:
+        r = subprocess.run(cmd, cwd=folder if Path(folder).is_dir() else str(d), shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=240)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "seconds": round(_t.time() - t0, 1), "detail": "no reply within 4 minutes; the CLI is probably waiting for a login prompt. Run its login command in a terminal first."}
+    out = (r.stdout or ""); err = (r.stderr or "").strip()
+    final = None
+    if prov["speech"] == "claude_stream":
+        for ln in out.splitlines():
+            try:
+                ev = json.loads(ln)
+                if ev.get("type") == "result": final = ev.get("result", "")
+            except Exception: pass
+    else: final = out.strip()
+    ok = r.returncode == 0 and bool(final) and "ready" in (final or "").lower()
+    detail = (final or "").strip()[:300] or err[-400:] or f"exit {r.returncode}, no output"
+    if not ok and err: detail = (detail + "\n" + err[-400:]).strip()
+    return {"ok": ok, "seconds": round(_t.time() - t0, 1), "detail": detail, "exit": r.returncode}

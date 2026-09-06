@@ -4,7 +4,7 @@ import json, mimetypes, os, shutil, subprocess, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from agents import PROVIDERS, VERSIONS, refresh_versions
+from agents import PROVIDERS, VERSIONS, refresh_versions, HINTS, test_provider
 from engine import GAMES, World, now_id
 from game import Game, Run, list_games
 
@@ -16,7 +16,7 @@ class App:
         GAMES.mkdir(exist_ok=True)
         self.lock = threading.Lock(); self.runs: dict[str, Run] = {}
         first = self._latest(); self.gid = first.id; self.runs[first.id] = Run(first)
-        self.phone_url = ""; self.away_url = ""; self.last_god = ""
+        self.phone_url = ""; self.away_url = ""; self.last_god = ""; self.tests: dict[str, dict] = {}
         refresh_versions()
 
     def _latest(self) -> Game:
@@ -62,7 +62,8 @@ class App:
                     "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
                     "terms": tstates,
                     "phone_url": self.phone_url, "away_url": self.away_url, "last_god": self.last_god,
-                    "providers": {k: {"models": v["models"], "installed": shutil.which(v["exe"]) is not None,
+                    "os": ("win" if os.name == "nt" else "mac" if os.uname().sysname == "Darwin" else "linux"),
+                    "providers": {k: {"models": v["models"], "installed": shutil.which(v["exe"]) is not None, "exe": v["exe"], "hints": HINTS.get(k, {}), "test": self.tests.get(k),
                                       "version": VERSIONS.get(k, {}).get("installed", ""), "latest": VERSIONS.get(k, {}).get("latest", "")} for k, v in PROVIDERS.items()}}
 
     def configure(self, d: dict) -> None:
@@ -270,6 +271,7 @@ def make_handler(app: App, token: str):
              "/god/fire": lambda: app.god(lambda w: w.ignite(data.get("place", ""))),
              "/god/extinguish": lambda: app.god(lambda w: ("fire out at " + data.get("place", "")) if w.extinguish(data.get("place", "")) else "no fire there"),
              "/edit/game": lambda: app.edit_game(data),
+             "/provider/test": lambda: app.tests.__setitem__(data.get("provider", ""), test_provider(data.get("provider", ""), data.get("model", ""), app.run.g.repo)),
              "/edit/relation": lambda: app.edit_relation(data),
              "/edit/character": lambda: setattr(app, "last_god", app.edit_character(data))}.get(self.path, lambda: None)()
             full = self.path in ("/game/open", "/game/new", "/game/delete")
