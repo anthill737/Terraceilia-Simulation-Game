@@ -69,3 +69,31 @@ collapse, a wolf, a fire, a rumor from the next valley. Resolve every action aga
 engine rolled for it and the character's stats. When someone dies, say so plainly by name, how,
 and by whose hand. Be fair, be vivid, be brief."""
 
+MAP_RULES = """You are the surveyor of a world for a living game played by AI agents. Read the description
+of the world below and draw its map. Do not read, create, modify, or delete any files. Reply with
+one short line and then one fenced json block, exactly this shape and nothing else in it:
+
+```json
+{"name":"...","places":[{"name":"...","kind":"castle|town|village|inn|chapel|mill|forest|fields|water|ruin|market|farm|tower|cave|road|other","desc":"one or two sentences","fixtures":["3 to 6 named things people can use here"],"adj":["names of adjacent places"],"x":0-1000,"y":0-780}],"names":["25 to 40 person names that fit the setting"]}
+```
+
+Every rule below is binding; the engine checks them all and repairs what it can.
+- 8 to 14 places. Every place name is unique.
+- kind is exactly one word from the list. Give the map at least one place that is dangerous (a road,
+  a forest, a cave, a ruin) and at least one that is holy or civic (a chapel, a castle, a town, a market).
+- adj lists the places one path away. Adjacency must be listed on both sides: if A lists B, then B
+  lists A. Every place must be reachable from every other by following paths.
+- x and y are positions on a canvas 1000 wide and 780 tall. Spread the places across the whole
+  canvas and put no two places closer than 110 units to each other.
+- desc is concrete: what a person sees standing there, in one or two sentences.
+- fixtures are physical things a person can use, touch, or break: a well, a gate, a ledger, a bridge,
+  an altar, a forge, a boat. Not moods, not ideas, not people.
+- names are 25 to 40 names for people who would live in this world: first names only, every one
+  different, suited to the time and place the description implies.
+- The map must follow from the description: its places, its dangers, its trades, its weather, its
+  name. Do not copy a valley you have seen before."""
+
+
+def map_prompt(world_text: str) -> str:
+    return MAP_RULES + f"\n\nThe world:\n{world_text}\n"
+
