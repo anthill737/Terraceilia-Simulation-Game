@@ -113,27 +113,170 @@ document.querySelectorAll('#gearMenu .list button').forEach(b=>b.onclick=async()
 function modelPick(pfx,val,selP,selM,inpC){fillSel(selP,Object.keys(providers),val.provider);const ms=(providers[val.provider]||{models:[]}).models.concat(['Custom...']);const known=ms.includes(val.model);fillSel(selM,ms,known?val.model:'Custom...');inpC.style.display=known?'none':'';if(!known)inpC.value=val.model;
  selP.onchange=()=>{const m2=(providers[selP.value]||{models:['']}).models.concat(['Custom...']);fillSel(selM,m2,m2[0]);inpC.style.display='none'};selM.onchange=()=>{inpC.style.display=selM.value==='Custom...'?'':'none';if(selM.value==='Custom...')inpC.focus()}}
 function pickVal(selP,selM,inpC){const m=selM.value;return {provider:selP.value,model:m==='Custom...'?inpC.value.trim():m}}
-function renderPeople(s){const list=$('peopleList');if(!s.characters.length){list.innerHTML='<div class="empty">Nobody lives here yet. Press Start and the World rolls them.</div>';return}
- const openNames=new Set([...list.querySelectorAll('.pe.open')].map(x=>x.dataset.name));
- list.innerHTML=s.characters.map(c=>{const seat=(s.seats||[]).find(x=>x.name===c.name)||{};return `<div class="pe ${openNames.has(c.name)?'open':''}" data-name="${esc(c.name)}" style="--c:${esc(seat.color||'#888')}"><div class="hd"><span><b>${esc(c.name)}</b> <span class="note">${esc(c.trade)} \u00b7 ${esc(c.location)} \u00b7 ${esc(seat.provider||'')} ${esc(seat.model||'')}${c.alive?'':' \u00b7 dead'}${c.banished?' \u00b7 banished':''}</span></span><span class="note">edit</span></div>
-  <form onsubmit="return false">
-   <div class="g"><div><label>Name</label><input name="new_name" value="${esc(c.name)}"></div><div><label>Trade</label><input name="trade" value="${esc(c.trade)}"></div></div>
-   <div class="g"><div><label>Provider</label><select name="provider"></select></div><div><label>Model</label><select name="model"></select><input name="custom" placeholder="custom model" style="display:none;margin-top:4px"></div></div>
-   <div class="g g4"><div><label>Strength</label><input name="str" type="number" value="${c.str}"></div><div><label>Speed</label><input name="spd" type="number" value="${c.spd}"></div><div><label>Health</label><input name="hp" type="number" value="${c.hp}"></div><div><label>Max health</label><input name="hp_max" type="number" value="${c.hp_max}"></div></div>
-   <div class="g g4"><div><label>Gold</label><input name="gold" type="number" value="${c.gold}"></div><div><label>Location</label><select name="location">${(s.places||[]).map(p=>`<option ${p===c.location?'selected':''}>${esc(p)}</option>`).join('')}</select></div><div><label>Standing</label><select name="standing">${['unknown','respected','feared','pitied','hated','loved'].map(x=>`<option ${x===c.standing?'selected':''}>${x}</option>`).join('')}</select></div><div><label>State</label><select name="state"><option value="alive" ${c.alive&&!c.banished?'selected':''}>alive</option><option value="banished" ${c.banished?'selected':''}>banished</option><option value="dead" ${!c.alive?'selected':''}>dead</option></select></div></div>
-   <div class="g g3">${[['warmth','Warmth','cruel','kind'],['temper','Temper','calm','hot'],['honesty','Honesty','liar','honest'],['greed','Greed','giving','grasping'],['courage','Courage','coward','reckless'],['tongue','Tongue','crude','eloquent'],['desire','Desire','chaste','wanton'],['piety','Piety','godless','devout'],['ambition','Ambition','content','hungry'],['loyalty','Loyalty','turncoat','faithful'],['cunning','Cunning','simple','scheming'],['drink','Drink','sober','drunkard']].map(([k,l,lo,hi])=>`<div><label>${l}</label><select name="t_${k}">${[1,2,3,4,5].map(v=>`<option value="${v}" ${((c.traits||{})[k]||3)===v?'selected':''}>${v} \u00b7 ${v===1?lo:v===5?hi:v===3?'middling':v===2?'leans '+lo:'leans '+hi}</option>`).join('')}</select></div>`).join('')}</div>
-   <div class="g"><div><label>Personality</label><textarea name="personality">${esc(c.personality)}</textarea></div><div><label>Secret</label><textarea name="secret">${esc(c.secret)}</textarea></div></div>
-   <div class="g"><div><label>Fear</label><textarea name="fear">${esc(c.fear)}</textarea></div><div><label>Want</label><textarea name="want">${esc(c.want)}</textarea></div></div>
-   <div class="row"><button class="primary sv">Save ${esc(c.name)}</button><span class="note st"></span></div>
-  </form>
-  <details class="reledit"><summary>Ties: how ${esc(c.name)} feels about others (feeling and trust, -5 to 5)</summary><div class="rtable">${s.characters.filter(o=>o.name!==c.name).map(o=>{const r=((s.relations||{})[c.name]||{})[o.name]||{type:'none',feeling:0,trust:0};return `<div class="rrow" data-b="${esc(o.name)}"><b>${esc(o.name)}</b><select class="rt">${['none','spouse','lover','kin','friend','rival','enemy','creditor','debtor','master','servant'].map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select><label>feel <input class="rf" type="number" min="-5" max="5" value="${r.feeling}"></label><label>trust <input class="rr" type="number" min="-5" max="5" value="${r.trust}"></label><label title="also set the same the other way"><input class="rm" type="checkbox"> both ways</label><button class="btn rs">Set</button></div>`}).join('')}</div></details></div>`}).join('');
- list.querySelectorAll('.pe').forEach(pe=>{const name=pe.dataset.name;const seat=(s.seats||[]).find(x=>x.name===name)||{provider:Object.keys(providers)[0],model:''};
-  pe.querySelector('.hd').onclick=()=>pe.classList.toggle('open');const f=pe.querySelector('form');
-  modelPick('p',seat,f.provider,f.model,f.custom);
-  pe.querySelector('.sv').onclick=async()=>{const st=f.state.value;const d={name,new_name:f.new_name.value,trade:f.trade.value,str:+f.str.value,spd:+f.spd.value,hp:+f.hp.value,hp_max:+f.hp_max.value,gold:+f.gold.value,location:f.location.value,standing:f.standing.value,personality:f.personality.value,secret:f.secret.value,fear:f.fear.value,want:f.want.value,traits:Object.fromEntries(['warmth','temper','honesty','greed','courage','tongue','desire','piety','ambition','loyalty','cunning','drink'].map(k=>[k,+f['t_'+k].value])),...pickVal(f.provider,f.model,f.custom)};
-   if(st==='dead')d.hp=0;if(st==='banished')d.banished=true;if(st==='alive'){d.banished=false;d.alive=true;if(d.hp<=0)d.hp=1}
-   const r=await api('/edit/character',d);pe.querySelector('.st').textContent=r.last_god||'saved';render(r)};
-  pe.querySelectorAll('.rrow .rs').forEach(btn=>btn.onclick=async()=>{const row=btn.closest('.rrow');const r=await api('/edit/relation',{a:name,b:row.dataset.b,type:row.querySelector('.rt').value,feeling:+row.querySelector('.rf').value,trust:+row.querySelector('.rr').value,mutual:row.querySelector('.rm').checked});btn.textContent='Set \u2713';setTimeout(()=>btn.textContent='Set',1200);render(r)})})}
+// ---------- People: the character screen. A list on the left, the person on the right.
+let peoSel='',peoTab='bio',peoFilter='',tieSort='strongest',peoNote='',peoListHtml='',peoPaneHtml='';
+const REL=['none','spouse','lover','kin','friend','rival','enemy','creditor','debtor','master','servant'];
+// key, label, the word at each end, and the five words the dial can read
+const TRAITS=[
+ ['warmth','Warmth','cruel','kind',['cruel and enjoys it','hard and unkind','neither kind nor cruel','decent','kind to a fault']],
+ ['temper','Temper','unmoved','violent',['nothing moves them','keeps it unless pushed','an ordinary temper','flares fast','violent when crossed']],
+ ['honesty','Honesty','liar','honest',['lies as easily as breathing','lies when it suits','bends it when it pays','mostly honest','cannot lie without it showing']],
+ ['greed','Greed','giving','grasping',['gives without counting','shares when asked','wants a fair share','wants more than their share','would sell a grave for coin']],
+ ['courage','Courage','coward','reckless',['runs from anything','avoids danger','takes ordinary risks','brave, sometimes stupidly','reckless']],
+ ['tongue','Tongue','crude','eloquent',['grunts and curses','blunt and short','talks like a villager','well spoken','eloquent and knows it']],
+ ['desire','Desire','chaste','wanton',['no interest in anyone','keeps desire private','notices, sometimes acts','flirts and takes lovers','wanton, and the valley talks']],
+ ['piety','Piety','godless','devout',['thinks the chapel a fraud','goes for appearances','believes quietly','devout, and judges by it','preaches whether asked or not']],
+ ['ambition','Ambition','content','hungry',['wants to be left alone','wants a quiet life','a little better than their father','means to rise','means to run the valley']],
+ ['loyalty','Loyalty','turncoat','faithful',['sells out anyone','loyal while it pays','keeps faith with their own','stands by friends at a cost','would die for their people']],
+ ['cunning','Cunning','simple','scheming',['simple, says what they think','straightforward','sees a trick coming','sly, plans two moves ahead','a schemer, every friendship a piece']],
+ ['drink','Drink','sober','drunkard',['never touches it','a cup at feast days','drinks like anyone','drinks too much','a drunkard']]];
+const barCentre=v=>{const a=50,b=50+v*10,l=Math.min(a,b),r=Math.max(a,b),c=v<0?'var(--danger)':'var(--accent)';
+ return `linear-gradient(90deg,var(--s3) 0 ${l}%,${c} ${l}% ${r}%,var(--s3) ${r}% 100%)`};
+const barLeft=(v,lo,hi)=>{const q=(v-lo)/(hi-lo)*100;return `linear-gradient(90deg,var(--accent) 0 ${q}%,var(--s3) ${q}% 100%)`};
+const dialPos=v=>{const q=(v-1)/4*100,t=v===1?'0':v===5?'-100%':'-50%';
+ return `left:calc(${q}% + ${((0.5-q/100)*12).toFixed(2)}px);transform:translateX(${t})`};
+const rxName=n=>new RegExp('(?<![\\w@])'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
+
+function renderPeople(s){const pane=$('peoPane');
+ if(!s.characters.length){$('peoHead').innerHTML='';$('peoList').innerHTML='';$('peoPick').innerHTML='';peoListHtml='';peoPaneHtml='';
+  pane.innerHTML='<div class="empty">Nobody lives here yet. Press Start and the World rolls them.</div>';return}
+ if(!s.characters.some(c=>c.name===peoSel))peoSel=s.characters[0].name;
+ peoRenderList(s);
+ // never rebuild the pane under someone's hands
+ const busy=pane.contains(document.activeElement)&&/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
+ if(!busy)peoRenderPane(s)}
+
+function peoRenderList(s){const q=peoFilter.trim().toLowerCase();
+ const rows=s.characters.filter(c=>!q||`${c.name} ${c.trade||''} ${c.location}`.toLowerCase().includes(q));
+ const html=rows.map(c=>`<div class="prow ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}">
+  <span class="dot"></span><span class="who"><b>${esc(c.name)}</b><i>${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)}</i></span>
+  <span class="hp"><i style="width:${Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))))}%"></i></span></div>`).join('')
+  ||'<div class="empty">Nobody matches that.</div>';
+ if(html!==peoListHtml){$('peoList').innerHTML=html;peoListHtml=html;
+  $('peoList').querySelectorAll('.prow').forEach(r=>r.onclick=()=>{if(peoSel!==r.dataset.n){peoSel=r.dataset.n;peoNote='';peoPaneHtml=''}renderPeople(S)})}
+ const opts=rows.map(c=>`<option ${c.name===peoSel?'selected':''}>${esc(c.name)}</option>`).join('');
+ const pick=$('peoPick');if(pick.innerHTML!==opts)pick.innerHTML=opts;
+ if(pick.value!==peoSel)pick.value=peoSel}
+
+function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)return;
+ const seat=(s.seats||[]).find(x=>x.name===c.name)||{};
+ $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b><span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.banished?'banished':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>`;
+ document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
+ const html=(peoTab==='bio'?paneBio(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):paneLog(s,c))
+  +(peoTab==='log'?'':`<div class="note" style="margin-top:10px">${esc(peoNote)}</div>`);
+ if(html===peoPaneHtml)return;
+ $('peoPane').innerHTML=html;peoPaneHtml=html;peoWire(s,c)}
+
+async function peoApply(patch){peoNote='';const r=await api('/edit/character',{name:peoSel,...patch});
+ peoNote=r.last_god||'no change';peoPaneHtml='';render(r)}
+
+// ---- Bio
+function paneBio(s,c){const places=s.places||[];
+ return `<div class="pg"><div><label>Name</label><input id="b_name" value="${esc(c.name)}"></div><div><label>Trade</label><input id="b_trade" value="${esc(c.trade)}"></div></div>
+ <div class="pg3"><div><label>Home</label><input id="b_home" value="${esc(c.home)}" list="b_places"><datalist id="b_places">${places.map(p=>`<option>${esc(p)}</option>`).join('')}</datalist></div>
+  <div><label>Where they are now</label><select id="b_loc">${places.map(p=>`<option ${p===c.location?'selected':''}>${esc(p)}</option>`).join('')}</select></div>
+  <div><label>State</label><select id="b_state"><option value="alive" ${c.alive&&!c.banished?'selected':''}>alive</option><option value="banished" ${c.banished?'selected':''}>banished</option><option value="dead" ${!c.alive?'selected':''}>dead</option></select></div></div>
+ <div class="pg"><div><label>Played by</label><select id="b_prov"></select></div><div><label>Model</label><select id="b_model"></select><input id="b_custom" placeholder="custom model" style="display:none;margin-top:4px"></div></div>
+ <div class="pg"><div><label>Personality</label><textarea id="b_pers">${esc(c.personality)}</textarea></div><div><label>Secret, known only to them</label><textarea id="b_secret">${esc(c.secret)}</textarea></div></div>
+ <div class="pg"><div><label>Fear</label><textarea id="b_fear">${esc(c.fear)}</textarea></div><div><label>What they want more than anything</label><textarea id="b_want">${esc(c.want)}</textarea></div></div>
+ <div class="row"><button class="primary" id="b_save">Save</button><span class="note">A changed life or model starts them fresh on their next turn.</span></div>`}
+
+// ---- Stats
+function paneStats(s,c){const sk=Object.entries(c.skills||{});
+ return `<div class="pg4"><div><label>Strength</label><input type="number" id="s_str" min="0" value="${c.str}"></div>
+  <div><label>Speed</label><input type="number" id="s_spd" min="0" value="${c.spd}"></div>
+  <div><label>Health</label><input type="number" id="s_hp" min="0" value="${c.hp}"></div>
+  <div><label>Max health</label><input type="number" id="s_hpm" min="1" value="${c.hp_max}"></div></div>
+ <div class="pg"><div><label>Gold</label><input type="number" id="s_gold" min="0" value="${c.gold}"></div>
+  <div><label>Standing in the valley</label><select id="s_stand">${['unknown','respected','feared','pitied','hated','loved'].map(x=>`<option ${x===c.standing?'selected':''}>${x}</option>`).join('')}</select></div></div>
+ <label class="note" style="display:block;margin:14px 0 6px">Skills, 1 to 9. Set one to 0 to take it away.</label>
+ <div id="s_skills">${sk.map(([k,v])=>`<div class="skillrow"><input class="sk" value="${esc(k)}"><input class="sv" type="number" min="0" max="9" value="${v}"><span class="note">of 9</span></div>`).join('')}
+  <div class="skillrow"><input class="sk" placeholder="a skill they have learned"><input class="sv" type="number" min="0" max="9" value="0"><span class="note">of 9</span></div></div>
+ <div class="row" style="margin-top:12px"><button class="primary" id="s_save">Save</button></div>`}
+
+// ---- Disposition
+function paneDisp(s,c){const t=c.traits||{};
+ return `<div class="note" style="margin-bottom:12px">Their nature, which they play without softening. Moving a dial takes effect at once and starts them fresh on their next turn.</div>`
+  +TRAITS.map(([k,label,lo,hi,words])=>{const v=Math.max(1,Math.min(5,+t[k]||3));
+   return `<div class="dial" data-k="${k}"><div class="dname">${label}</div>
+    <span class="dw" style="${dialPos(v)}">${esc(words[v-1])}</span>
+    <input class="bar-in dv" type="range" min="1" max="5" step="1" value="${v}" style="background:${barLeft(v,1,5)}">
+    <div class="dends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`}).join('')}
+
+// ---- Ties
+function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
+ const rows=s.characters.filter(o=>o.name!==c.name).map(o=>({o,r:rs[o.name]||{type:'none',feeling:0,trust:0}}));
+ if(tieSort==='name')rows.sort((a,b)=>a.o.name.localeCompare(b.o.name));
+ else if(tieSort==='type')rows.sort((a,b)=>(a.r.type||'none').localeCompare(b.r.type||'none')||a.o.name.localeCompare(b.o.name));
+ else rows.sort((a,b)=>(Math.abs(b.r.feeling)+Math.abs(b.r.trust))-(Math.abs(a.r.feeling)+Math.abs(a.r.trust))||a.o.name.localeCompare(b.o.name));
+ if(!rows.length)return '<div class="empty">There is nobody else left to have an opinion about.</div>';
+ return `<div class="tieHead"><span class="note">How ${esc(c.name)} feels about everyone else. Both run from -5 to 5.</span>
+   <label class="note" style="margin-left:auto">Sort <select id="t_sort">${[['strongest','strongest first'],['name','by name'],['type','by kind of tie']].map(([v,l])=>`<option value="${v}" ${v===tieSort?'selected':''}>${l}</option>`).join('')}</select></label></div>`
+  +rows.map(({o,r})=>`<div class="tie" data-b="${esc(o.name)}">
+   <b style="color:${esc(seatColor(o.name)||'var(--text)')}">${esc(o.name)}</b>
+   <div class="cell"><select class="tt">${REL.map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select></div>
+   <div class="cell"><input class="bar-in tf" type="range" min="-5" max="5" step="1" value="${r.feeling}" style="background:${barCentre(r.feeling)}"><div class="num">feeling ${r.feeling>=0?'+':''}${r.feeling}</div></div>
+   <div class="cell"><input class="bar-in tr" type="range" min="-5" max="5" step="1" value="${r.trust}" style="background:${barCentre(r.trust)}"><div class="num">trust ${r.trust>=0?'+':''}${r.trust}</div></div>
+   <label class="mut" title="also set the same the other way"><input type="checkbox" class="tm"> both ways</label>
+   <button class="btn twhy">Why</button></div>`).join('')}
+
+// ---- Log
+function paneLog(s,c){const rx=rxName(c.name);
+ const body=t=>{const i=(t||'').search(/\nPROSPERITY|\nSTANDINGS/);return i>0?t.slice(0,i):(t||'')};
+ const rows=[];
+ for(const e of (s.transcript||[])){
+  if(e.speaker===c.name){rows.push({e,text:e.text});continue}
+  if(!['world','system','fate','epilogue','convener'].includes(e.kind))continue;
+  const b=body(e.text);if(!rx.test(b))continue;
+  const hits=b.split(/(?<=[.!?])\s+/).filter(x=>rx.test(x));
+  rows.push({e,text:hits.length?hits.join(' '):b.slice(0,240)})}
+ if(!rows.length)return '<div class="empty">Nothing about them yet. Their days appear here once the year begins.</div>';
+ let out='',day=null;
+ for(const {e,text} of rows.slice(-250).reverse()){
+  if(e.day!==day){day=e.day;out+=`<div class="logday">Day ${day}</div>`}
+  out+=`<div class="logrow ${esc(e.kind)}" style="${e.speaker===c.name?'--c:'+esc(seatColor(c.name)||'#888'):''}"><div class="lm">${esc(e.speaker)} \u00b7 ${esc(e.time)}${e.place?' \u00b7 '+esc(e.place):''}</div>${rich(text)}</div>`}
+ return out}
+
+// ---- handlers for whichever tab is showing
+function peoWire(s,c){const pane=$('peoPane');
+ if(peoTab==='bio'){const seat=(s.seats||[]).find(x=>x.name===c.name)||{provider:Object.keys(providers)[0]||'',model:''};
+  modelPick('b',seat,$('b_prov'),$('b_model'),$('b_custom'));
+  $('b_save').onclick=async()=>{const st=$('b_state').value;
+   const d={new_name:$('b_name').value.trim(),trade:$('b_trade').value,home:$('b_home').value,location:$('b_loc').value,
+    personality:$('b_pers').value,secret:$('b_secret').value,fear:$('b_fear').value,want:$('b_want').value,
+    ...pickVal($('b_prov'),$('b_model'),$('b_custom'))};
+   if(st==='dead')d.hp=0;
+   if(st==='banished')d.banished=true;
+   if(st==='alive'){d.banished=false;d.alive=true;if(c.hp<=0)d.hp=1}
+   const nn=d.new_name;peoNote='';const r=await api('/edit/character',{name:peoSel,...d});
+   if(nn&&nn!==peoSel&&(r.characters||[]).some(x=>x.name===nn))peoSel=nn;
+   peoNote=r.last_god||'no change';peoPaneHtml='';render(r)}}
+ else if(peoTab==='stats'){
+  $('s_save').onclick=async()=>{const skills={};
+   pane.querySelectorAll('.skillrow').forEach(row=>{const k=row.querySelector('.sk').value.trim();if(k)skills[k]=+row.querySelector('.sv').value||0});
+   await peoApply({str:+$('s_str').value,spd:+$('s_spd').value,hp:+$('s_hp').value,hp_max:+$('s_hpm').value,
+    gold:+$('s_gold').value,standing:$('s_stand').value,skills})}}
+ else if(peoTab==='disp'){
+  pane.querySelectorAll('.dv').forEach(inp=>{
+   inp.oninput=()=>{const d=inp.closest('.dial'),v=+inp.value,words=(TRAITS.find(t=>t[0]===d.dataset.k)||[])[4]||[];
+    const w=d.querySelector('.dw');w.textContent=words[v-1]||'';w.style.cssText=dialPos(v);inp.style.background=barLeft(v,1,5)};
+   inp.onchange=()=>peoApply({traits:{[inp.closest('.dial').dataset.k]:+inp.value}})})}
+ else if(peoTab==='ties'){
+  $('t_sort').onchange=e=>{tieSort=e.target.value;peoPaneHtml='';renderPeople(S)};
+  const send=async row=>{peoNote='';
+   const r=await api('/edit/relation',{a:peoSel,b:row.dataset.b,type:row.querySelector('.tt').value,
+    feeling:+row.querySelector('.tf').value,trust:+row.querySelector('.tr').value,mutual:row.querySelector('.tm').checked});
+   peoNote='Saved '+new Date().toLocaleTimeString();peoPaneHtml='';render(r)};
+  pane.querySelectorAll('.tie').forEach(row=>{
+   const f=row.querySelector('.tf'),t=row.querySelector('.tr');
+   f.oninput=()=>{f.style.background=barCentre(+f.value);f.nextElementSibling.textContent=`feeling ${+f.value>=0?'+':''}${f.value}`};
+   t.oninput=()=>{t.style.background=barCentre(+t.value);t.nextElementSibling.textContent=`trust ${+t.value>=0?'+':''}${t.value}`};
+   f.onchange=()=>send(row);t.onchange=()=>send(row);row.querySelector('.tt').onchange=()=>send(row);
+   row.querySelector('.twhy').onclick=()=>showWhy(peoSel,row.dataset.b)})}}
+
+document.querySelectorAll('.ptabs button').forEach(b=>b.onclick=()=>{peoTab=b.dataset.p;peoNote='';peoPaneHtml='';if(S)renderPeople(S)});
+$('peoFilter').oninput=()=>{peoFilter=$('peoFilter').value;peoListHtml='';if(S)peoRenderList(S)};
+$('peoPick').onchange=()=>{peoSel=$('peoPick').value;peoNote='';peoPaneHtml='';if(S)renderPeople(S)};
 
 // ---------- World
 let worldReady=false;
