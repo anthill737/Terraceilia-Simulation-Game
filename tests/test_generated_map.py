@@ -47,7 +47,7 @@ class MapTests(unittest.TestCase):
         for p in m["places"]: p["adj"] = [a for a in p["adj"] if a != "Blackwater Cave"]
         P["Blackwater Cave"]["adj"] = []                       # nobody reaches the cave and it reaches nobody
         P["Saltmarket"]["adj"].append("The Mere")              # one-sided: The Mere does not list Saltmarket
-        name, places, names = engine.validate_map(m)
+        v = engine.validate_map(m); self.assertTrue(v["ok"], v.get("why")); places = v["places"]
         for n, d in places.items():
             self.assertNotIn(n, d["adj"], f"{n} lists itself")
             for a in d["adj"]:
@@ -63,7 +63,7 @@ class MapTests(unittest.TestCase):
         P["Harrow Keep"]["x"], P["Harrow Keep"]["y"] = 400, 400
         P["Saltmarket"]["x"], P["Saltmarket"]["y"] = 420, 400
         P["Blackwater Cave"]["x"], P["Blackwater Cave"]["y"] = 5000, -300
-        name, places, names = engine.validate_map(m)
+        v = engine.validate_map(m); self.assertTrue(v["ok"], v.get("why")); places = v["places"]
         a, b = places["Harrow Keep"], places["Saltmarket"]
         self.assertGreaterEqual(math.hypot(a["x"] - b["x"], a["y"] - b["y"]), 110)
         for n, d in places.items():
@@ -79,11 +79,18 @@ class MapTests(unittest.TestCase):
         m = fixed(); P = by_name(m)
         P["Reedmoor"]["kind"] = "swamp"; P["Reedmoor"]["fixtures"] = []
         P["The Mere"]["fixtures"] = ["", "  "]
-        name, places, names = engine.validate_map(m)
+        P["Keep Road"]["feature"] = "quicksand"; P["Keep Road"]["elevation"] = 9
+        P["Harrow Keep"].pop("feature", None); P["Harrow Keep"].pop("elevation", None)
+        v = engine.validate_map(m); self.assertTrue(v["ok"], v.get("why")); places = v["places"]
         self.assertEqual(places["Reedmoor"]["kind"], "other")
         self.assertEqual(places["Reedmoor"]["fixtures"], ["the ground"])
         self.assertEqual(places["The Mere"]["fixtures"], ["the ground"])
         self.assertEqual(places["Fenchapel"]["kind"], "chapel")
+        self.assertEqual(places["Keep Road"]["feature"], "none", "an unknown feature must become none")
+        self.assertEqual(places["Keep Road"]["elevation"], 3, "elevation is clamped to 0 through 3")
+        self.assertEqual(places["Harrow Keep"]["feature"], "none")
+        self.assertEqual(places["Harrow Keep"]["elevation"], 0)
+        self.assertEqual(places["Fenchapel"]["feature"], "marsh", "a good feature must survive")
 
     # (d) garbage twice: the built-in map is used and the chronicle says so
     def test_d_garbage_twice_falls_back_to_builtin(self) -> None:
@@ -103,7 +110,7 @@ class MapTests(unittest.TestCase):
         generic = next(e for e in engine.EVENTS if e["t"].startswith("Bandits from the woods raid {place}"))
         def fresh(generated: bool) -> engine.World:
             w = engine.World()
-            if generated: w.install_map(*engine.validate_map(fixed()))
+            if generated: w.install_map(engine.validate_map(fixed()))
             w.characters = {"Bett": engine.roll_character("Bett", 1, random.Random(1), list(w.map))}
             return w
         self.assertFalse(fresh(True).event_fits(ashford)); self.assertTrue(fresh(True).event_fits(generic))
@@ -150,14 +157,49 @@ class MapTests(unittest.TestCase):
         self.assertEqual(fires[0].get("note"), "the fire is out")
         self.assertTrue(any(e["kind"] == "world" for e in g.transcript))
 
-    # (g) the built-in path leaves world.map byte for byte equal to data/map.json
+    # (g) the built-in path leaves world.map byte for byte equal to data/map.json, and carries the valley's own style
     def test_g_builtin_map_is_unchanged(self) -> None:
         g = game.Game(engine.now_id()); g.map_source = "builtin"; g.world_model = dict(STUB_MODEL); g.save()
         r = game.Run(g); r.prepare_map()
-        disk = json.loads((ROOT / "data" / "map.json").read_text(encoding="utf-8"))["places"]
-        self.assertEqual(json.dumps(g.world.map, sort_keys=True, ensure_ascii=False), json.dumps(disk, sort_keys=True, ensure_ascii=False))
+        disk = json.loads((ROOT / "data" / "map.json").read_text(encoding="utf-8"))
+        self.assertEqual(json.dumps(g.world.map, sort_keys=True, ensure_ascii=False), json.dumps(disk["places"], sort_keys=True, ensure_ascii=False))
         self.assertEqual(g.world.map_name, "Terraceilia"); self.assertFalse(g.world.map_generated)
         self.assertEqual(list((g.dir / "seat0").glob("prompt_*")), [], "the built-in path must not call any CLI")
+        self.assertEqual(g.world.style["palette"], disk["palette"], "the valley must carry its own palette")
+        self.assertEqual(g.world.style["water"], disk["water"]); self.assertEqual(g.world.style["sky"], disk["sky"])
+
+    # (h) a placeholder place name is refused, the model is told why, and the second answer is taken
+    def test_h_placeholder_names_are_refused_and_reasked(self) -> None:
+        os.environ["TERRA_STUB_MAP"] = "placeholder"
+        g = game.Game(engine.now_id()); g.map_source = "generated"; g.world_model = dict(STUB_MODEL); g.save()
+        r = game.Run(g); r.prepare_map(); w = g.world
+        self.assertTrue(w.map_generated, "the second, good map should have been taken")
+        self.assertEqual(w.map_name, "Harrowmere")
+        self.assertNotIn("placeholder", [n.lower() for n in w.map])
+        self.assertIn("Eelbrook", w.map)
+        prompts = sorted((g.dir / "seat0").glob("prompt_*"))
+        self.assertEqual(len(prompts), 2, "it must ask again exactly once")
+        second = prompts[1].read_text(encoding="utf-8")
+        self.assertIn("could not be used", second, "the retry must say what was wrong")
+        self.assertIn("placeholder", second)
+        self.assertEqual([e for e in g.transcript if e["speaker"] == "Engine"], [], "a repaired map needs no fallback note")
+
+    # (i) the world's own look survives validation, and nonsense in it does not
+    def test_i_style_is_validated(self) -> None:
+        m = fixed()
+        v = engine.validate_map(m); self.assertTrue(v["ok"], v.get("why")); st = v["style"]
+        self.assertEqual(st["palette"]["ground"], "#3b4436"); self.assertEqual(st["palette"]["accent"], "#7d8f5a")
+        self.assertEqual(st["water"], {"type": "lake", "color": "#2f6f8f"}); self.assertEqual(st["sky"], "storm")
+        self.assertTrue(st["palette"]["mid"].startswith("#") and len(st["palette"]["mid"]) == 7, "a darker ground is derived when none is given")
+        bad = fixed(); bad["palette"] = {"ground": "burnt umber", "accent": "#zzzzzz"}
+        bad["water"] = {"type": "custard", "color": "orange"}; bad["sky"] = "eclipse"
+        v2 = engine.validate_map(bad); self.assertTrue(v2["ok"], v2.get("why")); st2 = v2["style"]
+        self.assertEqual(st2["palette"]["ground"], engine.BASE_STYLE["palette"]["ground"], "a colour that is not hex falls back")
+        self.assertEqual(st2["water"]["type"], "none", "an unknown water type becomes none")
+        self.assertEqual(st2["sky"], "day", "an unknown sky becomes day")
+        lava = fixed(); lava["water"] = {"type": "lava"}
+        st3 = engine.validate_map(lava)["style"]
+        self.assertEqual(st3["water"]["type"], "lava"); self.assertEqual(st3["water"]["color"], "#ff6a1f", "lava gets a lava colour by default")
 
 
 if __name__ == "__main__":

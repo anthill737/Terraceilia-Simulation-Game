@@ -1,10 +1,12 @@
 """HTTP API and static frontend. The frontend lives in ../frontend and talks JSON."""
 from __future__ import annotations
-import json, mimetypes, os, shutil, subprocess, threading, time
+import json, mimetypes, os, shutil, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from agents import PROVIDERS, VERSIONS, refresh_versions, HINTS, test_provider
+import connect
+import telegram
+from agents import PROVIDERS, VERSIONS, refresh_versions
 from engine import GAMES, World, now_id
 from game import Game, Run, list_games
 
@@ -16,8 +18,8 @@ class App:
         GAMES.mkdir(exist_ok=True)
         self.lock = threading.Lock(); self.runs: dict[str, Run] = {}
         first = self._latest(); self.gid = first.id; self.runs[first.id] = Run(first)
-        self.phone_url = ""; self.away_url = ""; self.last_god = ""; self.tests: dict[str, dict] = {}
-        refresh_versions()
+        self.phone_url = ""; self.away_url = ""; self.last_god = ""; self.last_conn = ""; self.start_error = ""; self.last_tg = ""
+        refresh_versions(); connect.start()
 
     def _latest(self) -> Game:
         for m in list_games():
@@ -40,7 +42,7 @@ class App:
         with r.lock:
             w = g.world
             return {"id": g.id, "day": w.day, "status": g.status, "current": r.current, "created": w.created,
-                    "map": w.map, "map_name": w.map_name, "map_generated": w.map_generated, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
+                    "map": w.map, "map_name": w.map_name, "map_generated": w.map_generated, "map_style": w.style, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
                     "characters": [{k: c[k] for k in ("name", "location", "alive", "banished", "hp", "hp_max", "gold", "trade", "standing")} for c in w.characters.values()],
                     "seats": [{"name": x["name"], "color": x["color"]} for x in g.seats], "version": r.version}
 
@@ -56,16 +58,34 @@ class App:
             tstates = [{"state": t["state"], "count": t["count"], "lines": list(t["lines"])[-tail:] if terms else []} for t in r.terms]
             return {"id": g.id, "title": g.title, "world_text": g.world_text, "players": g.players, "model_a": g.model_a, "model_b": g.model_b,
                     "world_model": g.world_model, "max_days": g.max_days, "max_minutes": g.max_minutes, "drama": g.drama, "repo": g.repo, "status": status,
-                    "map_source": g.map_source, "map_model": g.map_model, "map_name": w.map_name, "map_generated": w.map_generated, "map_generating": r.map_generating,
+                    "map_source": g.map_source, "map_model": g.map_model, "map_name": w.map_name, "map_generated": w.map_generated, "map_generating": r.map_generating, "map_style": w.style,
                     "seats": seats, "transcript": tr, "transcript_total": total, "last_turn": last_turn, "current": current, "day": day, "created": created,
                     "characters": chars, "ledger": ledger, "pending": pending, "map": mp, "relations": json.loads(json.dumps(w.relations)),
                     "threads": list(w.threads), "fires": dict(w.fires),
                     "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
                     "terms": tstates,
                     "phone_url": self.phone_url, "away_url": self.away_url, "last_god": self.last_god,
-                    "os": ("win" if os.name == "nt" else "mac" if os.uname().sysname == "Darwin" else "linux"),
-                    "providers": {k: {"models": v["models"], "installed": shutil.which(v["exe"]) is not None, "exe": v["exe"], "hints": HINTS.get(k, {}), "test": self.tests.get(k),
-                                      "version": VERSIONS.get(k, {}).get("installed", ""), "latest": VERSIONS.get(k, {}).get("latest", "")} for k, v in PROVIDERS.items()}}
+                    "os": ("win" if os.name == "nt" else "mac" if sys.platform == "darwin" else "linux"),
+                    "connections": connect.state(), "last_conn": self.last_conn, "start_error": self.start_error,
+                    "telegram": telegram.state(), "last_tg": self.last_tg, "blocked": r.blocked,
+                    "providers": {k: {"models": v["models"]} for k, v in PROVIDERS.items()}}
+
+    # ---- Start refuses to run a game whose agents are not connected
+    def needed_providers(self) -> list[str]:
+        r = self.run; g = r.g
+        need = {s["provider"] for s in g.seats} if g.seats else {g.world_model["provider"], g.model_a["provider"], g.model_b["provider"]}
+        if g.map_source == "generated" and not g.world.map_generated: need.add(r.map_model_used()["provider"])
+        return sorted(need)
+
+    def start_game(self) -> None:
+        """Nothing starts until every agent this game needs is connected. One line says which one is not."""
+        r = self.run
+        if not r.busy():
+            bad = [n for n in self.needed_providers() if connect.status_of(n) in ("not_installed", "not_signed_in", "error")]
+            if bad:
+                self.start_error = f"{bad[0]} is not connected. Open Settings, Connections."
+                connect.refresh(force=True); r.version += 1; return
+        self.start_error = ""; r.start()
 
     def configure(self, d: dict) -> None:
         r = self.run; g = r.g
@@ -275,19 +295,32 @@ def make_handler(app: App, token: str):
         def do_POST(self):
             if not self._authed(): return
             n = int(self.headers.get("Content-Length", 0)); data = json.loads(self.rfile.read(n) or b"{}")
-            {"/config": lambda: app.configure(data), "/start": lambda: app.run.start(), "/pause": lambda: app.run.pause(), "/stop": lambda: app.run.stop(),
+            {"/config": lambda: app.configure(data), "/start": app.start_game, "/pause": lambda: app.run.pause(), "/stop": lambda: app.run.stop(),
              "/say": lambda: app.run.say(data.get("text", "")), "/game/new": app.new_game, "/game/open": lambda: app.open_game(data.get("id", "")),
              "/game/delete": lambda: app.delete_game(data.get("id", "")), "/shutdown": app.shutdown,
              "/god/move": lambda: app.god(lambda w: w.move(data.get("name", ""), data.get("place", ""))),
              "/god/destroy": lambda: app.god(lambda w: w.destroy(data.get("place", ""), data.get("fixture", ""))),
              "/god/smite": lambda: app.god(lambda w: w.smite(data.get("name", ""))),
              "/god/fire": lambda: app.god(lambda w: w.ignite(data.get("place", ""))),
+             "/god/resolve": lambda: app.god(lambda w: ("situation #%s is resolved: %s" % (data.get("id"), data.get("note") or "fate closed it")) if w.resolve_thread(data.get("id", 0), data.get("note", "")) else "no such open situation"),
              "/god/extinguish": lambda: app.god(lambda w: ("fire out at " + data.get("place", "")) if w.extinguish(data.get("place", "")) else "no fire there"),
              "/edit/game": lambda: app.edit_game(data),
              "/map/regenerate": lambda: setattr(app, "last_god", app.run.regenerate_map()),
-             "/provider/test": lambda: app.tests.__setitem__(data.get("provider", ""), test_provider(data.get("provider", ""), data.get("model", ""), app.run.g.repo)),
+             "/connect/refresh": lambda: connect.invalidate(data.get("provider") or None),
+             "/connect/install": lambda: setattr(app, "last_conn", connect.start_install(data.get("provider", ""))),
+             "/connect/login": lambda: setattr(app, "last_conn", connect.start_login(data.get("provider", ""))),
+             "/connect/key": lambda: setattr(app, "last_conn", connect.set_key(data.get("provider", ""), data.get("key", ""))),
+             "/connect/dismiss": lambda: connect.clear_job(data.get("provider", "")),
+             "/telegram/send": lambda: setattr(app, "last_tg", telegram.send(data.get("text") or app.phone_url or "Terraceilia says hello.")),
+             "/telegram/clear": lambda: (telegram.clear(), setattr(app, "last_tg", "Telegram disconnected."))[1],
              "/edit/relation": lambda: app.edit_relation(data),
              "/edit/character": lambda: setattr(app, "last_god", app.edit_character(data))}.get(self.path, lambda: None)()
+            direct = {"/telegram/check": lambda: telegram.check(data.get("token", "")),
+                      "/telegram/find": lambda: telegram.find(data.get("token", "")),
+                      "/telegram/test": lambda: telegram.test(data.get("token", ""), data.get("chat_id", "")),
+                      "/telegram/save": lambda: telegram.save(data.get("token", ""), data.get("chat_id", ""), bool(data.get("notify_finish", True)),
+                                                              bool(data.get("notify_death", False)), data.get("bot", ""))}.get(self.path)
+            if direct: return self._send(json.dumps(direct()).encode(), "application/json")
             full = self.path in ("/game/open", "/game/new", "/game/delete")
             self._send(json.dumps(app.snapshot(since=-1 if full else 10**9)).encode(), "application/json")
     return H

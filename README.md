@@ -15,11 +15,17 @@ The agents can talk, scheme, lie, and act; they cannot change a number by saying
 ## Requirements
 
 - Python 3.11 or newer. No packages to install; the standard library is enough.
-- At least one provider CLI on your PATH and logged in:
+- At least one agent CLI installed and signed in:
   - `claude` ([Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code))
   - `codex` ([Codex](https://www.npmjs.com/package/@openai/codex)), or `npx` to run the latest Codex without installing it
   - `opencode` ([OpenCode](https://www.npmjs.com/package/opencode-ai))
   - `gemini` ([Gemini CLI](https://www.npmjs.com/package/@google/gemini-cli))
+  - `copilot` ([GitHub Copilot CLI](https://www.npmjs.com/package/@github/copilot))
+
+You do not have to set any of that up by hand. Open the gear, then Connections: each tool has a row
+showing whether it is installed and signed in, an Install button that runs the official installer, and
+a Sign in button that opens a terminal window with the tool's own login command already running. The
+row turns green by itself once the tool says it is signed in. A tool you already have is never touched.
 
 Every agent is launched in the provider's read-only mode. They can read the prompt file the engine
 writes for them and nothing else; they are told not to touch files and the sandbox enforces it.
@@ -46,7 +52,24 @@ Press **New game**, then choose:
 - the **drama** dial from 0 to 10: how much the world throws at the people each day,
 - which provider and model plays the World, and which play the people (odd seats and even seats
   can use different models, so two providers can share a valley),
+- **the map**: the built-in valley of Terraceilia, or one generated from your description,
 - an empty folder for the CLIs to run in.
+
+### A map drawn from your description
+
+Choose "Generate from the description" and a model reads what you wrote and draws the world it
+describes: its ground colour and accent, the water it has (river, lake, sea, lava, or none) and that
+water's colour, the light it sits under (day, dusk, night, ash, storm), and for every place what it is,
+what land it stands on (mountain, peak, cliff, island, crater, crag, forest, marsh, plain, coast) and
+how high it stands. A lava valley comes out black and orange with molten pools that light the places
+beside them, a town on a peak sits on a drawn ridge, and a castle on an island sits on an island.
+
+The engine trusts none of it. Placeholder and bare category names are refused and the model is asked
+again. Unknown kinds, features, water types and skies fall back to safe values. The graph is made
+symmetric and connected, places are pushed at least 110 units apart and clamped into the canvas, and
+every place gets at least one thing in it. Two bad answers and the built-in valley is used instead,
+with a note in the chronicle saying so. It happens once, at Start; World can draw it earlier or again,
+and once people exist the map is fixed for that game.
 
 Press **Start the year**. The engine rolls every person's numbers, then asks the World to give each
 one a life: a trade, a home, a personality, a secret, a fear, a want, and a web of ties to the
@@ -122,7 +145,21 @@ You are not a player, but you are not powerless.
   Bring the dead back or let a banished person walk home. Change how any two people feel about each
   other.
 - **Change the game.** Title, world text, days, time limit, drama, and the World's model can all be
-  changed mid-game.
+  changed mid-game, under World.
+- **Resolve a situation.** Situations lists everything the valley has not finished with, what is
+  burning, and who or what is standing in each place, with a Resolve button for each one.
+
+Gameplay sits in plain buttons across the header: the primary control, then People, World, Situations
+and Fate. Everything else is behind the gear: Connections, the three exports, Display, Stop this year,
+and Quit. On a phone the tabs are Map, Chronicle, Valley, People, and More.
+
+## Telegram
+
+Terraceilia can message you when a year ends, through a Telegram bot that belongs to you. Open the
+gear, then Connections, and press Connect Telegram: a three step tutorial walks you through making the
+bot with BotFather, telling it who you are, and sending yourself a test. The token is kept in
+`telegram.json` beside the game, is never sent to the browser, and is git ignored. The tutorial opens
+again any time the link has been removed.
 
 Every act is recorded as fate, and the World must narrate it on the next day.
 
@@ -174,6 +211,16 @@ Every request carries the token as `?token=` or a cookie.
     POST /god/smite {name}
     POST /god/fire {place}, /god/extinguish {place}
     POST /edit/game {...}, /edit/character {name, ...}, /edit/relation {a, b, ...}
+    POST /god/resolve {id, note}         close a situation by hand
+    POST /map/regenerate                 draw the map again, before the world is made
+
+    POST /connect/refresh {provider}     ask a CLI again whether it is installed and signed in
+    POST /connect/install {provider}     run the official installer, output streamed under the row
+    POST /connect/login {provider}       open a terminal with the CLI's own login command
+    POST /connect/key {provider, key}    an API key for this session only, never written to disk
+
+    POST /telegram/check {token}, /telegram/find {token}, /telegram/test {token, chat_id}
+    POST /telegram/save {...}, /telegram/send {text}, /telegram/clear
 
 ## Notes
 
@@ -181,6 +228,12 @@ Every request carries the token as `?token=` or a cookie.
   launched read-only anyway. Point them at an empty folder; nothing in it is touched.
 - Claude Code seats resume their session between turns, so a person keeps their whole context.
   The other providers start fresh each turn and rely on the memory file the engine writes for them.
+- Codex signs in with a subscription and rotates its refresh token. Several seats refreshing at once
+  race, and the losers are refused. So each day one Codex call runs on its own first, and the sign in
+  file it leaves is kept as a copy. If a seat is refused anyway, the year pauses, the copy is put back,
+  the priming call runs again, and the year carries on by itself if that worked. If it did not, the
+  year stays paused and says so with a link to Connections. One game never mixes the two Codex
+  installs, because they share one sign in.
 - Codex refuses folders it has not been told to trust. The engine marks the run folder as trusted
   in `~/.codex/config.toml` and keeps a backup of the file beside it.
 - Prompts are code. `backend/prompts.py` is short and worth reading before changing anything.
