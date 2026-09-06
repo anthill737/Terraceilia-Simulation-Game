@@ -120,30 +120,34 @@ class MapTests(unittest.TestCase):
     def test_f_full_stub_game_on_generated_map(self) -> None:
         g = game.Game(engine.now_id()); g.map_source = "generated"; g.players = 3; g.max_days = 3; g.drama = 0
         g.world_model = dict(STUB_MODEL); g.model_a = dict(STUB_MODEL); g.model_b = dict(STUB_MODEL); g.save()
-        r = game.Run(g); errs: list = []
+        r = game.Run(g); w = g.world; errs: list = []
+        # The map, the people, and their lives are made here rather than inside the day loop, so the acts below
+        # land before day one and the run is not a race against a stub game that finishes in a couple of seconds.
+        r.prepare_map(); r._build_people(); r._create_world()
+        self.assertTrue(w.created, "the world was never created")
+        self.assertTrue(w.map_generated); self.assertEqual(w.map_name, "Harrowmere")
+        self.assertTrue(set(w.characters) <= set(FIXED_MAP["names"]), "people were not named from the generated map")
+        for c in w.characters.values(): c["hp"] = c["hp_max"] = 40      # so the fire wounds them without killing them
+        homes = {n: c["location"] for n, c in w.characters.items()}
+        self.assertEqual(w.ignite("Saltmarket"), "Saltmarket is burning")
+        self.assertEqual(w.destroy("Fenchapel", "the bell"), "the bell destroyed")
         old_hook = threading.excepthook; threading.excepthook = lambda a: errs.append(a)
         try:
             r.start(); deadline = time.time() + 240
-            while not g.world.created and g.status == "running" and time.time() < deadline: time.sleep(0.2)
-            w = g.world
-            self.assertTrue(w.created, f"the world was never created (status {g.status}, errors {errs})")
-            with r.lock:
-                self.assertTrue(w.map_generated); self.assertEqual(w.map_name, "Harrowmere")
-                self.assertTrue(set(w.characters) <= set(FIXED_MAP["names"]), "people were not named from the generated map")
-                for c in w.characters.values(): c["hp"] = c["hp_max"] = 40
-                homes = {n: c["location"] for n, c in w.characters.items()}
-                self.assertEqual(w.ignite("Saltmarket"), "Saltmarket is burning")
-                self.assertEqual(w.destroy("Fenchapel", "the bell"), "the bell destroyed")
-            while g.status == "running" and time.time() < deadline: time.sleep(0.3)
+            while g.status == "running" and time.time() < deadline: time.sleep(0.2)
         finally: threading.excepthook = old_hook; r.stop()
         self.assertEqual(g.status, "done"); self.assertGreater(w.day, 3)
         self.assertEqual(errs, [], f"a thread raised: {errs}")
         for t in r.terms: self.assertNotIn("[engine error", "\n".join(t["lines"]))
         self.assertTrue(any(c["location"] != homes[n] for n, c in w.characters.items()), "nobody travelled")
         self.assertIn("the bell", w.map["Fenchapel"].get("destroyed", []))
-        self.assertTrue(any(t["text"].startswith("Fire at Saltmarket") for t in w.threads), "no fire situation was opened")
         self.assertTrue(w.map["Saltmarket"].get("destroyed"), "the fire ruined nothing")
-        self.assertNotIn("Saltmarket", w.fires, "the fire never burned out")
+        # The fire burns for three days and then burns itself out, which resolves its situation. It may also spread to a
+        # neighbour on the way, and a neighbour's fire may later spread back, so what is still burning at the end is not fixed.
+        fires = [t for t in w.threads if t["text"].startswith("Fire at Saltmarket")]
+        self.assertTrue(fires, "no fire situation was opened")
+        self.assertEqual(fires[0]["status"], "resolved", "the fire never burned itself out")
+        self.assertEqual(fires[0].get("note"), "the fire is out")
         self.assertTrue(any(e["kind"] == "world" for e in g.transcript))
 
     # (g) the built-in path leaves world.map byte for byte equal to data/map.json
