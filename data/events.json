@@ -1,0 +1,384 @@
+[
+ {
+  "t": "A body is found in the river by the ford at Ashford: a stranger, throat cut, purse gone.",
+  "tier": 2,
+  "place": "Ashford",
+  "spawn": "a stranger's body, throat cut",
+  "thread": true
+ },
+ {
+  "t": "{who} is accused of witchcraft by a neighbor after a cow dies in the night.",
+  "tier": 2,
+  "effect": {
+   "standing": "hated"
+  },
+  "thread": true
+ },
+ {
+  "t": "Bandits from the woods raid {place} at dusk; {who} is beaten and robbed.",
+  "tier": 3,
+  "effect": {
+   "hp": -4,
+   "gold": -3
+  },
+  "spawn": "bandits lurking in the treeline",
+  "thread": true
+ },
+ {
+  "t": "Fire breaks out at {place}; {fixture} burns before the buckets arrive.",
+  "tier": 3,
+  "effect": {
+   "destroy": true
+  },
+  "thread": true
+ },
+ {
+  "t": "A sickness comes in with a peddler: three households in {place} take to their beds.",
+  "tier": 2,
+  "effect": {
+   "sick": 3
+  },
+  "thread": true
+ },
+ {
+  "t": "{who} falls sick with the coughing fever and cannot work.",
+  "tier": 1,
+  "effect": {
+   "hp": -3,
+   "sick": 1
+  },
+  "thread": false
+ },
+ {
+  "t": "The lord's tax collector arrives a week early and seizes grain from the tithe barn.",
+  "tier": 2,
+  "effect": {
+   "grain": -2
+  },
+  "thread": true
+ },
+ {
+  "t": "A wolf takes a child from the edge of {place}. The valley wants blood.",
+  "tier": 3,
+  "spawn": "a hunting party forming",
+  "thread": true,
+  "place": "Oakstead"
+ },
+ {
+  "t": "{who} finds a purse of old coin buried under {fixture} at {place}.",
+  "tier": 2,
+  "effect": {
+   "gold": 6
+  },
+  "thread": true
+ },
+ {
+  "t": "A stranger at the inn offers good coin for anyone who will guide him through the forest road by night.",
+  "tier": 1,
+  "spawn": "a hooded stranger with coin",
+  "thread": true,
+  "place": "The inn"
+ },
+ {
+  "t": "{who} and {who2} come to blows at the inn over a debt; {who} is hurt.",
+  "tier": 1,
+  "effect": {
+   "hp": -2
+  },
+  "thread": false
+ },
+ {
+  "t": "A wandering friar arrives at the chapel preaching the end of the world and the sin of hoarding grain.",
+  "tier": 2,
+  "spawn": "a wandering friar preaching doom",
+  "thread": true,
+  "place": "The chapel"
+ },
+ {
+  "t": "The lord falls gravely ill. The steward rules in his name and nobody likes it.",
+  "tier": 3,
+  "thread": true
+ },
+ {
+  "t": "The steward is caught with two sets of ledgers. He flees toward the east road with a chest of coin.",
+  "tier": 3,
+  "spawn": "the steward's abandoned ledger room, chest gone",
+  "thread": true,
+  "place": "The castle"
+ },
+ {
+  "t": "Freezing rain glazes the valley; the road east is closed for good this year.",
+  "tier": 2,
+  "effect": {
+   "road_unsafe": true
+  },
+  "thread": true
+ },
+ {
+  "t": "A comet hangs over the castle for three nights. The pious call it judgment; the drunk call it luck.",
+  "tier": 1,
+  "thread": false
+ },
+ {
+  "t": "A child is born to a family in {place}; the father is not who everyone thinks.",
+  "tier": 1,
+  "thread": false
+ },
+ {
+  "t": "{who}'s roof gives way under the snow load in the night.",
+  "tier": 2,
+  "effect": {
+   "roofs": 1,
+   "hp": -1
+  },
+  "thread": true
+ },
+ {
+  "t": "A deserter from the King's war hides in {place}, wounded, armed, and asking for silence.",
+  "tier": 2,
+  "spawn": "a wounded deserter, armed, hiding",
+  "thread": true
+ },
+ {
+  "t": "Rats get into the grain loft at the mill; a week's flour is fouled.",
+  "tier": 2,
+  "effect": {
+   "grain": -1
+  },
+  "thread": true
+ },
+ {
+  "t": "{who} receives word that a relative has died and left them a plot of land in the next valley, if they can reach it before the snows.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "A traveling merchant sets up at the market with salt, iron, and wine, and prices that insult everyone.",
+  "tier": 1,
+  "spawn": "a traveling merchant with salt, iron, and wine",
+  "thread": true,
+  "place": "Market town"
+ },
+ {
+  "t": "{who} is challenged to a fight at dawn by {who2} over an insult nobody else heard.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "The well at Market town runs foul; someone says it was poisoned, someone says it was the frost.",
+  "tier": 2,
+  "effect": {
+   "sick": 2
+  },
+  "thread": true
+ },
+ {
+  "t": "{who} catches {who2} stealing from {fixture} at {place} after dark.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "A bridge of ice forms over the ford and children dare each other to cross it.",
+  "tier": 1,
+  "thread": false
+ },
+ {
+  "t": "The chapel bell cracks in the cold and will not ring again without a smith.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "An old woman in {place} dies in her sleep and leaves behind a locked box nobody has the key to.",
+  "tier": 1,
+  "spawn": "a dead woman's locked box",
+  "thread": true
+ },
+ {
+  "t": "The lord announces a feast at the castle in three days and commands every household to send food.",
+  "tier": 2,
+  "effect": {
+   "grain": -1
+  },
+  "thread": true
+ },
+ {
+  "t": "{who} is offered marriage by a family with land, on terms that would shame them.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "Wolves are seen on the forest road in daylight. Something has driven them from the deep woods.",
+  "tier": 2,
+  "effect": {
+   "road_unsafe": true
+  },
+  "spawn": "a wolf pack in daylight",
+  "thread": true,
+  "place": "The forest road"
+ },
+ {
+  "t": "A hunter finds a fresh grave in the forest with no marker.",
+  "tier": 2,
+  "spawn": "an unmarked grave in the woods",
+  "thread": true,
+  "place": "The forest road"
+ },
+ {
+  "t": "{who} wakes with no memory of last night and blood on their sleeve that is not theirs.",
+  "tier": 3,
+  "thread": true
+ },
+ {
+  "t": "The steward posts a notice: anyone found hoarding grain will be flogged at the market cross.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "A miracle is claimed at the chapel: a blind girl says she can see. Pilgrims will come, and coin with them.",
+  "tier": 2,
+  "spawn": "pilgrims arriving with coin",
+  "thread": true,
+  "place": "The chapel"
+ },
+ {
+  "t": "{who} is found drunk in the graveyard, digging.",
+  "tier": 1,
+  "effect": {
+   "standing": "pitied"
+  },
+  "thread": false
+ },
+ {
+  "t": "A flood of meltwater takes out the footbridge at Millbrook.",
+  "tier": 2,
+  "effect": {
+   "destroy": true,
+   "place": "Millbrook",
+   "fixture": "the footbridge"
+  },
+  "thread": true
+ },
+ {
+  "t": "A messenger from the next valley brings word that their harvest failed and they are coming to buy, or take, grain.",
+  "tier": 3,
+  "spawn": "a messenger from the next valley, waiting for an answer",
+  "thread": true,
+  "place": "The castle"
+ },
+ {
+  "t": "{who} is bitten by a dog that then dies foaming. Everyone steps back from them.",
+  "tier": 2,
+  "effect": {
+   "hp": -2,
+   "sick": 1
+  },
+  "thread": true
+ },
+ {
+  "t": "The inn's hidden stash of coin is found gone. Sten swears he never left the taproom.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "A thaw opens the road east for one day only. Anyone leaving must go now.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "{who} is named in a dying man's confession as the one who wronged him years ago.",
+  "tier": 2,
+  "effect": {
+   "standing": "hated"
+  },
+  "thread": true
+ },
+ {
+  "t": "A love letter meant for {who} is delivered to {who2} by mistake and read aloud at the inn.",
+  "tier": 1,
+  "spawn": "a love letter, read by everyone",
+  "thread": true,
+  "place": "The inn"
+ },
+ {
+  "t": "The miller's ledger goes missing from the grain loft. Every debtor in the valley breathes easier.",
+  "tier": 2,
+  "spawn": "the empty shelf where the ledger was",
+  "thread": true,
+  "place": "The mill"
+ },
+ {
+  "t": "A stone falls from the castle wall and kills a goat. The wall is worse than anyone admitted.",
+  "tier": 2,
+  "effect": {
+   "destroy": true,
+   "place": "The castle",
+   "fixture": "the wall"
+  },
+  "thread": true
+ },
+ {
+  "t": "{who} inherits a debt: their dead father owed the moneylender, and the note has surfaced.",
+  "tier": 2,
+  "effect": {
+   "gold": -3
+  },
+  "thread": true
+ },
+ {
+  "t": "A troupe of players arrives at the inn and performs a play that is plainly about the steward. He is not amused.",
+  "tier": 1,
+  "spawn": "a troupe of players",
+  "thread": true,
+  "place": "The inn"
+ },
+ {
+  "t": "A runaway serf from the lord's own fields begs sanctuary at the chapel.",
+  "tier": 2,
+  "spawn": "a runaway serf claiming sanctuary",
+  "thread": true,
+  "place": "The chapel"
+ },
+ {
+  "t": "{who} finds {who2}'s secret written on a scrap of paper tucked into the chapel's alms box.",
+  "tier": 2,
+  "thread": true
+ },
+ {
+  "t": "An early blizzard shuts every road in the valley for the day. Nobody travels.",
+  "tier": 2,
+  "effect": {
+   "road_unsafe": true
+  },
+  "thread": true
+ },
+ {
+  "t": "{who} is struck by a falling branch on the forest road and lies unconscious until found.",
+  "tier": 2,
+  "effect": {
+   "hp": -4
+  },
+  "thread": true
+ },
+ {
+  "t": "Three sheep are found slaughtered at Oakstead, not eaten, just killed. Not wolves.",
+  "tier": 2,
+  "spawn": "three slaughtered sheep, not eaten",
+  "thread": true,
+  "place": "Oakstead"
+ },
+ {
+  "t": "The baker's ovens crack; there will be no bread in the market for three days.",
+  "tier": 2,
+  "effect": {
+   "grain": -1
+  },
+  "thread": true
+ },
+ {
+  "t": "The lord's son returns from the King's war with a scar, a temper, and an eye on somebody's wife.",
+  "tier": 3,
+  "spawn": "the lord's scarred son, drinking",
+  "thread": true,
+  "place": "The castle"
+ }
+]

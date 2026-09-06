@@ -1,0 +1,168 @@
+{
+ "name": "Terraceilia",
+ "places": {
+  "Market town": {
+   "desc": "The valley's heart: a cobbled square around a stone well, stalls on market days, the forge, the tannery, the baker's, and the market cross where the steward nails his notices.",
+   "fixtures": [
+    "the well",
+    "the forge",
+    "the tannery",
+    "the baker's",
+    "the market cross",
+    "the stalls"
+   ],
+   "adj": [
+    "The castle",
+    "The inn",
+    "The chapel",
+    "Ashford",
+    "Millbrook",
+    "The forest road"
+   ],
+   "x": 500,
+   "y": 330
+  },
+  "The castle": {
+   "desc": "The lord's seat on the hill above the town: a gate with a guard, a great hall, the steward's ledger room, a dungeon, and a wall that looks sound to every eye but one.",
+   "fixtures": [
+    "the gate",
+    "the great hall",
+    "the steward's ledger room",
+    "the dungeon",
+    "the wall"
+   ],
+   "adj": [
+    "Market town"
+   ],
+   "x": 500,
+   "y": 120
+  },
+  "The inn": {
+   "desc": "A low timber inn at the edge of town that never quite sleeps: a taproom with a hearth, six rooms upstairs, and a stable with a loft behind.",
+   "fixtures": [
+    "the taproom",
+    "the hearth",
+    "the rooms upstairs",
+    "the stable",
+    "the stable loft"
+   ],
+   "adj": [
+    "Market town",
+    "The forest road",
+    "Oakstead"
+   ],
+   "x": 720,
+   "y": 300
+  },
+  "The chapel": {
+   "desc": "A small chapel with a bell, an altar, a leaking roof, a scriptorium at the back, and a graveyard where the valley buries its dead.",
+   "fixtures": [
+    "the bell",
+    "the altar",
+    "the scriptorium",
+    "the graveyard",
+    "the leaking roof"
+   ],
+   "adj": [
+    "Market town",
+    "Ashford"
+   ],
+   "x": 330,
+   "y": 220
+  },
+  "The mill": {
+   "desc": "The mill on the millrace below Ashford: a great wheel, the millstones, a grain loft, and the miller's ledger of who owes what.",
+   "fixtures": [
+    "the millwheel",
+    "the millstones",
+    "the grain loft",
+    "the millrace",
+    "the miller's ledger"
+   ],
+   "adj": [
+    "Ashford",
+    "Millbrook"
+   ],
+   "x": 210,
+   "y": 420
+  },
+  "Ashford": {
+   "desc": "The river village: a ford, fishing boats drawn up on the bank, farms behind fences, and grain bins that may or may not hold what their owners claim.",
+   "fixtures": [
+    "the ford",
+    "the fishing boats",
+    "the farms",
+    "the grain bins"
+   ],
+   "adj": [
+    "Market town",
+    "The mill",
+    "The chapel",
+    "Open country"
+   ],
+   "x": 300,
+   "y": 520
+  },
+  "Millbrook": {
+   "desc": "The village by the tannery pits: weavers' cottages, the reek of hides, and a footbridge over the brook.",
+   "fixtures": [
+    "the tannery pits",
+    "the weavers' cottages",
+    "the footbridge"
+   ],
+   "adj": [
+    "Market town",
+    "The mill",
+    "Oakstead"
+   ],
+   "x": 520,
+   "y": 520
+  },
+  "Oakstead": {
+   "desc": "The village toward open country: sheep pasture, a healer's cottage, and the old oak where people meet who do not want to be seen meeting.",
+   "fixtures": [
+    "the sheep pasture",
+    "the healer's cottage",
+    "the old oak"
+   ],
+   "adj": [
+    "Millbrook",
+    "The inn",
+    "Open country"
+   ],
+   "x": 760,
+   "y": 480
+  },
+  "The forest road": {
+   "desc": "The road west into the trees: safe by day, not after dark. A hunter's blind by the treeline, and somewhere in the woods a camp that only a hunter knows about.",
+   "fixtures": [
+    "the treeline",
+    "the hunter's blind",
+    "the road west",
+    "the hidden camp"
+   ],
+   "adj": [
+    "Market town",
+    "The inn",
+    "Open country"
+   ],
+   "x": 880,
+   "y": 190
+  },
+  "Open country": {
+   "desc": "Fields and pasture running east to the road out of the valley. Wolves come down here in winter.",
+   "fixtures": [
+    "the fields",
+    "the road east",
+    "the wolf country"
+   ],
+   "adj": [
+    "Ashford",
+    "Oakstead",
+    "The forest road"
+   ],
+   "x": 620,
+   "y": 680
+  }
+ }
+}

@@ -1,0 +1,18 @@
+# saved games: chronicles, memories, and every prompt sent to every agent
+games/*
+!games/.keep
+
+# the access token printed in the links
+token.txt
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

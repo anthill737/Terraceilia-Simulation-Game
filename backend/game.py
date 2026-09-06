@@ -1,0 +1,447 @@
+"""One game: its saved state, and the engine loop that runs a year of days."""
+from __future__ import annotations
+import collections, datetime as dt, json, os, random, re, shutil, subprocess, threading, time
+from pathlib import Path
+
+from agents import ASK, PROVIDERS, render_claude_event, ensure_codex_trust
+from engine import (GAMES, NAMES, PLACES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,
+                    whisper_targets, visible_text, urges, mentions)
+from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES
+
+TURN_TIMEOUT = 1800
+TAIL = 400
+
+# ---------------------------------------------------------------- a game (persisted)
+class Game:
+    def __init__(self, gid: str, d: dict | None = None) -> None:
+        self.id = gid; self.dir = GAMES / gid; self.dir.mkdir(parents=True, exist_ok=True)
+        d = d or {}
+        self.title = d.get("title", "")
+        self.created = d.get("created", dt.datetime.now().isoformat(timespec="minutes"))
+        self.world_text = d.get("world_text", DEFAULT_WORLD)
+        self.players = d.get("players", 20)
+        self.model_a = d.get("model_a", {"provider": "Claude Code", "model": "claude-haiku-4-5"})
+        self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": "gpt-5.5-mini"})
+        self.world_model = d.get("world_model", {"provider": "Claude Code", "model": "claude-fable-5-1"})
+        self.max_days = d.get("max_days", 12)
+        self.max_minutes = d.get("max_minutes", 0)
+        self.drama = int(d.get("drama", 6))
+        self.readonly = True
+        self.repo = d.get("repo", str(self.dir))
+        self.seats: list[dict] = d.get("seats", [])          # index 0 is World; {name, provider, model, color}
+        self.transcript: list[dict] = d.get("transcript", [])
+        self.turn = d.get("turn", 0); self.status = d.get("status", "idle")
+        if self.status in ("running",): self.status = "paused"
+        self.started_at = d.get("started_at", 0.0)
+        self.cli_sessions = d.get("cli_sessions", {}); self.last_seen = d.get("last_seen", {})
+        self.world = World(d.get("world"))
+
+    def to_dict(self) -> dict:
+        return {"title": self.title, "created": self.created, "world_text": self.world_text, "players": self.players,
+                "model_a": self.model_a, "model_b": self.model_b, "world_model": self.world_model, "max_days": self.max_days,
+                "max_minutes": self.max_minutes, "drama": self.drama, "repo": self.repo, "seats": self.seats, "transcript": self.transcript,
+                "turn": self.turn, "status": self.status, "started_at": self.started_at, "cli_sessions": self.cli_sessions,
+                "last_seen": self.last_seen, "world": self.world.to_dict()}
+
+    def save(self, chronicle: bool = False) -> None:
+        (self.dir / "game.json").write_text(json.dumps(self.to_dict()), encoding="utf-8")
+        if chronicle: self.write_chronicle()
+
+    def write_chronicle(self) -> None:
+        md = [f"# {self.title or 'Terraceilia'}", f"Created: {self.created}", "", self.world_text, ""]
+        for e in self.transcript: md += [f"## {e['speaker']} ({e['kind']}, day {e.get('day', 0)}, {e['time']})", "", e["text"], ""]
+        (self.dir / "chronicle.md").write_text("\n".join(md), encoding="utf-8")
+
+    # ---- exports
+    def export(self, what: str = "chronicle", terms: list[dict] | None = None) -> str:
+        """chronicle: the World's days, people's words, fate. settings: plus the game settings and every person's full sheet and ties.
+        everything: plus open and resolved situations, fires, the map's ruins, engine adjustments, and each seat's terminal tail."""
+        w = self.world; L = self.ledger_line()
+        md = [f"# {self.title or 'Terraceilia'}", f"Created {self.created} · day {w.day} of {self.max_days} · {self.status}", "", self.world_text, ""]
+        if what in ("settings", "everything"):
+            md += ["## Settings", "", f"- People: {self.players}", f"- Days in the year: {self.max_days}", f"- Time limit: {self.max_minutes or 'none'} minutes", f"- Drama: {self.drama} / 10",
+                   f"- World model: {self.world_model['provider']} {self.world_model['model']}", f"- People models: {self.model_a['provider']} {self.model_a['model']} and {self.model_b['provider']} {self.model_b['model']}", f"- Folder: {self.repo}", ""]
+            md += ["## The people", ""]
+            for c in sorted(w.characters.values(), key=lambda c: c["seat"]):
+                seat = next((x for x in self.seats if x["name"] == c["name"]), {})
+                md += [f"### {c['name']}, {c['trade']} ({seat.get('provider', '')} {seat.get('model', '')})",
+                       f"{'DEAD: ' + c['cause_of_death'] if not c['alive'] else 'banished' if c['banished'] else 'alive'} · at {c['location']} · home {c['home']} · standing {c['standing']}",
+                       f"STR {c['str']} SPD {c['spd']} HP {c['hp']}/{c['hp_max']} gold {c['gold']} skills {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'}",
+                       f"Disposition: {', '.join(f'{k} {v}' for k, v in (c.get('traits') or {}).items())}",
+                       f"Personality: {c['personality']}", f"Secret: {c['secret']}", f"Fear: {c['fear']}", f"Want: {c['want']}", "", "Ties:", w.relations_text(c["name"]).replace("You ", f"{c['name']} ").replace("you ", f"{c['name']} "), ""]
+        if what == "everything":
+            md += ["## Situations", ""] + [f"- #{t['id']} (day {t['day']}{', ' + t['place'] if t.get('place') else ''}) {t['text']} · {t['status']}{(' on day ' + str(t.get('resolved_day')) + ': ' + t.get('note', '')) if t['status'] != 'open' else ''}" for t in w.threads] + [""]
+            ruins = [f"- {p}: {', '.join(d.get('destroyed', []))}" for p, d in w.map.items() if d.get("destroyed")]; pres = [f"- {p}: {', '.join(d.get('present', []))}" for p, d in w.map.items() if d.get("present")]
+            md += ["## The map today", "", "Ruined:"] + (ruins or ["- nothing"]) + ["", "Present:"] + (pres or ["- nothing"]) + ["", f"Fires: {', '.join(w.fires) or 'none'}", ""]
+        md += ["## Chronicle", ""]
+        for e in self.transcript:
+            if what == "chronicle" and e["kind"] == "system": continue
+            md += [f"### {e['speaker']} · day {e.get('day', 0)}{' · ' + e['place'] if e.get('place') else ''} · {e['time']} ({e['kind']})", "", e["text"], ""]
+        if what == "everything" and terms:
+            md += ["## Terminals (last lines of each seat)", ""]
+            for seat, t in zip(self.seats, terms):
+                md += [f"### {seat['name']} ({seat['provider']} {seat['model']})", "", "```", *[ln for ln in t.get("lines", [])][-120:], "```", ""]
+        return "\n".join(md)
+
+    def ledger_line(self) -> str:
+        L = self.world.ledger
+        return f"grain {L['grain_weeks']}/{L['grain_needed']} weeks, {L['roofs_broken']} roofs broken, road {'safe' if L['road_safe'] else 'unsafe'}, {L['sick']} sick, built: {', '.join(L['built']) or 'nothing'}"
+
+    @classmethod
+    def load(cls, gid: str) -> "Game | None":
+        f = GAMES / gid / "game.json"
+        if not f.exists(): return None
+        try: return cls(gid, json.loads(f.read_text(encoding="utf-8")))
+        except Exception: return None
+
+    def seat_dir(self, i: int) -> Path:
+        d = self.dir / f"seat{i}"; d.mkdir(exist_ok=True)
+        m = d / "memory.md"
+        if not m.exists(): m.write_text(f"# {self.seats[i]['name'] if i < len(self.seats) else i}: memory\n\n(Nothing yet.)\n", encoding="utf-8")
+        return d
+
+
+_GAMES_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def list_games() -> list[dict]:
+    """Index of games. Parses a game.json only when its mtime changed, so polling stays cheap."""
+    out = []
+    for f in sorted(GAMES.glob("*/game.json"), reverse=True):
+        try:
+            mt = f.stat().st_mtime; hit = _GAMES_CACHE.get(str(f))
+            if hit and hit[0] == mt: out.append(hit[1]); continue
+            d = json.loads(f.read_text(encoding="utf-8"))
+            meta = {"id": f.parent.name, "title": d.get("title") or "Terraceilia", "created": d.get("created", ""),
+                    "status": d.get("status", "idle"), "day": d.get("world", {}).get("day", 0)}
+            _GAMES_CACHE[str(f)] = (mt, meta); out.append(meta)
+        except Exception: continue
+    return out
+
+
+PALETTE = ["#22D3EE", "#F59E0B", "#A78BFA", "#34D399", "#F472B6", "#60A5FA", "#FB7185", "#FACC15", "#2DD4BF", "#C084FC",
+           "#4ADE80", "#F97316", "#38BDF8", "#E879F9", "#A3E635", "#FB923C", "#818CF8", "#F43F5E", "#14B8A6", "#EAB308", "#94A3B8"]
+
+
+# ---------------------------------------------------------------- the run (one game's engine)
+class Run:
+    def __init__(self, g: Game) -> None:
+        self.g = g; self.lock = threading.RLock()
+        self.terms: list[dict] = []; self.current: str | None = None
+        self.procs: dict[int, subprocess.Popen] = {}; self.speaking: set[int] = set()
+        self.thread: threading.Thread | None = None
+        self.stop_flag, self.pause_flag = threading.Event(), threading.Event()
+        self.rng = random.Random()
+        self.version = 0
+        self.day_urges: dict[str, list[str]] = {}
+        self._reset_terms()
+
+    def _reset_terms(self) -> None:
+        self.terms = [{"lines": collections.deque(maxlen=TAIL), "state": "waiting", "count": 0} for _ in self.g.seats]
+
+    def busy(self) -> bool: return self.g.status == "running"
+
+    # ---- setup
+    def build_seats(self) -> None:
+        g = self.g; rng = random.Random()
+        names = NAMES[:]; rng.shuffle(names); names = names[: g.players]
+        g.seats = [{"name": "World", "provider": g.world_model["provider"], "model": g.world_model["model"], "color": "#FFFFFF"}]
+        for i, n in enumerate(names):
+            m = g.model_a if i % 2 == 0 else g.model_b
+            g.seats.append({"name": n, "provider": m["provider"], "model": m["model"], "color": PALETTE[i % len(PALETTE)]})
+        g.world = World(); srng = random.Random()
+        for i, n in enumerate(names): g.world.characters[n] = roll_character(n, i + 1, srng)
+        self._reset_terms(); g.save()
+
+    # ---- controls
+    def start(self) -> None:
+        with self.lock:
+            g = self.g
+            if self.busy(): return
+            if g.status == "paused" and self.thread and self.thread.is_alive():
+                self.pause_flag.clear(); g.status = "running"; g.save(); return
+            if not g.seats: self.build_seats()
+            if g.status in ("done", "stopped") and g.world.day > g.max_days: g.max_days = g.world.day + 5   # Continue: six more days
+            self.stop_flag.clear(); self.pause_flag.clear()
+            if not g.started_at: g.started_at = time.time()
+            g.status = "running"; g.save()
+            for i in range(len(g.seats)): g.seat_dir(i)
+            if any(PROVIDERS[x["provider"]]["exe"] in ("codex", "npx") for x in g.seats):
+                note = ensure_codex_trust(g.repo)
+                if note: self._record("Engine", note, "system")
+        self.thread = threading.Thread(target=self._run, daemon=True); self.thread.start()
+
+    def pause(self) -> None:
+        with self.lock:
+            if self.g.status == "running": self.pause_flag.set(); self.g.status = "paused"; self.g.save()
+
+    def _kill_tree(self) -> None:
+        """Kill every CLI this run started, all at once, without blocking the caller."""
+        def kill(p: subprocess.Popen) -> None:
+            try:
+                if os.name == "nt": subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True, timeout=15)
+                else: os.killpg(os.getpgid(p.pid), 9)
+            except Exception:
+                try: p.kill()
+                except Exception: pass
+        for p in list(self.procs.values()):
+            if p and p.poll() is None: threading.Thread(target=kill, args=(p,), daemon=True).start()
+
+    def stop(self) -> None:
+        self.stop_flag.set(); self.pause_flag.clear(); self._kill_tree()
+
+    def say(self, text: str) -> None:
+        text = (text or "").strip()
+        if text: self._record("The convener", text, "convener")
+
+    # ---- internals
+    def _term(self, i: int, text: str) -> None:
+        with self.lock:
+            if i >= len(self.terms): return
+            for ln in text.split("\n"): self.terms[i]["lines"].append(ln); self.terms[i]["count"] += 1
+
+    def _record(self, speaker: str, text: str, kind: str) -> None:
+        with self.lock:
+            g = self.g; g.turn += 1
+            color = next((x.get("color") for x in g.seats if x["name"] == speaker), None)
+            place = g.world.characters.get(speaker, {}).get("location") if kind == "speech" else None
+            e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": g.world.day, "color": color, "place": place}
+            g.transcript.append(e); self.version += 1
+            seats = list(enumerate(g.seats)); locs = {n: c.get("location") for n, c in g.world.characters.items()}
+        for i, seat in seats:   # file writes outside the lock
+            vis = visible_text(e, seat["name"], locs.get(seat["name"]) if seat["name"] != "World" else None)
+            if vis is None: continue
+            line = "You said" if speaker == seat["name"] else f"{speaker} said"
+            with (g.seat_dir(i) / "memory.md").open("a", encoding="utf-8") as fh:
+                fh.write(f"\n## Day {e['day']}, turn {e['turn']} ({e['time']}), {line}:\n{vis}\n")
+        g.save()
+
+    def _set_current(self) -> None:
+        names = [self.g.seats[j]["name"] for j in sorted(self.speaking) if j < len(self.g.seats)]
+        self.current = ", ".join(names) if names else None; self.version += 1
+
+    def _invoke(self, i: int, prompt: str, label: str) -> str | None:
+        """Run seat i's CLI on a prompt; return its final answer or None on failure (details in the terminal pane)."""
+        g = self.g; seat = g.seats[i]; prov = PROVIDERS[seat["provider"]]
+        if self.stop_flag.is_set(): return None
+        if shutil.which(prov["exe"]) is None:
+            self._term(i, f"'{prov['exe']}' is not installed or not on PATH"); return None
+        pfile = g.seat_dir(i) / f"prompt_{g.turn + 1:03d}_{int(time.time() * 1000) % 100000}.md"; pfile.write_text(prompt, encoding="utf-8")
+        cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pfile), model=seat["model"])
+        sid = g.cli_sessions.get(str(i))
+        if sid and prov.get("resume"): cmd += prov["resume"].format(sid=sid)
+        with self.lock: self.terms[i]["state"] = "speaking"; self.speaking.add(i); self._set_current()
+        self._term(i, "=" * 60 + f"\n{seat['name']}: {label}\n" + "=" * 60)
+        out: list[str] = []; speech: str | None = None; new_sid = None; err_tail: list[str] = []; rc = None
+        try:
+            proc = subprocess.Popen(cmd, cwd=g.repo, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    encoding="utf-8", errors="replace", start_new_session=(os.name != "nt"))
+            self.procs[i] = proc
+            def pump(p):  # noqa: ANN001
+                for ln in p.stderr: err_tail.append(ln.rstrip("\n")); del err_tail[:-8]; self._term(i, ln.rstrip("\n"))
+            threading.Thread(target=pump, args=(proc,), daemon=True).start()
+            for ln in proc.stdout:
+                out.append(ln)
+                if prov["speech"] == "claude_stream":
+                    try:
+                        ev = json.loads(ln)
+                        if ev.get("session_id"): new_sid = ev["session_id"]
+                    except Exception: pass
+                    shown, final = render_claude_event(ln)
+                    if shown: self._term(i, shown)
+                    if final is not None: speech = final
+                else: self._term(i, ln.rstrip("\n"))
+            rc = proc.wait(timeout=TURN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            self.procs[i].kill(); self._term(i, f"[timed out after {TURN_TIMEOUT}s]")
+        except Exception as exc:  # noqa: BLE001
+            self._term(i, f"[engine error: {type(exc).__name__}: {exc}]")
+        with self.lock:
+            self.terms[i]["state"] = "waiting"; self.speaking.discard(i); self._set_current()
+            if new_sid: g.cli_sessions[str(i)] = new_sid
+        if speech is None and prov["speech"] != "claude_stream": speech = "".join(out).strip()
+        if not speech:
+            self._term(i, f"[ended without an answer: exit {rc}]" + ("\n" + "\n".join(err_tail) if err_tail else ""))
+            g.cli_sessions.pop(str(i), None); return None
+        self._term(i, "\ndone.\n"); return speech
+
+    # ---- prompts
+    def _player_prompt(self, i: int, instruction: str) -> str:
+        g = self.g; me = g.seats[i]["name"]; w = g.world
+        my_place = w.characters[me]["location"]
+        seen = int(g.last_seen.get(str(i), 0)); new = [(e, visible_text(e, me, my_place)) for e in g.transcript[seen:]]; new = [(e, v) for e, v in new if v]
+        parts = [PLAYER_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP, known to everyone (the only places and things that exist):\n" + map_text(w.map) + "\n",
+                 f"Day {w.day}. Everyone who lives in the valley: " + ", ".join(c["name"] for c in w.living() if c["name"] != me) + ".\n",
+                 w.sheet(me), "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
+        u = self.day_urges.get(me) or []
+        if u: parts.append("YOUR URGES TODAY, which are your nature and not a suggestion; act on at least one of them, in words or in your ACTION, and do not apologize for it:\n" + "\n".join(f"- {x}" for x in u) + "\n")
+        if new:
+            parts.append("What you saw and heard since your last turn (words spoken where you were, actions done in front of you, and the World's chronicle):\n")
+            for e, v in new: parts.append(f"--- {e['speaker']} (day {e.get('day', 0)}) ---\n{v}\n")
+        parts.append(f"Now: {instruction}")
+        return "\n".join(parts)
+
+    def _world_prompt(self, actions: list[dict], rolls: dict[str, int], court: bool, events: list[str] | None = None) -> str:
+        g = self.g; w = g.world
+        from engine import trait_text
+        sheets = "\n".join(f"- {c['name']} ({c['trade']}, at {c['location']}): STR {c['str']} SPD {c['spd']} HP {c['hp']}/{c['hp_max']} gold {c['gold']} skills {c['skills'] or 'none'}; standing {c['standing']}; nature: {trait_text(c.get('traits', {}))[:160]}" + (f"; today's urges: {' / '.join(self.day_urges.get(c['name'], []))[:200]}" if self.day_urges.get(c['name']) else "")
+                           for c in w.living())
+        acts = "\n".join(f"- {a['who']} (roll d6 = {rolls.get(a['who'], 0)}): {a['text']}" for a in actions) or "- nobody acted"
+        talk = [e for e in g.transcript if e.get("day", 0) == w.day and e["kind"] in ("speech", "convener")]
+        talk_s = "\n".join(f"- {e['speaker']}: {e['text'][:300]}" for e in talk[-40:])
+        L = w.ledger
+        return "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", f"It is day {w.day}. " + ("The lord's court sits today: name exactly one living character in \"banished\", the one the valley trusts least, with a reason in the narration." if court else ""),
+            "\nThe people, as the engine knows them:\n" + sheets,
+            "\nTheir notable ties (a -> b: type, feeling -5..5, trust -5..5; everyone also has milder opinions of everyone else, which you may assume are ordinary):\n" + "\n".join(f"- {a} -> {b}: {r['type']}, feeling {r['feeling']:+d}, trust {r['trust']:+d}" for a, rs in w.relations.items() for b, r in rs.items() if a in w.characters and b in w.characters and (r['type'] != 'none' or abs(r['feeling']) + abs(r['trust']) >= 4)),
+            f"\nThe prosperity ledger: grain {L['grain_weeks']} of {L['grain_needed']} weeks needed, {L['roofs_broken']} roofs broken, road {'safe' if L['road_safe'] else 'unsafe'} after dark, {L['sick']} sick, built: {', '.join(L['built']) or 'nothing'}.",
+            ("\nACTS OF FATE since yesterday, which you must narrate as things that simply happened:\n" + "\n".join(f"- {f}" for f in w.fate) + "\n") if w.fate else "",
+            "\nOPEN SITUATIONS. Every one of these is still true today; keep it alive in your narration and in what happens, until you resolve it explicitly (a body buried, a deserter caught, a merchant leaves, a fire put out). Nothing here may simply vanish:\n" + w.threads_text() + "\n"
+            + ("\nFIRES BURNING NOW: " + ", ".join(f"{p} (day {d + 1} of burning)" for p, d in w.fires.items()) + ". People there are hurt each day it burns and things there are ruined; it spreads. Say what the people do about it.\n" if w.fires else ""),
+            ("\nEVENTS OF THE DAY. These have already happened; the engine has applied their wounds, losses, and ruins. Narrate each one vividly, make the people at that place witness it, and let it change what happens next. They are not optional and you may not soften them:\n" + "\n".join(f"- {e}" for e in events) + "\n") if events else "",
+            "\nWhat was said today (including whispers you are allowed to hear):\n" + (talk_s or "- nothing"),
+            "\nActions to resolve, with the die the engine rolled for each (1 is a disaster, 6 a triumph, scaled by the character's stats):\n" + acts,
+            "\nWrite the day: two to five short paragraphs of narration covering every action's outcome, the thing the world did that nobody chose, and any death by name and cause. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
+            '```json\n{"results":[{"who":"Name","hp":-2,"gold":3,"location":"The mill","skill":"axe","standing":"respected","note":"why"}],'
+            '"events":["one line per world event"],"ledger":{"grain_weeks":1,"roofs_broken":-1,"road_safe":false,"sick":0,"built":["a granary"]},'
+            '"dead":[{"who":"Name","cause":"how"}],"banished":["Name"],'
+            '"relations":[{"a":"Name","b":"Other","feeling":-2,"trust":-3,"type":"enemy","mutual":false,"why":"what happened today that changed it, one line"}],'
+            '"threads":[{"id":3,"status":"resolved","note":"how it ended"}],"fires_out":["The mill"]}\n```',
+            "Rules for the block: hp and gold and ledger numbers are deltas (change), not totals. Relation feeling and trust are deltas too, -3..3 per day, and every meaningful interaction today must move at least one tie, and every relation entry needs a \"why\" naming the thing that happened today: a favor, an insult, a lie found out, a night together, a blow struck. Set type when a tie changes kind (a lover becomes a spouse, a friend becomes an enemy). Only include keys you are changing. Names must match exactly. Do not invent characters. Deaths must also be in narration."])
+
+    # ---- the day loop
+    def _run(self) -> None:
+        g = self.g; w = g.world
+        try:
+            if not w.created: self._create_world()
+            while not self.stop_flag.is_set() and w.created:
+                while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
+                if self.stop_flag.is_set(): break
+                if w.day > g.max_days or (g.max_minutes and time.time() - g.started_at > g.max_minutes * 60) or len(w.living()) <= 1:
+                    self._epilogue(); break
+                self._player_phase()
+                if self.stop_flag.is_set(): break
+                self._world_phase()
+        finally:
+            with self.lock: self.current = None; g.status = "stopped" if self.stop_flag.is_set() and w.day < g.max_days else "done"; g.save(chronicle=True)
+
+    def _create_world(self) -> None:
+        g = self.g; w = g.world
+        names = [c["name"] for c in w.characters.values()]
+        stats = "\n".join(f"- {c['name']}: STR {c['str']} SPD {c['spd']} HP {c['hp_max']} gold {c['gold']}, currently at {c['location']}" for c in w.characters.values())
+        prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", "The engine has rolled these people. Give each a life. Homes must be places on the map.",
+            stats, "\nWrite a short opening narration (the valley waking, the early frost, the rider's news) and then a fenced ```json block, exactly this shape:",
+            '```json\n{"people":[{"name":"Name","trade":"miller","home":"The mill","personality":"one line","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything"}],'
+            '"relations":[{"a":"Name","b":"OtherName","type":"spouse","feeling":3,"trust":2,"mutual":true,"why":"married twelve years; he drinks, she keeps the ledger"}]}\n```',
+            "One entry per name, every name, names exact. Make them different from each other: some rich, some poor, some liked, some feared, some with dangerous secrets that touch other people in this list. "
+            "Then give the valley a web of ties in \"relations\": at least eight, each with a \"why\" (one line of history: how they met, what happened, what is owed), using types spouse, lover, kin, friend, rival, enemy, creditor, debtor, master, servant; feeling and trust run from -5 (hate, would knife them) to 5 (love, trust with their life). "
+            "Make some ties one-sided (mutual false, then a second entry the other way with different numbers): an unrequited love, a servant who hates a master who trusts him, a debtor who smiles at a creditor he loathes."])
+        self._term(0, "creating the world...")
+        people: dict = {}; out = None
+        for attempt in range(2):
+            if self.stop_flag.is_set(): return
+            out = self._invoke(0, prompt if attempt == 0 else prompt + "\n\nYour last reply had no valid JSON block. Reply again with the narration and the fenced json block.", "creation")
+            data = extract_json(out or "") or {}
+            people = {str(p.get("name")): p for p in data.get("people", []) if isinstance(p, dict)}
+            if out and len(people) >= max(1, len(names) // 2): break
+        if self.stop_flag.is_set() or not out: return
+        for n in names:
+            p = people.get(n, {})
+            c = w.characters[n]
+            c["trade"] = str(p.get("trade") or "villager")[:40]; c["home"] = str(p.get("home") or c["location"])[:40]
+            c["personality"] = str(p.get("personality") or "keeps their own counsel")[:200]
+            c["secret"] = str(p.get("secret") or "nothing worth telling")[:200]; c["fear"] = str(p.get("fear") or "the cold")[:200]
+            c["want"] = str(p.get("want") or "to see spring")[:200]
+            if p.get("home") in PLACES: c["location"] = p["home"]
+        w.seed_all_relations(self.rng)
+        for rr in data.get("relations", []) or []:
+            if isinstance(rr, dict):
+                w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old tie"))
+                if rr.get("mutual", True): w.set_rel(str(rr.get("b", "")), str(rr.get("a", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old tie"))
+        w.created = True; w.day = 1
+        self._record("World", (strip_json(out or "The valley wakes.") + "\n\n" + w.standings_table()), "world")
+
+    def _player_phase(self) -> None:
+        """Every living character gets one prompt; anyone named or whispered to gets one reaction. Then the day resolves."""
+        g = self.g; w = g.world
+        alive = [i for i, seat in enumerate(g.seats) if i > 0 and seat["name"] in w.characters and w.characters[seat["name"]]["alive"] and not w.characters[seat["name"]]["banished"]]
+        self.day_urges = {g.seats[i]["name"]: urges(w.characters[g.seats[i]["name"]], w, self.rng) for i in alive}
+        acted: set[int] = set(); reacted: set[int] = set(); queue = list(alive); threads: dict[int, threading.Thread] = {}
+        name_to_i = {g.seats[i]["name"].lower(): i for i in alive}
+
+        def worker(i: int, react: bool) -> None:
+            instr = ("You witnessed the above. React in character to anyone who acted on you or spoke to you, then act if you have not acted today; if you already acted today, you may only speak, or reply exactly PASS."
+                     if react else "Introduce yourself in character if this is your first day, otherwise speak your mind, then take today's action.")
+            text = self._invoke(i, self._player_prompt(i, instr), f"day {w.day}")
+            g.last_seen[str(i)] = len(g.transcript)
+            if not text:
+                self._record("Engine", f"{g.seats[i]['name']} gave no answer this turn (see its terminal).", "system"); return
+            if text.strip().upper().rstrip(".") == "PASS": self._term(i, "(passed)"); return
+            for t in whisper_targets(text):
+                tc = next((c for c in w.living() if c["name"].lower() == t), None)
+                if tc and tc["location"] != w.characters[g.seats[i]["name"]]["location"]:
+                    self._term(i, f"(your whisper to {tc['name']} went nowhere: they are at {tc['location']}, you are at {w.characters[g.seats[i]['name']]['location']})")
+            self._record(g.seats[i]["name"], text, "speech")
+            a = action_line(text)
+            if a and i not in acted:
+                acted.add(i); w.pending.append({"who": g.seats[i]["name"], "text": a, "turn": g.turn}); self.version += 1
+            wts = whisper_targets(text)
+            with self.lock:
+                here = w.characters[g.seats[i]["name"]]["location"]
+                for nm, j in name_to_i.items():
+                    if w.characters[g.seats[j]["name"]]["location"] != here: continue
+                    if j != i and j not in reacted and j not in threads and (re.search(r"(?<![\w@])" + re.escape(g.seats[j]["name"]) + r"\b", text, re.I) or nm in wts):
+                        reacted.add(j); queue.append(j)
+
+        seen_len = len(g.transcript)
+        while not self.stop_flag.is_set():
+            while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
+            # the convener spoke: anyone @mentioned is woken to answer now
+            if len(g.transcript) != seen_len:
+                for e in g.transcript[seen_len:]:
+                    if e["kind"] == "convener":
+                        with self.lock:
+                            for nm, j in name_to_i.items():
+                                if nm in mentions(e["text"]) and j not in threads and j not in queue: reacted.add(j); queue.append(j)
+                seen_len = len(g.transcript)
+            for j in [j for j, t in threads.items() if not t.is_alive()]: threads.pop(j)
+            with self.lock:
+                launch = [j for j in queue if j not in threads]; queue = [j for j in queue if j in threads]
+            for j in launch:
+                t = threading.Thread(target=worker, args=(j, j in reacted), daemon=True); threads[j] = t; t.start()
+            if not threads and not queue: break
+            time.sleep(0.5)
+
+    def _world_phase(self) -> None:
+        g = self.g; w = g.world
+        actions = w.pending; rolls = {a["who"]: self.rng.randint(1, 6) for a in actions}
+        court = w.day % w.court_every == 0
+        told_fate = list(w.fate)
+        elog: list[str] = []; w.spread_fires(self.rng, elog); events = w.draw_events(g.drama, self.rng, elog)
+        if elog: g.save()
+        if events: g.save()
+        prompt = self._world_prompt(actions, rolls, court, events)
+        res = None; out = None
+        for attempt in range(2):
+            if self.stop_flag.is_set(): return
+            out = self._invoke(0, prompt if attempt == 0 else prompt + "\n\nYour last reply had no valid fenced json block. Reply again: narration, then the block.", f"day {w.day} resolution")
+            res = extract_json(out or "")
+            if res is not None: break
+        if self.stop_flag.is_set(): return
+        if res is None:
+            self._record("Engine", "The World gave no usable result; the day ends unchanged.", "system"); w.pending = []; w.day += 1; g.save(); return
+        log: list[str] = []
+        w.pending = []; w.fate = [f for f in w.fate if f not in told_fate]; w.apply(res, log, court=court); self.version += 1
+        text = strip_json(out or "") or "The day passes."
+        if events: text = "\n".join(f"EVENT: {e}" for e in events) + "\n\n" + text
+        self._record("World", text + "\n\n" + w.standings_table(), "world")
+        if elog: log = elog + log
+        if log: self._record("Engine", "Adjustments: " + "; ".join(log), "system")
+        g.save(chronicle=True)
+
+    def _epilogue(self) -> None:
+        g = self.g; w = g.world
+        prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "The year is over. Here is the final state:\n" + w.standings_table(),
+                            "\nWrite the chronicle's closing: what became of the valley and of each person, living, dead, and banished, in the order they mattered. No json block."])
+        out = self._invoke(0, prompt, "epilogue")
+        self._record("World", (out or "The chronicle ends here.") + "\n\n" + w.standings_table(), "epilogue")
+

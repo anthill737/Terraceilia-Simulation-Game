@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Terraceilia</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2309090B'/%3E%3Cpath d='M4 24 L12 12 L18 20 L22 15 L28 24 Z' fill='%2334D399'/%3E%3Ccircle cx='24' cy='8' r='3' fill='%23FACC15'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css"></head><body>
+<header><button id="railBtn" class="icon" title="Games">&#9776;</button>
+ <span class="brand"><svg viewBox="0 0 32 32" width="22" height="22"><path d="M4 24 L12 12 L18 20 L22 15 L28 24 Z" fill="currentColor"/><circle cx="24" cy="8" r="3" fill="#FACC15"/></svg>Terraceilia</span><span class="title" id="hdrTitle"></span>
+ <span class="pill" id="status"><span class="dot"></span><span id="statusText">Not started</span></span>
+ <button id="start" class="primary">Start</button><button id="pause" class="btn">Pause</button><button id="stop" class="danger">Stop</button>
+ <div class="menu" id="expMenu"><button class="icon" id="expBtn" title="Export">&#8681;</button><div class="list"><button data-w="chronicle">Chronicle only</button><button data-w="settings">Chronicle + settings + people</button><button data-w="everything">Everything: chronicle, settings, people, situations, map, terminals</button></div></div><button id="sideBtn" class="icon" title="Valley and terminals">&#9783;</button><button id="gearBtn" class="icon" title="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button id="quit" class="icon danger" title="Quit Terraceilia">&#10005;</button></header>
+<aside id="rail"><div class="top"><div class="railhdr">Games <span id="railCount" class="note"></span></div><button id="newGame" class="primary" style="width:100%">+ New game</button></div><div id="hlist"></div></aside>
+<main id="center">
+ <div id="centerTabs"><button data-c="map" class="on">Map</button><button data-c="chron">Chronicle</button></div>
+ <section id="setup"><div class="inner">
+  <h1>New game</h1><p class="lead">Choose how many people live in the valley, which models play them, and who plays the World. Then press Start and the engine rolls the world.</p>
+  <div class="field"><label>Title</label><input id="title"></div>
+  <div class="field"><label>The world</label><textarea id="world_text"></textarea></div>
+  <div class="three"><div class="field"><label>People in the valley</label><input id="players" type="number" min="2" max="30"></div><div class="field"><label>Days in the year</label><input id="max_days" type="number" min="1"></div><div class="field"><label>Or stop after minutes</label><input id="max_minutes" type="number" min="0" placeholder="no limit"></div></div>
+  <div class="field"><label>Drama <span class="note" id="dramaNote"></span></label><input id="drama" type="range" min="0" max="10" step="1"><div class="note">0: nothing happens that the people don't cause. 5: about one event a day, mostly small. 10: two or three a day, including raids, fires, plagues, and deaths. Change it any time in Settings.</div></div>
+  <div class="field"><label>The World (referee and chronicler)</label><div class="row"><select id="wm_p"></select><select id="wm_m"></select><input id="wm_c" placeholder="custom model" style="display:none"></div></div>
+  <div class="two"><div class="field"><label>People, odd seats</label><div class="row"><select id="ma_p"></select><select id="ma_m"></select><input id="ma_c" placeholder="custom model" style="display:none"></div></div><div class="field"><label>People, even seats</label><div class="row"><select id="mb_p"></select><select id="mb_m"></select><input id="mb_c" placeholder="custom model" style="display:none"></div></div></div>
+  <div class="field"><label>Folder the CLIs run in (empty and harmless; nothing is edited)</label><div class="row"><input id="repo"><button id="browse" class="btn">Browse</button></div></div>
+  <div class="field"><div id="vers" class="note"></div></div>
+  <div class="field"><button id="start2" class="primary" style="padding:0 22px">Start the year</button></div>
+ </div></section>
+ <section id="map"><div id="making"><div><div class="spin"></div><b>The World is making the valley</b><div class="note" style="margin-top:6px">Rolling twenty lives, secrets, and grudges. This takes a minute or two. Watch the World's terminal on the right.</div></div></div><svg id="mapSvg" viewBox="0 0 1000 780" preserveAspectRatio="xMidYMid meet"></svg>
+  <div id="mapHud"><span class="note">Drag a person to move them. Click a place to see and destroy what is there. Everything you do here becomes fate the World must narrate.</span><span class="note" id="godNote" style="margin-left:auto;display:none"></span></div>
+  <div id="placePanel"><h3><span id="ppName"></span><button class="icon" id="ppClose" aria-label="Close">&#10005;</button></h3><div id="ppDesc" class="note"></div><div id="ppFx"></div><div id="ppPres" class="note" style="margin-top:6px;color:#c9b28a"></div><div id="ppWho" class="note" style="margin-top:6px"></div><div class="row" style="margin-top:10px"><button id="ppFire" class="danger solid">Set fire</button></div></div></section>
+ <section id="chron"><div class="inner"><div class="empty" id="chronEmpty">The chronicle is empty. Press Start.</div><div id="msgs"></div><div class="typing" id="typing" style="display:none"></div></div></section>
+ <div id="composer"><div class="inner"><div id="ac" role="listbox"></div><div class="tawrap"><div id="hl" aria-hidden="true"></div><textarea id="sayText" placeholder="Speak as fate to everyone, or @Name to speak to one person alone."></textarea></div><button id="sayBtn" class="primary">Send</button></div></div>
+</main>
+<aside id="side"><div class="tabs"><button data-t="valley" class="on">Valley</button><button data-t="terms">Terminals</button></div><div id="valley" class="on"></div><div id="terms"></div></aside>
+<nav id="tabs"><button data-t="map" class="on">Map</button><button data-t="chron">Chronicle</button><button data-t="side">Valley</button><button data-t="rail">Games</button><button data-t="setup">Setup</button></nav>
+<div id="settings" class="sheetwrap"><div class="panel"><h1>Settings <button class="icon" id="settingsClose" aria-label="Close">&#10005;</button></h1>
+ <div class="stabs"><button data-s="game" class="on">Game</button><button data-s="people">People</button></div>
+ <section id="sGame">
+  <div class="field"><label>Title</label><input id="g_title"></div>
+  <div class="field"><label>The world</label><textarea id="g_world" style="min-height:110px"></textarea></div>
+  <div class="two"><div class="field"><label>Days in the year</label><input id="g_days" type="number" min="1"></div><div class="field"><label>Stop after minutes</label><input id="g_mins" type="number" min="0" placeholder="no limit"></div></div>
+  <div class="field"><label>Drama <span class="note" id="g_dramaNote"></span></label><input id="g_drama" type="range" min="0" max="10" step="1"><div class="note">How much the world throws at the people each day. Applies from the next day.</div></div>
+  <div class="field"><label>The World's model</label><div class="row"><select id="g_wp"></select><select id="g_wm"></select><input id="g_wc" placeholder="custom model" style="display:none"></div></div>
+  <div class="row"><button id="g_save" class="primary">Save game settings</button><span class="note" id="g_state">Changes apply immediately; the World's model on its next turn.</span></div>
+ </section>
+ <section id="sPeople" style="display:none"><div class="note" style="margin-bottom:8px">Click a person to edit. Every change is recorded as fate and applies at once; a model change applies on their next turn.</div><div id="peopleList"></div></section>
+</div></div>
+<div id="picker"><div class="box"><b>Choose a folder</b><div class="row"><input id="pkPath"><button id="pkUp" class="btn">Up</button></div><ul id="pkList"></ul><div class="row" style="justify-content:flex-end"><button id="pkCancel" class="btn">Cancel</button><button id="pkUse" class="primary">Use this folder</button></div></div></div>
+<script src="map.js"></script><script src="app.js"></script></body></html>
