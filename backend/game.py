@@ -4,9 +4,9 @@ import collections, datetime as dt, json, os, random, re, shutil, subprocess, th
 from pathlib import Path
 
 from agents import ASK, PROVIDERS, render_claude_event, ensure_codex_trust
-from engine import (GAMES, NAMES, PLACES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,
-                    whisper_targets, visible_text, urges, mentions)
-from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES
+from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,
+                    whisper_targets, visible_text, urges, mentions, validate_map)
+from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 TURN_TIMEOUT = 1800
 TAIL = 400
@@ -23,6 +23,8 @@ class Game:
         self.model_a = d.get("model_a", {"provider": "Claude Code", "model": "claude-haiku-4-5"})
         self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": "gpt-5.5-mini"})
         self.world_model = d.get("world_model", {"provider": "Claude Code", "model": "claude-fable-5-1"})
+        self.map_source = d.get("map_source") if d.get("map_source") in ("builtin", "generated") else "builtin"
+        self.map_model = d.get("map_model") if isinstance(d.get("map_model"), dict) else None     # None: the World's model draws it
         self.max_days = d.get("max_days", 12)
         self.max_minutes = d.get("max_minutes", 0)
         self.drama = int(d.get("drama", 6))
@@ -39,6 +41,7 @@ class Game:
     def to_dict(self) -> dict:
         return {"title": self.title, "created": self.created, "world_text": self.world_text, "players": self.players,
                 "model_a": self.model_a, "model_b": self.model_b, "world_model": self.world_model, "max_days": self.max_days,
+                "map_source": self.map_source, "map_model": self.map_model,
                 "max_minutes": self.max_minutes, "drama": self.drama, "repo": self.repo, "seats": self.seats, "transcript": self.transcript,
                 "turn": self.turn, "status": self.status, "started_at": self.started_at, "cli_sessions": self.cli_sessions,
                 "last_seen": self.last_seen, "world": self.world.to_dict()}
@@ -60,6 +63,7 @@ class Game:
         md = [f"# {self.title or 'Terraceilia'}", f"Created {self.created} · day {w.day} of {self.max_days} · {self.status}", "", self.world_text, ""]
         if what in ("settings", "everything"):
             md += ["## Settings", "", f"- People: {self.players}", f"- Days in the year: {self.max_days}", f"- Time limit: {self.max_minutes or 'none'} minutes", f"- Drama: {self.drama} / 10",
+                   f"- Map: {('generated from the description: ' + w.map_name + ', ' + str(len(w.map)) + ' places') if w.map_generated else 'the built-in valley of Terraceilia'}",
                    f"- World model: {self.world_model['provider']} {self.world_model['model']}", f"- People models: {self.model_a['provider']} {self.model_a['model']} and {self.model_b['provider']} {self.model_b['model']}", f"- Folder: {self.repo}", ""]
             md += ["## The people", ""]
             for c in sorted(w.characters.values(), key=lambda c: c["seat"]):
@@ -134,39 +138,105 @@ class Run:
         self.rng = random.Random()
         self.version = 0
         self.day_urges: dict[str, list[str]] = {}
-        self._reset_terms()
+        self.map_generating = False
+        self._sync_terms()
 
-    def _reset_terms(self) -> None:
-        self.terms = [{"lines": collections.deque(maxlen=TAIL), "state": "waiting", "count": 0} for _ in self.g.seats]
+    def _sync_terms(self) -> None:
+        """One terminal per seat. Existing terminals keep their lines; extra ones go when the seats are rebuilt."""
+        n = len(self.g.seats); del self.terms[n:]
+        while len(self.terms) < n: self.terms.append({"lines": collections.deque(maxlen=TAIL), "state": "waiting", "count": 0})
 
     def busy(self) -> bool: return self.g.status == "running"
 
-    # ---- setup
-    def build_seats(self) -> None:
-        g = self.g; rng = random.Random()
-        names = NAMES[:]; rng.shuffle(names); names = names[: g.players]
-        g.seats = [{"name": "World", "provider": g.world_model["provider"], "model": g.world_model["model"], "color": "#FFFFFF"}]
-        for i, n in enumerate(names):
-            m = g.model_a if i % 2 == 0 else g.model_b
-            g.seats.append({"name": n, "provider": m["provider"], "model": m["model"], "color": PALETTE[i % len(PALETTE)]})
-        g.world = World(); srng = random.Random()
-        for i, n in enumerate(names): g.world.characters[n] = roll_character(n, i + 1, srng)
-        self._reset_terms(); g.save()
+    # ---- setup: the map, then the people
+    def world_seat(self) -> dict:
+        g = self.g; return {"name": "World", "provider": g.world_model["provider"], "model": g.world_model["model"], "color": "#FFFFFF"}
+
+    def map_model_used(self) -> dict:
+        """The model that draws a generated map: the one chosen for it, else the World's."""
+        g = self.g; m = g.map_model
+        return m if isinstance(m, dict) and m.get("provider") in PROVIDERS and m.get("model") else g.world_model
+
+    def prepare_map(self) -> None:
+        """Before the people are rolled: keep the built-in valley, keep a map already generated, or generate one now
+        (two tries through the CLI; then the built-in valley, with an Engine note in the chronicle)."""
+        g = self.g; w = g.world
+        if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
+        if g.map_source != "generated":
+            if w.map_generated: w.install_builtin(); g.save()
+            return
+        if w.map_generated or self._generate_map() or self.stop_flag.is_set(): return
+        with self.lock: w.install_builtin(); self.version += 1
+        g.save()
+        self._record("Engine", "The map could not be generated from the description after two tries. The built-in valley of Terraceilia is used instead.", "system")
+
+    def _generate_map(self) -> bool:
+        """Ask the map model for the map through the same CLI path as everything else; one retry on an unusable reply."""
+        g = self.g; w = g.world; mm = self.map_model_used(); prompt = map_prompt(g.world_text)
+        self._term(0, f"drawing the map from the description with {mm['provider']} {mm['model']}...")
+        ok = False
+        for attempt in range(2):
+            if self.stop_flag.is_set(): break
+            out = self._invoke(0, prompt if attempt == 0 else prompt + "\n\nYour last reply had no usable map. Reply again with the fenced json block, following every rule above, and nothing else.",
+                               "map", provider=mm["provider"], model=mm["model"])
+            v = validate_map(extract_json(out or ""))
+            if v:
+                with self.lock: w.install_map(*v); self.version += 1
+                self._term(0, f"map: {v[0]}, {len(v[1])} places, {len(v[2]) or 'no'} names"); ok = True; break
+            self._term(0, "[no usable map in that reply]")
+        g.cli_sessions.pop("0", None)      # the World begins its own session fresh
+        g.save(); return ok
+
+    def regenerate_map(self) -> str:
+        """Draw a new map now, before Start. Once people exist the map is fixed for the game."""
+        g = self.g; w = g.world
+        with self.lock:
+            if w.created or w.characters or len(g.seats) > 1: return "the map is fixed once people exist"
+            if self.busy() or self.map_generating: return "busy; try again in a moment"
+            if g.map_source != "generated": return "this game uses the built-in valley"
+            if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
+            self.stop_flag.clear(); self.map_generating = True; self.version += 1
+        def work() -> None:
+            try:
+                if not self._generate_map() and not self.stop_flag.is_set():
+                    self._record("Engine", "The map could not be generated from the description after two tries; the map is unchanged.", "system")
+            finally:
+                with self.lock: self.map_generating = False; self.version += 1
+                g.save()
+        threading.Thread(target=work, daemon=True).start()
+        return "drawing a new map from the description; watch the World's terminal"
+
+    def _build_people(self) -> None:
+        """Roll the people onto this map: names from the generated map when it brought enough, else data/names.json."""
+        g = self.g; w = g.world; rng = random.Random()
+        pool = list(w.names) if w.names else NAMES[:]; rng.shuffle(pool)
+        if len(pool) < g.players:
+            extra = [n for n in NAMES if n.lower() not in {p.lower() for p in pool}]; rng.shuffle(extra); pool += extra
+        names = pool[: g.players]; srng = random.Random(); places = list(w.map)
+        with self.lock:
+            g.seats = g.seats[:1] + [{"name": n, "provider": (g.model_a if i % 2 == 0 else g.model_b)["provider"], "model": (g.model_a if i % 2 == 0 else g.model_b)["model"],
+                                      "color": PALETTE[i % len(PALETTE)]} for i, n in enumerate(names)]
+            w.characters = {}
+            for i, n in enumerate(names): w.characters[n] = roll_character(n, i + 1, srng, places)
+            self._sync_terms(); self.version += 1
+        for i in range(len(g.seats)): g.seat_dir(i)
+        g.save()
 
     # ---- controls
     def start(self) -> None:
         with self.lock:
             g = self.g
-            if self.busy(): return
+            if self.busy() or self.map_generating: return
             if g.status == "paused" and self.thread and self.thread.is_alive():
                 self.pause_flag.clear(); g.status = "running"; g.save(); return
-            if not g.seats: self.build_seats()
+            if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()     # the map and the people are made in the run, see _run
             if g.status in ("done", "stopped") and g.world.day > g.max_days: g.max_days = g.world.day + 5   # Continue: six more days
             self.stop_flag.clear(); self.pause_flag.clear()
             if not g.started_at: g.started_at = time.time()
             g.status = "running"; g.save()
             for i in range(len(g.seats)): g.seat_dir(i)
-            if any(PROVIDERS[x["provider"]]["exe"] in ("codex", "npx") for x in g.seats):
+            provs = {x["provider"] for x in g.seats} | {g.model_a["provider"], g.model_b["provider"], self.map_model_used()["provider"]}
+            if any(PROVIDERS.get(p, {}).get("exe") in ("codex", "npx") for p in provs):
                 note = ensure_codex_trust(g.repo)
                 if note: self._record("Engine", note, "system")
         self.thread = threading.Thread(target=self._run, daemon=True); self.thread.start()
@@ -220,15 +290,16 @@ class Run:
         names = [self.g.seats[j]["name"] for j in sorted(self.speaking) if j < len(self.g.seats)]
         self.current = ", ".join(names) if names else None; self.version += 1
 
-    def _invoke(self, i: int, prompt: str, label: str) -> str | None:
-        """Run seat i's CLI on a prompt; return its final answer or None on failure (details in the terminal pane)."""
-        g = self.g; seat = g.seats[i]; prov = PROVIDERS[seat["provider"]]
+    def _invoke(self, i: int, prompt: str, label: str, provider: str | None = None, model: str | None = None) -> str | None:
+        """Run seat i's CLI on a prompt; return its final answer or None on failure (details in the terminal pane).
+        provider and model override the seat's own for this one call (the map model drawing through the World's seat); no session is resumed or kept then."""
+        g = self.g; seat = g.seats[i]; prov = PROVIDERS[provider or seat["provider"]]
         if self.stop_flag.is_set(): return None
         if shutil.which(prov["exe"]) is None:
             self._term(i, f"'{prov['exe']}' is not installed or not on PATH"); return None
         pfile = g.seat_dir(i) / f"prompt_{g.turn + 1:03d}_{int(time.time() * 1000) % 100000}.md"; pfile.write_text(prompt, encoding="utf-8")
-        cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pfile), model=seat["model"])
-        sid = g.cli_sessions.get(str(i))
+        cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pfile), model=model or seat["model"])
+        sid = g.cli_sessions.get(str(i)) if provider is None else None
         if sid and prov.get("resume"): cmd += prov["resume"].format(sid=sid)
         with self.lock: self.terms[i]["state"] = "speaking"; self.speaking.add(i); self._set_current()
         self._term(i, "=" * 60 + f"\n{seat['name']}: {label}\n" + "=" * 60)
@@ -258,7 +329,7 @@ class Run:
             self._term(i, f"[engine error: {type(exc).__name__}: {exc}]")
         with self.lock:
             self.terms[i]["state"] = "waiting"; self.speaking.discard(i); self._set_current()
-            if new_sid: g.cli_sessions[str(i)] = new_sid
+            if new_sid and provider is None: g.cli_sessions[str(i)] = new_sid
         if speech is None and prov["speech"] != "claude_stream": speech = "".join(out).strip()
         if not speech:
             self._term(i, f"[ended without an answer: exit {rc}]" + ("\n" + "\n".join(err_tail) if err_tail else ""))
@@ -312,7 +383,12 @@ class Run:
     def _run(self) -> None:
         g = self.g; w = g.world
         try:
-            if not w.created: self._create_world()
+            if not w.created:
+                if len(g.seats) <= 1:            # a fresh game: the map first, then the people, then their lives
+                    self.prepare_map()
+                    if self.stop_flag.is_set(): return
+                    self._build_people()
+                self._create_world()
             while not self.stop_flag.is_set() and w.created:
                 while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
                 if self.stop_flag.is_set(): break
@@ -351,7 +427,7 @@ class Run:
             c["personality"] = str(p.get("personality") or "keeps their own counsel")[:200]
             c["secret"] = str(p.get("secret") or "nothing worth telling")[:200]; c["fear"] = str(p.get("fear") or "the cold")[:200]
             c["want"] = str(p.get("want") or "to see spring")[:200]
-            if p.get("home") in PLACES: c["location"] = p["home"]
+            if p.get("home") in w.map: c["location"] = p["home"]
         w.seed_all_relations(self.rng)
         for rr in data.get("relations", []) or []:
             if isinstance(rr, dict):

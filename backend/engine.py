@@ -1,6 +1,6 @@
 """The world: the fixed map, the people, the numbers. Only this module writes them."""
 from __future__ import annotations
-import datetime as dt, json, random, re
+import datetime as dt, json, math, random, re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -9,8 +9,131 @@ GAMES = ROOT / "games"
 
 NAMES = json.loads((DATA / "names.json").read_text(encoding="utf-8"))
 EVENTS = json.loads((DATA / "events.json").read_text(encoding="utf-8"))
-BASE_MAP = json.loads((DATA / "map.json").read_text(encoding="utf-8"))["places"]
+_MAPFILE = json.loads((DATA / "map.json").read_text(encoding="utf-8"))
+BASE_MAP = _MAPFILE["places"]
+BASE_NAME = _MAPFILE.get("name") or "Terraceilia"
 PLACES = list(BASE_MAP.keys())
+
+# ---------------------------------------------------------------- generated maps
+KINDS = ["castle", "town", "village", "inn", "chapel", "mill", "forest", "fields", "water", "ruin", "market", "farm", "tower", "cave", "road", "other"]
+DANGEROUS_KINDS = {"road", "forest", "cave", "ruin"}
+CANVAS_W, CANVAS_H, MIN_GAP = 1000, 780, 110
+MIN_PLACES, MAX_PLACES = 8, 14
+EDGE_X, EDGE_TOP, EDGE_BOTTOM = 60, 80, 60          # inside the frame, clear of the title and the labels
+# Built-in places that events name by their role. On a generated map a place of the same kind stands in for them.
+GENERIC_KIND = {"The castle": ("castle",), "Market town": ("town", "market"), "The inn": ("inn",), "The chapel": ("chapel",),
+                "The mill": ("mill",), "The forest road": ("forest", "road"), "Open country": ("fields", "farm")}
+
+
+def _clean(v, n: int) -> str:
+    return " ".join(str("" if v is None else v).split())[:n]
+
+
+def _num(v, default: float) -> float:
+    try: return float(v)
+    except (TypeError, ValueError): return default
+
+
+def _clamp_xy(d: dict) -> None:
+    d["x"] = min(CANVAS_W - EDGE_X, max(EDGE_X, d["x"])); d["y"] = min(CANVAS_H - EDGE_BOTTOM, max(EDGE_TOP, d["y"]))
+
+
+def _components(places: dict) -> list[list[str]]:
+    seen: set[str] = set(); out = []
+    for s in places:
+        if s in seen: continue
+        comp = []; stack = [s]; seen.add(s)
+        while stack:
+            n = stack.pop(); comp.append(n)
+            for a in places[n]["adj"]:
+                if a not in seen: seen.add(a); stack.append(a)
+        out.append(comp)
+    return out
+
+
+def spread_places(places: dict, gap: int = MIN_GAP) -> None:
+    """Clamp every place into the canvas, then nudge pairs apart until no two are closer than `gap`."""
+    for d in places.values(): _clamp_xy(d)
+    keys = list(places); want = gap + 2      # two units of slack so rounding cannot undo it
+    for _ in range(400):
+        moved = False
+        for i in range(len(keys)):
+            for j in range(i + 1, len(keys)):
+                a, b = places[keys[i]], places[keys[j]]
+                dx, dy = b["x"] - a["x"], b["y"] - a["y"]; d = math.hypot(dx, dy)
+                if d >= want: continue
+                if d < 1e-6: dx, dy, d = 1.0, 0.6, math.hypot(1.0, 0.6)
+                push = (want - d) / 2 + 0.5; ux, uy = dx / d, dy / d
+                a["x"] -= ux * push; a["y"] -= uy * push; b["x"] += ux * push; b["y"] += uy * push
+                _clamp_xy(a); _clamp_xy(b); moved = True
+        if not moved: break
+    for d in places.values(): d["x"] = int(round(d["x"])); d["y"] = int(round(d["y"]))
+
+
+def validate_map(data) -> tuple[str, dict, list[str]] | None:
+    """Never trust the AI. Returns (map name, places, people names) with every rule enforced, or None when there is no usable map:
+    unique names; kind from the list, else other; 8 to 14 places (extras with the fewest paths dropped); adjacency symmetric and pruned
+    to real places; separate components joined at their nearest pair; coordinates inside the canvas and at least 110 apart; at least one
+    fixture each; 8 to 60 distinct people names, else none (the engine then uses data/names.json)."""
+    if not isinstance(data, dict) or not isinstance(data.get("places"), list): return None
+    places: dict[str, dict] = {}
+    for i, p in enumerate(data["places"]):
+        if not isinstance(p, dict): continue
+        n = _clean(p.get("name"), 40)
+        if not n or n.lower() in {k.lower() for k in places}: continue
+        kind = _clean(p.get("kind"), 20).lower()
+        fx: list[str] = []
+        for f in (p.get("fixtures") if isinstance(p.get("fixtures"), list) else []):
+            f = _clean(f, 60)
+            if f and f.lower() not in {x.lower() for x in fx}: fx.append(f)
+        adj = [_clean(a, 40) for a in (p.get("adj") if isinstance(p.get("adj"), list) else [])]
+        gx, gy = 150 + (i % 4) * 230, 130 + (i // 4) * 180      # a seat on a grid for a place that came without usable coordinates
+        places[n] = {"desc": _clean(p.get("desc"), 400) or "A place the surveyor did not describe.", "fixtures": fx[:8] or ["the ground"],
+                     "adj": [a for a in adj if a], "x": _num(p.get("x"), gx), "y": _num(p.get("y"), gy), "kind": kind if kind in KINDS else "other"}
+    if len(places) < MIN_PLACES: return None
+    lower = {k.lower(): k for k in places}
+    for n, d in places.items():                       # only real places, never itself, no repeats
+        kept: list[str] = []
+        for a in d["adj"]:
+            k = lower.get(a.lower())
+            if k and k != n and k not in kept: kept.append(k)
+        d["adj"] = kept
+    for n, d in places.items():                       # both sides
+        for a in d["adj"]:
+            if n not in places[a]["adj"]: places[a]["adj"].append(n)
+    order = list(places)
+    while len(places) > MAX_PLACES:                   # drop the least connected, the later listed first among equals
+        victim = min(places, key=lambda k: (len(places[k]["adj"]), -order.index(k)))
+        del places[victim]
+        for d in places.values():
+            if victim in d["adj"]: d["adj"].remove(victim)
+    for d in places.values(): _clamp_xy(d)
+    comps = _components(places)
+    while len(comps) > 1:                             # join the nearest pair between the first component and any other
+        best = None
+        for a in comps[0]:
+            for comp in comps[1:]:
+                for b in comp:
+                    dd = math.hypot(places[a]["x"] - places[b]["x"], places[a]["y"] - places[b]["y"])
+                    if best is None or dd < best[0]: best = (dd, a, b)
+        _, a, b = best; places[a]["adj"].append(b); places[b]["adj"].append(a)
+        comps = _components(places)
+    spread_places(places)
+    names: list[str] = []
+    for x in (data.get("names") if isinstance(data.get("names"), list) else []):
+        x = _clean(x, 30)
+        if x and x.lower() != "world" and x.lower() not in {y.lower() for y in names}: names.append(x)
+    names = names[:60]
+    if len(names) < 8: names = []
+    return _clean(data.get("name"), 40) or "The valley", places, names
+
+
+def _phrase(s: str) -> re.Pattern:
+    return re.compile(r"(?<![\w'])" + re.escape(s.lower()) + r"(?![\w'])")
+
+
+_BUILTIN_PLACE_RE = {k: _phrase(k) for k in BASE_MAP}
+_BUILTIN_FIXTURE_RE = {f: _phrase(f) for d in BASE_MAP.values() for f in d["fixtures"]}
 
 
 def map_text(m: dict | None = None) -> str:
@@ -34,10 +157,10 @@ def now_id() -> str:
     return sid
 
 
-def roll_character(name: str, seat: int, rng: random.Random) -> dict:
+def roll_character(name: str, seat: int, rng: random.Random, places: list[str] | None = None) -> dict:
     hp = rng.randint(8, 14)
     return {"name": name, "seat": seat, "str": rng.randint(2, 9), "spd": rng.randint(2, 9), "hp": hp, "hp_max": hp,
-            "gold": rng.randint(1, 9), "skills": {}, "location": rng.choice(PLACES), "standing": "unknown",
+            "gold": rng.randint(1, 9), "skills": {}, "location": rng.choice(places or PLACES), "standing": "unknown",
             "alive": True, "banished": False, "trade": "", "home": "", "personality": "", "secret": "", "fear": "", "want": "",
             "cause_of_death": "", "traits": roll_traits(rng)}
 
@@ -111,6 +234,9 @@ class World:
         self.court_every = d.get("court_every", 6)
         self.created = d.get("created", False)
         self.map: dict = d.get("map") or json.loads(json.dumps(BASE_MAP))
+        self.map_name: str = d.get("map_name") or BASE_NAME
+        self.map_generated = bool(d.get("map_generated", False))    # drawn from the description rather than data/map.json
+        self.names: list[str] = list(d.get("names") or [])           # people names that came with a generated map
         self.fate: list[str] = d.get("fate", [])      # acts of the convener not yet narrated
         self.relations: dict[str, dict[str, dict]] = d.get("relations", {})   # relations[a][b] = {type, feeling, trust}
         self.threads: list[dict] = d.get("threads", [])     # open situations: {id, text, day, place, who, status, spawn}
@@ -120,7 +246,40 @@ class World:
     def to_dict(self) -> dict:
         return {"characters": self.characters, "day": self.day, "ledger": self.ledger, "pending": self.pending,
                 "court_every": self.court_every, "created": self.created, "map": self.map, "fate": self.fate, "relations": self.relations,
-                "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread}
+                "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
+                "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names}
+
+    # ---- which map this game plays on
+    def install_map(self, name: str, places: dict, names: list[str]) -> None:
+        self.map = places; self.map_name = name or "The valley"; self.map_generated = True; self.names = list(names or [])
+
+    def install_builtin(self) -> None:
+        self.map = json.loads(json.dumps(BASE_MAP)); self.map_name = BASE_NAME; self.map_generated = False; self.names = []
+
+    def resolve_place(self, name: str) -> str | None:
+        """A built-in place name on this map: the same name, or for the generic built-in places a place of the same kind."""
+        if not name: return None
+        for k in self.map:
+            if k.lower() == name.lower(): return k
+        for kind in GENERIC_KIND.get(name, ()):
+            for k, d in self.map.items():
+                if d.get("kind") == kind: return k
+        return None
+
+    def has_fixture(self, fixture: str, place: str | None = None) -> bool:
+        where = [self.map[place]] if place in self.map else list(self.map.values())
+        return any(f.lower() == fixture.lower() for d in where for f in d["fixtures"])
+
+    def event_fits(self, e: dict) -> bool:
+        """An event that names a built-in place or thing fires only when this map has it; {place} and {fixture} events fit any map."""
+        fx = e.get("effect", {}) or {}
+        named = str(fx.get("place") or e.get("place") or "")
+        if named and not self.resolve_place(named): return False
+        if fx.get("fixture") and not self.has_fixture(str(fx["fixture"]), self.resolve_place(named)): return False
+        text = re.sub(r"\{\w+\}", " ", e["t"]).lower()
+        if any(rx.search(text) and not self.resolve_place(k) for k, rx in _BUILTIN_PLACE_RE.items()): return False
+        if any(rx.search(text) and not self.has_fixture(f) for f, rx in _BUILTIN_FIXTURE_RE.items()): return False
+        return True
 
     # ---- situations that persist until resolved
     def open_thread(self, text: str, place: str | None, who: list[str], spawn: str | None = None) -> dict:
@@ -278,11 +437,12 @@ class World:
             if rng.random() < (drama / 10) * (0.9, 0.5, 0.25)[k]: n += 1
         out = []
         for _ in range(n):
-            pool = [e for e in EVENTS if e.get("tier", 1) <= (1 if drama <= 3 else 2 if drama <= 7 else 3)]
+            pool = [e for e in EVENTS if e.get("tier", 1) <= (1 if drama <= 3 else 2 if drama <= 7 else 3) and self.event_fits(e)]
+            if not pool: break
             e = rng.choice(pool); ppl = self.living(); rng.shuffle(ppl)
             who = ppl[0]; who2 = ppl[1] if len(ppl) > 1 else ppl[0]
             fx = e.get("effect", {}) or {}
-            place = fx.get("place") or e.get("place") or rng.choice(list(self.map.keys()))
+            place = self.resolve_place(str(fx.get("place") or e.get("place") or "")) or rng.choice(list(self.map.keys()))
             fixtures = [f for f in self.map[place]["fixtures"] if f not in self.map[place].get("destroyed", [])]
             fixture = fx.get("fixture") or (rng.choice(fixtures) if fixtures else "the ground")
             text = e["t"].format(who=who["name"], who2=who2["name"], place=place, fixture=fixture)

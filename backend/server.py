@@ -40,7 +40,7 @@ class App:
         with r.lock:
             w = g.world
             return {"id": g.id, "day": w.day, "status": g.status, "current": r.current, "created": w.created,
-                    "map": w.map, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
+                    "map": w.map, "map_name": w.map_name, "map_generated": w.map_generated, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
                     "characters": [{k: c[k] for k in ("name", "location", "alive", "banished", "hp", "hp_max", "gold", "trade", "standing")} for c in w.characters.values()],
                     "seats": [{"name": x["name"], "color": x["color"]} for x in g.seats], "version": r.version}
 
@@ -56,6 +56,7 @@ class App:
             tstates = [{"state": t["state"], "count": t["count"], "lines": list(t["lines"])[-tail:] if terms else []} for t in r.terms]
             return {"id": g.id, "title": g.title, "world_text": g.world_text, "players": g.players, "model_a": g.model_a, "model_b": g.model_b,
                     "world_model": g.world_model, "max_days": g.max_days, "max_minutes": g.max_minutes, "drama": g.drama, "repo": g.repo, "status": status,
+                    "map_source": g.map_source, "map_model": g.map_model, "map_name": w.map_name, "map_generated": w.map_generated, "map_generating": r.map_generating,
                     "seats": seats, "transcript": tr, "transcript_total": total, "last_turn": last_turn, "current": current, "day": day, "created": created,
                     "characters": chars, "ledger": ledger, "pending": pending, "map": mp, "relations": json.loads(json.dumps(w.relations)),
                     "threads": list(w.threads), "fires": dict(w.fires),
@@ -79,8 +80,19 @@ class App:
             for k in ("model_a", "model_b", "world_model"):
                 v = d.get(k)
                 if isinstance(v, dict) and v.get("provider") in PROVIDERS and v.get("model"): setattr(g, k, {"provider": v["provider"], "model": v["model"]})
+            self._set_map_choice(g, d)
             if not g.title: g.title = "Terraceilia " + g.created[:10]
             g.seats = []; g.save()
+
+    @staticmethod
+    def _set_map_choice(g: Game, d: dict) -> None:
+        """Built-in valley or a map generated from the description, and which model draws it. Only before the world is made."""
+        if d.get("map_source") in ("builtin", "generated") and d["map_source"] != g.map_source:
+            g.map_source = d["map_source"]
+            if g.map_source == "builtin" and g.world.map_generated: g.world.install_builtin()
+        if "map_model" in d:
+            mm = d["map_model"]
+            g.map_model = {"provider": mm["provider"], "model": mm["model"]} if isinstance(mm, dict) and mm.get("provider") in PROVIDERS and mm.get("model") else None
 
     def new_game(self) -> None:
         with self.lock:
@@ -111,6 +123,7 @@ class App:
             if isinstance(wm, dict) and wm.get("provider") in PROVIDERS and wm.get("model"):
                 g.world_model = {"provider": wm["provider"], "model": wm["model"]}
                 if g.seats: g.seats[0]["provider"], g.seats[0]["model"] = wm["provider"], wm["model"]; g.cli_sessions.pop("0", None)
+            if not g.world.created and not r.busy() and not r.map_generating: self._set_map_choice(g, d)
             g.save(); r.version += 1
 
     def edit_character(self, d: dict) -> str:
@@ -271,6 +284,7 @@ def make_handler(app: App, token: str):
              "/god/fire": lambda: app.god(lambda w: w.ignite(data.get("place", ""))),
              "/god/extinguish": lambda: app.god(lambda w: ("fire out at " + data.get("place", "")) if w.extinguish(data.get("place", "")) else "no fire there"),
              "/edit/game": lambda: app.edit_game(data),
+             "/map/regenerate": lambda: setattr(app, "last_god", app.run.regenerate_map()),
              "/provider/test": lambda: app.tests.__setitem__(data.get("provider", ""), test_provider(data.get("provider", ""), data.get("model", ""), app.run.g.repo)),
              "/edit/relation": lambda: app.edit_relation(data),
              "/edit/character": lambda: setattr(app, "last_god", app.edit_character(data))}.get(self.path, lambda: None)()

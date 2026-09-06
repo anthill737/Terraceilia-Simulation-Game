@@ -19,7 +19,8 @@ function modelUI(pfx,val){const p=$(pfx+'_p'),m=$(pfx+'_m'),c=$(pfx+'_c');fillSe
 function modelVal(pfx){const m=$(pfx+'_m').value;return {provider:$(pfx+'_p').value,model:m==='Custom...'?($(pfx+'_c').value.trim()||''):m}}
 const DRAMA=['nothing','a whisper','quiet','calm','ordinary','lively','eventful','hard','harsh','brutal','chaos'];
 function renderSetup(s){$('title').value=s.title;$('world_text').value=s.world_text;$('players').value=s.players;$('max_days').value=s.max_days;$('max_minutes').value=s.max_minutes||'';$('repo').value=s.repo;$('drama').value=s.drama??6;$('dramaNote').textContent=($('drama').value)+' · '+DRAMA[+$('drama').value];
- modelUI('wm',s.world_model);modelUI('ma',s.model_a);modelUI('mb',s.model_b);
+ modelUI('wm',s.world_model);modelUI('ma',s.model_a);modelUI('mb',s.model_b);modelUI('mm',s.map_model||s.world_model);
+ $('map_source').value=s.map_source||'builtin';$('mapModelRow').style.display=$('map_source').value==='generated'?'':'none';
  $('vers').innerHTML='';renderConn(s,$('connSetup'))}
 const FEEL=['hates','despises','dislikes','is cold toward','is cool toward','is indifferent to','is warm toward','likes','is fond of','cares deeply for','loves'];
 function relChips(s,name){const rs=(s.relations||{})[name]||{};const items=Object.entries(rs).filter(([b,r])=>r.type!=='none'||r.feeling||r.trust).sort((x,y)=>(Math.abs(y[1].feeling)+Math.abs(y[1].trust))-(Math.abs(x[1].feeling)+Math.abs(x[1].trust)));
@@ -52,6 +53,8 @@ function render(s){const first=!S||S.id!==s.id;if(first){T=[];lastTurn=-1}mergeT
  if(!mobile()){$('setup').style.display=started?'none':'block';$('centerTabs').style.display=started?'':'none';$('map').classList.toggle('on',started&&centerTab==='map');$('chron').style.display=started&&centerTab==='chron'?'block':'none';$('composer').style.display=started?'':'none'}
  if(started)MapView.render(s);
  $('making').style.display=(busy&&!s.created)?'flex':'none';
+ if(busy&&!s.created){const drawing=s.map_source==='generated'&&!s.map_generated;$('makingHead').textContent=drawing?'The map is being drawn from your description':'The World is making the valley';$('makingNote').textContent=drawing?'Places, paths, things, and names come from the map model first. Then the World rolls the people. Watch the World\'s terminal on the right.':'Rolling twenty lives, secrets, and grudges. This takes a minute or two. Watch the World\'s terminal on the right.'}
+ if($('settings').classList.contains('open'))mapInfo(s);
  $('chronEmpty').style.display=s.transcript.length?'none':'block';
  const msgHtml=e=>`<div class="msg ${e.kind}${/^\s*WHISPER\s+@/im.test(e.text)?' whisper':''}${e.kind==='convener'&&/@[A-Za-z]/.test(e.text)?' private':''}" style="${e.color?'--c:'+esc(e.color):''}"><div class="hd"><span class="who">${esc(e.speaker)}</span><span class="meta">day ${e.day??0}${e.place?' · '+esc(e.place):''} · ${e.time}</span></div><div class="body">${rich(e.text)}</div></div>`;
  const have=$('msgs').children.length;
@@ -65,10 +68,12 @@ document.querySelectorAll('#centerTabs button').forEach(b=>b.onclick=()=>{center
 document.querySelectorAll('#side .tabs button').forEach(b=>b.onclick=async()=>{sideTab=b.dataset.t;if(sideTab==='terms'){try{render(await api('/state?since='+lastTurn+'&terms=1'))}catch(e){}}document.querySelectorAll('#side .tabs button').forEach(x=>x.classList.toggle('on',x===b));$('valley').classList.toggle('on',sideTab==='valley');$('terms').classList.toggle('on',sideTab==='terms')});
 $('railBtn').onclick=()=>document.body.classList.toggle('norail');$('expBtn').onclick=e=>{e.stopPropagation();$('expMenu').classList.toggle('open')};document.addEventListener('click',e=>{if(!$('expMenu').contains(e.target))$('expMenu').classList.remove('open')});document.querySelectorAll('#expMenu .list button').forEach(b=>b.onclick=()=>{$('expMenu').classList.remove('open');window.location='/export?what='+b.dataset.w});$('ppClose').onclick=e=>{e.stopPropagation();MapView.close()};$('sideBtn').onclick=()=>document.body.classList.toggle('noside');
 async function save(){return render(await api('/config',{title:$('title').value,world_text:$('world_text').value,players:+$('players').value,max_days:+$('max_days').value,max_minutes:+($('max_minutes').value||0),repo:$('repo').value,
- drama:+$('drama').value,world_model:modelVal('wm'),model_a:modelVal('ma'),model_b:modelVal('mb')}))}
+ drama:+$('drama').value,world_model:modelVal('wm'),model_a:modelVal('ma'),model_b:modelVal('mb'),map_source:$('map_source').value,map_model:mapModelVal()}))}
+function mapModelVal(){const v=modelVal('mm'),w=modelVal('wm');return (v.provider===w.provider&&v.model===w.model)?null:v}
+$('map_source').onchange=()=>{$('mapModelRow').style.display=$('map_source').value==='generated'?'':'none';save()};
 $('drama').oninput=()=>{$('dramaNote').textContent=$('drama').value+' · '+DRAMA[+$('drama').value]};$('drama').onchange=save;
 ['title','world_text','players','max_days','max_minutes','repo'].forEach(id=>{const el=$(id);el.onfocus=()=>editing=true;el.onblur=()=>{editing=false;save()}});
-['wm','ma','mb'].forEach(p=>{$(p+'_p').onchange=()=>{const ms=(providers[$(p+'_p').value]||{models:['']}).models.concat(['Custom...']);fillSel($(p+'_m'),ms,ms[0]);$(p+'_c').style.display='none';save()};$(p+'_m').onchange=()=>{const cu=$(p+'_m').value==='Custom...';$(p+'_c').style.display=cu?'':'none';if(cu){editing=true;$(p+'_c').focus()}else save()};$(p+'_c').onfocus=()=>editing=true;$(p+'_c').onblur=()=>{editing=false;save()}});
+['wm','ma','mb','mm'].forEach(p=>{$(p+'_p').onchange=()=>{const ms=(providers[$(p+'_p').value]||{models:['']}).models.concat(['Custom...']);fillSel($(p+'_m'),ms,ms[0]);$(p+'_c').style.display='none';save()};$(p+'_m').onchange=()=>{const cu=$(p+'_m').value==='Custom...';$(p+'_c').style.display=cu?'':'none';if(cu){editing=true;$(p+'_c').focus()}else save()};$(p+'_c').onfocus=()=>editing=true;$(p+'_c').onblur=()=>{editing=false;save()}});
 $('start').onclick=async()=>{if(!(S&&S.created))await save();render(await api('/start',{}));if(mobile())showTab('map')};$('start2').onclick=()=>$('start').click();
 $('pause').onclick=async()=>render(await api('/pause',{}));$('stop').onclick=async()=>{if(!confirm('Stop the year here? You can continue it later.'))return;$('statusText').textContent='Stopping...';render(await api('/stop',{}))};
 $('newGame').onclick=async()=>{S=null;termKey='';render(await api('/game/new',{}));if(mobile())showTab('setup')};
@@ -103,7 +108,17 @@ let sTab='game';
 function modelPick(pfx,val,selP,selM,inpC){fillSel(selP,Object.keys(providers),val.provider);const ms=(providers[val.provider]||{models:[]}).models.concat(['Custom...']);const known=ms.includes(val.model);fillSel(selM,ms,known?val.model:'Custom...');inpC.style.display=known?'none':'';if(!known)inpC.value=val.model;
  selP.onchange=()=>{const m2=(providers[selP.value]||{models:['']}).models.concat(['Custom...']);fillSel(selM,m2,m2[0]);inpC.style.display='none'};selM.onchange=()=>{inpC.style.display=selM.value==='Custom...'?'':'none';if(selM.value==='Custom...')inpC.focus()}}
 function pickVal(selP,selM,inpC){const m=selM.value;return {provider:selP.value,model:m==='Custom...'?inpC.value.trim():m}}
-function openSettings(){if(!S)return;renderConn(S,$('connList'));$('g_title').value=S.title||'';$('g_world').value=S.world_text||'';$('g_days').value=S.max_days;$('g_mins').value=S.max_minutes||'';$('g_drama').value=S.drama??6;$('g_dramaNote').textContent=$('g_drama').value+' · '+DRAMA[+$('g_drama').value];$('g_drama').oninput=()=>{$('g_dramaNote').textContent=$('g_drama').value+' · '+DRAMA[+$('g_drama').value]};modelPick('g',S.world_model,$('g_wp'),$('g_wm'),$('g_wc'));renderPeople(S);$('settings').classList.add('open')}
+function openSettings(){if(!S)return;renderConn(S,$('connList'));$('g_title').value=S.title||'';$('g_world').value=S.world_text||'';$('g_days').value=S.max_days;$('g_mins').value=S.max_minutes||'';$('g_drama').value=S.drama??6;$('g_dramaNote').textContent=$('g_drama').value+' · '+DRAMA[+$('g_drama').value];$('g_drama').oninput=()=>{$('g_dramaNote').textContent=$('g_drama').value+' · '+DRAMA[+$('g_drama').value]};modelPick('g',S.world_model,$('g_wp'),$('g_wm'),$('g_wc'));
+ $('g_map_source').value=S.map_source||'builtin';modelPick('gm',S.map_model||S.world_model,$('g_mp'),$('g_mm'),$('g_mc'));$('g_map_source').onchange=()=>mapInfo(S);mapInfo(S);renderPeople(S);$('settings').classList.add('open')}
+function mapInfo(s){const info=$('g_mapInfo');if(!s||!info)return;const gen=$('g_map_source').value==='generated';const fixed=!!(s.created||(s.characters&&s.characters.length));
+ $('g_mapModelRow').style.display=gen?'':'none';[$('g_map_source'),$('g_mp'),$('g_mm'),$('g_mc')].forEach(x=>x.disabled=fixed);
+ const names=Object.keys(s.map||{});let t;
+ if(s.map_generating)t='Drawing a new map from the description. Watch the World\'s terminal.';
+ else if(s.map_generated)t=`This game plays on ${s.map_name}, a map generated from the description: ${names.length} places (${names.join(', ')}).`;
+ else if(s.map_source==='generated')t='A map will be generated from the description when you press Start, or now with the button.';
+ else t='This game plays on the built-in valley of Terraceilia.';
+ if(fixed)t+=' The map is fixed for this game.';info.textContent=t;
+ const b=$('g_regen');b.style.display=(gen||s.map_source==='generated')?'':'none';b.disabled=!!(fixed||s.map_generating||s.status==='running'||!gen);b.textContent=s.map_generating?'Drawing...':(s.map_generated?'Regenerate the map':'Generate the map now')}
 function renderPeople(s){const list=$('peopleList');const openNames=new Set([...list.querySelectorAll('.pe.open')].map(x=>x.dataset.name));
  list.innerHTML=s.characters.map(c=>{const seat=(s.seats||[]).find(x=>x.name===c.name)||{};return `<div class="pe ${openNames.has(c.name)?'open':''}" data-name="${esc(c.name)}" style="--c:${esc(seat.color||'#888')}"><div class="hd"><span><b>${esc(c.name)}</b> <span class="note">${esc(c.trade)} · ${esc(c.location)} · ${esc(seat.provider||'')} ${esc(seat.model||'')}${c.alive?'':' · dead'}${c.banished?' · banished':''}</span></span><span class="note">edit</span></div>
   <form onsubmit="return false">
@@ -126,7 +141,10 @@ function renderPeople(s){const list=$('peopleList');const openNames=new Set([...
   pe.querySelectorAll('.rrow .rs').forEach(btn=>btn.onclick=async()=>{const row=btn.closest('.rrow');const r=await App.api('/edit/relation',{a:name,b:row.dataset.b,type:row.querySelector('.rt').value,feeling:+row.querySelector('.rf').value,trust:+row.querySelector('.rr').value,mutual:row.querySelector('.rm').checked});btn.textContent='Set ✓';setTimeout(()=>btn.textContent='Set',1200);App.render(r)})})}
 $('gearBtn').onclick=openSettings;$('settingsClose').onclick=()=>$('settings').classList.remove('open');
 document.querySelectorAll('.stabs button').forEach(b=>b.onclick=()=>{sTab=b.dataset.s;document.querySelectorAll('.stabs button').forEach(x=>x.classList.toggle('on',x===b));$('sGame').style.display=sTab==='game'?'':'none';$('sPeople').style.display=sTab==='people'?'':'none';$('sConn').style.display=sTab==='conn'?'':'none';if(sTab==='conn')renderConn(S,$('connList'))});
-$('g_save').onclick=async()=>{const r=await App.api('/edit/game',{title:$('g_title').value,world_text:$('g_world').value,max_days:+$('g_days').value,max_minutes:+($('g_mins').value||0),drama:+$('g_drama').value,world_model:pickVal($('g_wp'),$('g_wm'),$('g_wc'))});$('g_state').textContent='Saved '+new Date().toLocaleTimeString();App.render(r)};
+function gMapModelVal(){const v=pickVal($('g_mp'),$('g_mm'),$('g_mc')),w=pickVal($('g_wp'),$('g_wm'),$('g_wc'));return (v.provider===w.provider&&v.model===w.model)?null:v}
+async function saveGame(){const r=await App.api('/edit/game',{title:$('g_title').value,world_text:$('g_world').value,max_days:+$('g_days').value,max_minutes:+($('g_mins').value||0),drama:+$('g_drama').value,world_model:pickVal($('g_wp'),$('g_wm'),$('g_wc')),map_source:$('g_map_source').value,map_model:gMapModelVal()});$('g_state').textContent='Saved '+new Date().toLocaleTimeString();App.render(r);mapInfo(S)}
+$('g_save').onclick=saveGame;
+$('g_regen').onclick=async()=>{$('g_regen').disabled=true;$('g_regen').textContent='Drawing...';await saveGame();const r=await App.api('/map/regenerate',{});$('g_state').textContent=r.last_god||'';App.render(r);mapInfo(S)};
 document.addEventListener('keydown',e=>{if(e.key==='Escape')$('settings').classList.remove('open')});
 
 // ---------- why does A feel that way about B
