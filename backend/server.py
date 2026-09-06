@@ -169,6 +169,18 @@ class App:
                     except (TypeError, ValueError): continue
                     v = max(0, v) if k in ("gold", "hp") else max(1, v)
                     if v != c[k]: c[k] = v; notes.append(f"{name}'s {k} is now {v}")
+            sk = d.get("skills")
+            if isinstance(sk, dict):
+                new: dict[str, int] = {}
+                for k, v in sk.items():
+                    k2 = " ".join(str(k).strip().lower().split())[:30]
+                    if not k2: continue
+                    try: lv = max(0, min(9, int(v)))
+                    except (TypeError, ValueError): continue
+                    if lv: new[k2] = lv            # a skill set to zero is a skill they no longer have
+                if new != c["skills"]:
+                    c["skills"] = new
+                    notes.append(f"{name}'s skills are now {', '.join(f'{a} {b}' for a, b in new.items()) or 'none'}")
             tr = d.get("traits")
             if isinstance(tr, dict):
                 c.setdefault("traits", {})
