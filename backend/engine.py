@@ -12,11 +12,20 @@ EVENTS = json.loads((DATA / "events.json").read_text(encoding="utf-8"))
 _MAPFILE = json.loads((DATA / "map.json").read_text(encoding="utf-8"))
 BASE_MAP = _MAPFILE["places"]
 BASE_NAME = _MAPFILE.get("name") or "Terraceilia"
+BASE_STYLE = {"palette": _MAPFILE.get("palette", {}), "water": _MAPFILE.get("water", {}), "sky": _MAPFILE.get("sky", "day")}
 PLACES = list(BASE_MAP.keys())
 
 # ---------------------------------------------------------------- generated maps
 KINDS = ["castle", "town", "village", "inn", "chapel", "mill", "forest", "fields", "water", "ruin", "market", "farm", "tower", "cave", "road", "other"]
+FEATURES = ["mountain", "peak", "cliff", "island", "crater", "crag", "forest", "marsh", "plain", "coast", "none"]
+WATER_TYPES = ["river", "lake", "sea", "lava", "none"]
+SKY_MOODS = ["day", "dusk", "night", "ash", "storm"]
 DANGEROUS_KINDS = {"road", "forest", "cave", "ruin"}
+# Names that mean the model did not name the place. One of these and the whole map is thrown away.
+PLACEHOLDER_NAMES = {"placeholder", "place", "location", "unnamed", "tbd", "tba", "unknown", "none", "null", "n/a", "na",
+                     "area", "region", "spot", "site", "example", "sample", "test", "todo", "new place", "a place", "the place",
+                     "village", "town", "castle", "inn", "chapel", "mill", "forest", "road", "cave", "ruin", "market", "farm", "tower"}
+HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 CANVAS_W, CANVAS_H, MIN_GAP = 1000, 780, 110
 MIN_PLACES, MAX_PLACES = 8, 14
 EDGE_X, EDGE_TOP, EDGE_BOTTOM = 60, 80, 60          # inside the frame, clear of the title and the labels
@@ -32,6 +41,41 @@ def _clean(v, n: int) -> str:
 def _num(v, default: float) -> float:
     try: return float(v)
     except (TypeError, ValueError): return default
+
+
+def _hex(v, default: str) -> str:
+    v = _clean(v, 7)
+    return v if HEX_RE.match(v or "") else default
+
+
+def _shade(hexcol: str, f: float) -> str:
+    """The same color, darker. Used when a generated palette gives only its base ground color."""
+    r, g, b = (int(hexcol[i:i + 2], 16) for i in (1, 3, 5))
+    return "#%02x%02x%02x" % tuple(max(0, min(255, int(c * f))) for c in (r, g, b))
+
+
+def is_placeholder(name: str) -> bool:
+    """A name the model did not really choose: a stock word, or too short to be a name."""
+    n = " ".join((name or "").strip().lower().split())
+    if n.startswith("the "): n = n[4:]
+    if n in PLACEHOLDER_NAMES: return True
+    if re.fullmatch(r"(place|location|area|region|site|spot|village|town|city)\s*\d*", n): return True
+    return sum(ch.isalpha() for ch in n) < 3
+
+
+def validate_style(data: dict) -> dict:
+    """The world's own look: the ground it is made of, the water it has, the light it sits under.
+    Anything missing or unknown falls back to the built-in valley's greens, its river, and daylight."""
+    base = BASE_STYLE.get("palette", {}); p = data.get("palette") if isinstance(data.get("palette"), dict) else {}
+    ground = _hex(p.get("ground"), base.get("ground", "#2a4a33"))
+    pal = {"ground": ground, "accent": _hex(p.get("accent"), base.get("accent", "#5d7a3a")),
+           "mid": _hex(p.get("mid"), _shade(ground, .72)), "deep": _hex(p.get("deep"), _shade(ground, .40))}
+    w = data.get("water") if isinstance(data.get("water"), dict) else {}
+    wt = _clean(w.get("type"), 10).lower(); wt = wt if wt in WATER_TYPES else "none"
+    default_water = "#ff6a1f" if wt == "lava" else BASE_STYLE.get("water", {}).get("color", "#4d9bbd")
+    sky = _clean(data.get("sky"), 10).lower()
+    return {"palette": pal, "water": {"type": wt, "color": _hex(w.get("color"), default_water)},
+            "sky": sky if sky in SKY_MOODS else "day"}
 
 
 def _clamp_xy(d: dict) -> None:
@@ -70,18 +114,26 @@ def spread_places(places: dict, gap: int = MIN_GAP) -> None:
     for d in places.values(): d["x"] = int(round(d["x"])); d["y"] = int(round(d["y"]))
 
 
-def validate_map(data) -> tuple[str, dict, list[str]] | None:
-    """Never trust the AI. Returns (map name, places, people names) with every rule enforced, or None when there is no usable map:
-    unique names; kind from the list, else other; 8 to 14 places (extras with the fewest paths dropped); adjacency symmetric and pruned
-    to real places; separate components joined at their nearest pair; coordinates inside the canvas and at least 110 apart; at least one
+def validate_map(data) -> dict:
+    """Never trust the AI. Returns {"ok": True, "name", "places", "names", "style"} with every rule enforced, or
+    {"ok": False, "why": "..."} naming what was wrong so the retry can be specific. Enforced here: no placeholder or
+    generic place names; unique names; kind and feature from their lists, else other and none; elevation 0 to 3;
+    8 to 14 places (extras with the fewest paths dropped); adjacency symmetric and pruned to real places; separate
+    components joined at their nearest pair; coordinates inside the canvas and at least 110 apart; at least one
     fixture each; 8 to 60 distinct people names, else none (the engine then uses data/names.json)."""
-    if not isinstance(data, dict) or not isinstance(data.get("places"), list): return None
+    if not isinstance(data, dict) or not isinstance(data.get("places"), list):
+        return {"ok": False, "why": "there was no json block with a places list in it"}
+    bad = [_clean(p.get("name"), 40) for p in data["places"] if isinstance(p, dict) and is_placeholder(_clean(p.get("name"), 40))]
+    if bad:
+        return {"ok": False, "why": f"these are not names a person would say, they are placeholders or bare category words: {', '.join(repr(b) for b in bad[:6])}. Every place needs a real name of its own"}
     places: dict[str, dict] = {}
     for i, p in enumerate(data["places"]):
         if not isinstance(p, dict): continue
         n = _clean(p.get("name"), 40)
         if not n or n.lower() in {k.lower() for k in places}: continue
-        kind = _clean(p.get("kind"), 20).lower()
+        kind = _clean(p.get("kind"), 20).lower(); feat = _clean(p.get("feature"), 20).lower()
+        try: elev = max(0, min(3, int(p.get("elevation", 0))))
+        except (TypeError, ValueError): elev = 0
         fx: list[str] = []
         for f in (p.get("fixtures") if isinstance(p.get("fixtures"), list) else []):
             f = _clean(f, 60)
@@ -89,8 +141,10 @@ def validate_map(data) -> tuple[str, dict, list[str]] | None:
         adj = [_clean(a, 40) for a in (p.get("adj") if isinstance(p.get("adj"), list) else [])]
         gx, gy = 150 + (i % 4) * 230, 130 + (i // 4) * 180      # a seat on a grid for a place that came without usable coordinates
         places[n] = {"desc": _clean(p.get("desc"), 400) or "A place the surveyor did not describe.", "fixtures": fx[:8] or ["the ground"],
-                     "adj": [a for a in adj if a], "x": _num(p.get("x"), gx), "y": _num(p.get("y"), gy), "kind": kind if kind in KINDS else "other"}
-    if len(places) < MIN_PLACES: return None
+                     "adj": [a for a in adj if a], "x": _num(p.get("x"), gx), "y": _num(p.get("y"), gy),
+                     "kind": kind if kind in KINDS else "other", "feature": feat if feat in FEATURES else "none", "elevation": elev}
+    if len(places) < MIN_PLACES:
+        return {"ok": False, "why": f"only {len(places)} usable places came back and the map needs at least {MIN_PLACES}"}
     lower = {k.lower(): k for k in places}
     for n, d in places.items():                       # only real places, never itself, no repeats
         kept: list[str] = []
@@ -125,7 +179,9 @@ def validate_map(data) -> tuple[str, dict, list[str]] | None:
         if x and x.lower() != "world" and x.lower() not in {y.lower() for y in names}: names.append(x)
     names = names[:60]
     if len(names) < 8: names = []
-    return _clean(data.get("name"), 40) or "The valley", places, names
+    nm = _clean(data.get("name"), 40)
+    if is_placeholder(nm): nm = ""
+    return {"ok": True, "name": nm or "The valley", "places": places, "names": names, "style": validate_style(data)}
 
 
 def _phrase(s: str) -> re.Pattern:
@@ -235,6 +291,7 @@ class World:
         self.created = d.get("created", False)
         self.map: dict = d.get("map") or json.loads(json.dumps(BASE_MAP))
         self.map_name: str = d.get("map_name") or BASE_NAME
+        self.style: dict = d.get("style") or json.loads(json.dumps(BASE_STYLE))
         self.map_generated = bool(d.get("map_generated", False))    # drawn from the description rather than data/map.json
         self.names: list[str] = list(d.get("names") or [])           # people names that came with a generated map
         self.fate: list[str] = d.get("fate", [])      # acts of the convener not yet narrated
@@ -247,14 +304,16 @@ class World:
         return {"characters": self.characters, "day": self.day, "ledger": self.ledger, "pending": self.pending,
                 "court_every": self.court_every, "created": self.created, "map": self.map, "fate": self.fate, "relations": self.relations,
                 "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
-                "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names}
+                "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style}
 
     # ---- which map this game plays on
-    def install_map(self, name: str, places: dict, names: list[str]) -> None:
-        self.map = places; self.map_name = name or "The valley"; self.map_generated = True; self.names = list(names or [])
+    def install_map(self, v: dict) -> None:
+        self.map = v["places"]; self.map_name = v.get("name") or "The valley"; self.map_generated = True
+        self.names = list(v.get("names") or []); self.style = v.get("style") or json.loads(json.dumps(BASE_STYLE))
 
     def install_builtin(self) -> None:
-        self.map = json.loads(json.dumps(BASE_MAP)); self.map_name = BASE_NAME; self.map_generated = False; self.names = []
+        self.map = json.loads(json.dumps(BASE_MAP)); self.map_name = BASE_NAME; self.map_generated = False
+        self.names = []; self.style = json.loads(json.dumps(BASE_STYLE))
 
     def resolve_place(self, name: str) -> str | None:
         """A built-in place name on this map: the same name, or for the generic built-in places a place of the same kind."""

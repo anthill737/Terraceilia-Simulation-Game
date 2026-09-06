@@ -69,31 +69,76 @@ collapse, a wolf, a fire, a rumor from the next valley. Resolve every action aga
 engine rolled for it and the character's stats. When someone dies, say so plainly by name, how,
 and by whose hand. Be fair, be vivid, be brief."""
 
-MAP_RULES = """You are the surveyor of a world for a living game played by AI agents. Read the description
-of the world below and draw its map. Do not read, create, modify, or delete any files. Reply with
-one short line and then one fenced json block, exactly this shape and nothing else in it:
+MAP_RULES = """You are the surveyor of a world for a living game played by AI agents. Read the
+description of the world below and draw its map. The map must read as the world described: its ground,
+its water, its sky, and the land every place stands on all come from that description and from nothing
+else. A world of lava is not green. A world of snow is not summer. Do not read, create, modify, or
+delete any files. Reply with one short line and then one fenced json block, exactly this shape and
+nothing else in it:
 
 ```json
-{"name":"...","places":[{"name":"...","kind":"castle|town|village|inn|chapel|mill|forest|fields|water|ruin|market|farm|tower|cave|road|other","desc":"one or two sentences","fixtures":["3 to 6 named things people can use here"],"adj":["names of adjacent places"],"x":0-1000,"y":0-780}],"names":["25 to 40 person names that fit the setting"]}
+{"name":"...",
+ "palette":{"ground":"#3a2a24","accent":"#c2521a"},
+ "water":{"type":"river|lake|sea|lava|none","color":"#ff6a1f"},
+ "sky":"day|dusk|night|ash|storm",
+ "places":[{"name":"...","kind":"castle|town|village|inn|chapel|mill|forest|fields|water|ruin|market|farm|tower|cave|road|other","feature":"mountain|peak|cliff|island|crater|crag|forest|marsh|plain|coast|none","elevation":0,"desc":"one or two sentences","fixtures":["3 to 6 named things people can use here"],"adj":["names of adjacent places"],"x":0-1000,"y":0-780}],
+ "names":["25 to 40 person names that fit the setting"]}
 ```
 
-Every rule below is binding; the engine checks them all and repairs what it can.
-- 8 to 14 places. Every place name is unique.
-- kind is exactly one word from the list. Give the map at least one place that is dangerous (a road,
-  a forest, a cave, a ruin) and at least one that is holy or civic (a chapel, a castle, a town, a market).
+Every rule below is binding. The engine checks them all, repairs what it can, and throws the map away
+when it cannot.
+- 8 to 14 places. Every name is unique, and every name is one a person living in this world would
+  actually say out loud. Never write placeholder, place, location, area, region, unnamed, tbd, or any
+  name with fewer than three letters. One placeholder name and the whole map is rejected.
+- palette.ground is the color of the land itself and palette.accent is the color of whatever grows,
+  glows, or settles on it. Black volcanic rock with orange fire. Grey sea cliff with pale grass. Snow
+  white with dark pine. Both are six digit hex.
+- water.type is the water this world truly has and water.color is its color. A valley of lava has type
+  lava. A world with no water at all has type none.
+- sky is the light this world sits under: day, dusk, night, ash for smoke and volcanic haze, or storm.
+- kind is what a place is. feature is the land it stands on. elevation is 0 for low ground, 1 for a
+  rise, 2 for high ground, 3 for a summit. A market town at the peak of a mountain is kind town,
+  feature peak, elevation 3. A castle on an island in the lava is kind castle, feature island,
+  elevation 0. Give the map the shape the description asks for and no other.
 - adj lists the places one path away. Adjacency must be listed on both sides: if A lists B, then B
   lists A. Every place must be reachable from every other by following paths.
-- x and y are positions on a canvas 1000 wide and 780 tall. Spread the places across the whole
-  canvas and put no two places closer than 110 units to each other.
+- x and y are positions on a canvas 1000 wide and 780 tall. Spread the places across the whole canvas
+  and put no two places closer than 110 units to each other. Let the positions tell the truth: a summit
+  belongs high on the canvas, a coast belongs at its edge.
 - desc is concrete: what a person sees standing there, in one or two sentences.
 - fixtures are physical things a person can use, touch, or break: a well, a gate, a ledger, a bridge,
   an altar, a forge, a boat. Not moods, not ideas, not people.
-- names are 25 to 40 names for people who would live in this world: first names only, every one
+- names are 25 to 40 names for people who would live in this world, first names only, every one
   different, suited to the time and place the description implies.
-- The map must follow from the description: its places, its dangers, its trades, its weather, its
-  name. Do not copy a valley you have seen before."""
+- At least one place is dangerous (a road, a forest, a cave, a ruin) and at least one is holy or civic
+  (a chapel, a castle, a town, a market).
+
+Three worked openings, so you can see what reading as the world described means.
+
+A world of fire:
+{"name":"The Cinder Vale","palette":{"ground":"#2e2320","accent":"#e0561b"},
+ "water":{"type":"lava","color":"#ff6a1f"},"sky":"ash",
+ "places":[{"name":"Emberhold","kind":"castle","feature":"island","elevation":0,"desc":"A basalt keep on a
+ black island in the molten river, reached by one chain bridge.","fixtures":["the chain bridge","the
+ slag gate","the cistern"],"adj":["Ashfall Market"],"x":500,"y":420}, ...
+
+A world of sea and rain:
+{"name":"Sallow Reach","palette":{"ground":"#44503f","accent":"#9fb37a"},
+ "water":{"type":"sea","color":"#2f6f8f"},"sky":"storm",
+ "places":[{"name":"Gullstair","kind":"village","feature":"cliff","elevation":2,"desc":"Cottages pinned to
+ the cliff head above the grey water, joined by a stair cut into the rock.","fixtures":["the cut
+ stair","the winch","the salt shed"],"adj":["Cormorant Quay"],"x":220,"y":180}, ...
+
+A world of snow:
+{"name":"White Fell","palette":{"ground":"#5b6672","accent":"#e8eef2"},
+ "water":{"type":"river","color":"#8fb8cc"},"sky":"day",
+ "places":[{"name":"Hoarfast","kind":"town","feature":"mountain","elevation":2,"desc":"A town of steep
+ roofs under the white shoulder of the fell, its streets banked with cleared snow.","fixtures":["the
+ bell tower","the grain store","the smithy"],"adj":["Thawgate"],"x":480,"y":200}, ..."""
 
 
-def map_prompt(world_text: str) -> str:
-    return MAP_RULES + f"\n\nThe world:\n{world_text}\n"
-
+def map_prompt(world_text: str, problem: str = "") -> str:
+    """The surveyor's brief. `problem` names what was wrong with the last reply, so the retry is specific."""
+    out = MAP_RULES + f"\n\nThe world:\n{world_text}\n"
+    if problem: out += f"\nYour last reply could not be used: {problem}\nReply again with the fenced json block, following every rule above, and nothing else.\n"
+    return out
