@@ -22,14 +22,14 @@ PROVIDERS = {
         "cmd": 'npx -y @openai/codex@latest exec --skip-git-repo-check --model {model} --dangerously-bypass-approvals-and-sandbox "{ask}"',
         "ro_cmd": 'npx -y @openai/codex@latest exec --skip-git-repo-check --model {model} --sandbox read-only "{ask}"',
         "resume": "",
-        "models": ["gpt-6-astra", "gpt-6-astra-pro", "gpt-5.6", "gpt-5.5", "gpt-5.5-mini", "gpt-5.4-mini", "gpt-5-codex-mini"],
+        "models": ["gpt-5.4-mini", "gpt-5.5", "gpt-6-astra", "gpt-6-astra-pro", "gpt-5.6", "gpt-5.5-mini", "gpt-5-codex-mini"],
     },
     "Codex": {
         "exe": "codex", "speech": "stdout", "pkg": "@openai/codex",
         "cmd": 'codex exec --skip-git-repo-check --model {model} --dangerously-bypass-approvals-and-sandbox "{ask}"',
         "resume": "",
         "ro_cmd": 'codex exec --skip-git-repo-check --model {model} --sandbox read-only "{ask}"',
-        "models": ["gpt-6-astra", "gpt-6-astra-pro", "gpt-5.6", "gpt-5.5", "gpt-5.5-mini", "gpt-5.4-mini", "gpt-5-codex-mini"],
+        "models": ["gpt-5.4-mini", "gpt-5.5", "gpt-6-astra", "gpt-6-astra-pro", "gpt-5.6", "gpt-5.5-mini", "gpt-5-codex-mini"],
     },
     "OpenCode": {
         "exe": "opencode", "speech": "stdout", "pkg": "opencode-ai",
@@ -153,14 +153,18 @@ def test_provider(name: str, model: str, folder: str) -> dict:
     prov = PROVIDERS.get(name)
     if not prov: return {"ok": False, "detail": "unknown provider"}
     if shutil.which(prov["exe"]) is None: return {"ok": False, "detail": f"'{prov['exe']}' is not on PATH. Install it, then restart Terraceilia so it sees the new PATH."}
-    d = Path(tempfile.mkdtemp(prefix="terra-test-")); pf = d / "prompt.md"
+    # The prompt file lives inside the folder the CLI runs in, as in a real turn: a sandboxed CLI (Codex) cannot always read outside it.
+    run = Path(folder) if Path(folder).is_dir() else Path(tempfile.mkdtemp(prefix="terra-test-")); pf = run / f"terraceilia-connection-test-{os.getpid()}.md"
     pf.write_text("Reply with exactly the single word: ready", encoding="utf-8")
     cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pf), model=model or prov["models"][0])
     t0 = _t.time()
     try:
-        r = subprocess.run(cmd, cwd=folder if Path(folder).is_dir() else str(d), shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=240)
+        r = subprocess.run(cmd, cwd=str(run), shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=240)
     except subprocess.TimeoutExpired:
         return {"ok": False, "seconds": round(_t.time() - t0, 1), "detail": "no reply within 4 minutes; the CLI is probably waiting for a login prompt. Run its login command in a terminal first."}
+    finally:
+        try: pf.unlink()
+        except OSError: pass
     out = (r.stdout or ""); err = (r.stderr or "").strip()
     final = None
     if prov["speech"] == "claude_stream":
@@ -173,4 +177,6 @@ def test_provider(name: str, model: str, folder: str) -> dict:
     ok = r.returncode == 0 and bool(final) and "ready" in (final or "").lower()
     detail = (final or "").strip()[:300] or err[-400:] or f"exit {r.returncode}, no output"
     if not ok and err: detail = (detail + "\n" + err[-400:]).strip()
+    if not ok and "not supported when using Codex with a ChatGPT account" in (out + err):
+        detail += "\nA ChatGPT sign-in accepts only some models (gpt-5.4-mini and gpt-5.5 at the time of writing). Pick one of those for this provider."
     return {"ok": ok, "seconds": round(_t.time() - t0, 1), "detail": detail, "exit": r.returncode}

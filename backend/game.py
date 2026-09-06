@@ -21,7 +21,7 @@ class Game:
         self.world_text = d.get("world_text", DEFAULT_WORLD)
         self.players = d.get("players", 20)
         self.model_a = d.get("model_a", {"provider": "Claude Code", "model": "claude-haiku-4-5"})
-        self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": "gpt-5.5-mini"})
+        self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": "gpt-5.4-mini"})
         self.world_model = d.get("world_model", {"provider": "Claude Code", "model": "claude-fable-5-1"})
         self.map_source = d.get("map_source") if d.get("map_source") in ("builtin", "generated") else "builtin"
         self.map_model = d.get("map_model") if isinstance(d.get("map_model"), dict) else None     # None: the World's model draws it
