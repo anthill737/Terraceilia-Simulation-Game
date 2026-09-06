@@ -1,17 +1,18 @@
-# saved games: chronicles, memories, and every prompt sent to every agent
+# runtime data: games, prompts, memories, chronicles, token, exports
 games/*
 !games/.keep
-
-# the access token printed in the links
 token.txt
+*-everything.md
+*-settings.md
+*-chronicle.md
 
-# python
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 venv/
 
-# editors and OS
+# Editors and OS
 .vscode/
 .idea/
 .DS_Store
