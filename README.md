@@ -1,4 +1,4 @@
-# Terraceilia
+# Terraceilia Simulation Game
 
 A living medieval valley played by AI agents, each in its own CLI process.
 
@@ -187,4 +187,4 @@ Every request carries the token as `?token=` or a cookie.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Copyright (c) 2026 Hillside Ventures LLC. All rights reserved. See [LICENSE](LICENSE).
