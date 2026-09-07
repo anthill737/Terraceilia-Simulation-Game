@@ -78,25 +78,57 @@ def answer(text: str) -> str:
     return "I keep my own counsel and watch the water.\nACTION: I mend my nets and listen."
 
 
-def refused() -> bool:
-    """TERRA_STUB_401 names a file holding a number: while it is above zero, every call is refused like a rotated Codex sign in,
-    and the number goes down by one each time. A missing file, or zero, means signed in."""
+FAILURES = {
+    "auth": ["ERROR: Your access token could not be refreshed because your refresh token was revoked. Please run codex login again.", "ERROR: 401 Unauthorized"],
+    "model": ["ERROR: 404 Not Found: The model `gpt-99-ultra` does not exist or you do not have access to it."],
+    "rate": ["ERROR: 429 Too Many Requests: rate limit reached, try again later."],
+    "server": ["ERROR: 503 Service Unavailable: the server is overloaded."],
+    "launcher": ["ERROR: missing bearer token in the request: no API key was provided."],
+    "other": ["ERROR: something went wrong that nobody has a name for."],
+}
+
+
+def failing() -> str:
+    """TERRA_STUB_FAIL names a failure class and TERRA_STUB_401 names a file holding a number: while the number is above zero,
+    every call fails that way (auth by default), and the number goes down by one each time. Missing, or zero, means fine."""
     path = os.environ.get("TERRA_STUB_401")
-    if not path or not os.path.exists(path): return False
-    try: n = int(open(path, encoding="utf-8").read().strip() or "0")
-    except ValueError: n = 0
-    if n <= 0: return False
-    if n < 99: open(path, "w", encoding="utf-8").write(str(n - 1))
-    return True
+    if not path or not os.path.exists(path): return ""
+    import time
+    lock = path + ".lock"; fd = None
+    for _ in range(200):                                   # seats run in parallel; the count must go down exactly once per call
+        try: fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY); break
+        except FileExistsError: time.sleep(0.02)
+    try:
+        try: n = int(open(path, encoding="utf-8").read().strip() or "0")
+        except ValueError: n = 0
+        if n <= 0: return ""
+        if n < 99: open(path, "w", encoding="utf-8").write(str(n - 1))
+    finally:
+        if fd is not None: os.close(fd); os.remove(lock)
+    return os.environ.get("TERRA_STUB_FAIL", "auth")
+
+
+def hang() -> None:
+    """TERRA_STUB_MODE: 'hang' never prints and never exits; 'chatter' prints a line every fraction of a second forever."""
+    import time
+    mode = os.environ.get("TERRA_STUB_MODE", "")
+    if mode == "hang":
+        while True: time.sleep(1)
+    if mode == "chatter":
+        while True: print("still thinking", flush=True); time.sleep(0.2)
 
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     m = re.search(r"Read the file (.+?) and respond", " ".join(sys.argv[1:]))
     if not m: print("stub: no prompt file named"); return 1
-    if refused():
-        print("ERROR: Your access token could not be refreshed because your refresh token was revoked. Please run codex login again.", file=sys.stderr)
-        print("ERROR: 401 Unauthorized", file=sys.stderr); return 1
+    hang()
+    kind = failing()
+    if "--model bad" in " ".join(sys.argv[1:]): kind = "model"        # a model nobody has access to, for the preflight tests
+    if kind:
+        for ln in FAILURES.get(kind, FAILURES["other"]): print(ln, file=sys.stderr)
+        if kind == "other": print("ACTION: I burn the mill down", file=sys.stdout)       # an error must never be read as a line, even one shaped like an action
+        return 1
     print(answer(open(m.group(1), encoding="utf-8").read()))
     return 0
 

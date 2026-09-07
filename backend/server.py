@@ -22,7 +22,15 @@ class App:
         self.lock = threading.Lock(); self.runs: dict[str, Run] = {}
         first = self._latest(); self.gid = first.id; self.runs[first.id] = Run(first)
         self.phone_url = ""; self.away_url = ""; self.last_god = ""; self.last_conn = ""; self.start_error = ""; self.last_tg = ""
-        refresh_versions(); connect.start()
+        refresh_versions(); connect.start(); self._forget_old_backups()
+
+    @staticmethod
+    def _forget_old_backups() -> None:
+        """Older versions kept a copy of Codex's sign in beside it. That copy is never made again, and any left behind goes."""
+        for f in (Path.home() / ".codex" / "auth.json.terraceilia-backup", Path.home() / ".codex" / "auth.json.agora-backup"):
+            try:
+                if f.is_file(): f.unlink()
+            except OSError: pass
 
     def _latest(self) -> Game:
         for m in list_games():
@@ -87,6 +95,22 @@ class App:
         if g.map_source == "generated" and not g.world.map_generated: need.add(r.map_model_used()["provider"])
         return sorted(need)
 
+    def probe(self, provider: str, model: str = "") -> str:
+        """Probe one provider now, through the launcher a turn uses: the model given, or its models in order until one answers."""
+        r = self.run
+        if provider not in PROVIDERS: return "unknown provider"
+        if r.busy(): return "a game is running; it probes as it goes"
+        if not r.g.seats: r.g.seats = [r.world_seat()]; r._sync_terms()
+        def work() -> None:
+            cands = [model] if model else list(PROVIDERS[provider]["models"])
+            for m in cands:
+                ok, msg = r.probe_model(provider, m)
+                if ok: self.last_conn = f"{provider} {m} answered."; break
+                self.last_conn = f"{provider} {m} did not answer: {msg}"
+            r.version += 1
+        threading.Thread(target=work, daemon=True).start()
+        return f"Probing {provider}..."
+
     def start_game(self) -> None:
         """Nothing starts until every agent this game needs is connected. One line says which one is not."""
         r = self.run
@@ -109,7 +133,7 @@ class App:
             if "drama" in d: g.drama = max(0, min(10, int(d["drama"] or 0)))
             for k in ("model_a", "model_b", "world_model"):
                 v = d.get(k)
-                if isinstance(v, dict) and v.get("provider") in PROVIDERS and v.get("model"): setattr(g, k, {"provider": v["provider"], "model": v["model"]})
+                if isinstance(v, dict) and v.get("provider") in PROVIDERS: setattr(g, k, {"provider": v["provider"], "model": str(v.get("model") or "")})
             self._set_map_choice(g, d)
             if not g.title: g.title = "Terraceilia " + g.created[:10]
             g.seats = []; g.save()
@@ -150,8 +174,8 @@ class App:
             if "max_minutes" in d: g.max_minutes = max(0, int(d["max_minutes"] or 0))
             if "drama" in d: g.drama = max(0, min(10, int(d["drama"] or 0)))
             wm = d.get("world_model")
-            if isinstance(wm, dict) and wm.get("provider") in PROVIDERS and wm.get("model"):
-                g.world_model = {"provider": wm["provider"], "model": wm["model"]}
+            if isinstance(wm, dict) and wm.get("provider") in PROVIDERS:
+                g.world_model = {"provider": wm["provider"], "model": str(wm.get("model") or "")}
                 if g.seats: g.seats[0]["provider"], g.seats[0]["model"] = wm["provider"], wm["model"]; g.cli_sessions.pop("0", None)
             if not g.world.created and not r.busy() and not r.map_generating: self._set_map_choice(g, d)
             g.save(); r.version += 1
@@ -163,7 +187,7 @@ class App:
         notes = []
         with r.lock:
             seat = next((x for x in g.seats if x["name"] == name), None); i = g.seats.index(seat) if seat else None
-            if seat and d.get("provider") in PROVIDERS and d.get("model"):
+            if seat and d.get("provider") in PROVIDERS and "model" in d:
                 if (seat["provider"], seat["model"]) != (d["provider"], d["model"]):
                     seat["provider"], seat["model"] = d["provider"], str(d["model"]); g.cli_sessions.pop(str(i), None); notes.append(f"{name} is now played by {d['provider']} {d['model']}")
             life_changed = False
@@ -350,6 +374,7 @@ def make_handler(app: App, token: str):
              "/connect/login": lambda: setattr(app, "last_conn", connect.start_login(data.get("provider", ""))),
              "/connect/key": lambda: setattr(app, "last_conn", connect.set_key(data.get("provider", ""), data.get("key", ""))),
              "/connect/dismiss": lambda: connect.clear_job(data.get("provider", "")),
+             "/connect/probe": lambda: setattr(app, "last_conn", app.probe(data.get("provider", ""), data.get("model", ""))),
              "/telegram/send": lambda: setattr(app, "last_tg", telegram.send(data.get("text") or app.phone_url or "Terraceilia says hello.")),
              "/telegram/clear": lambda: (telegram.clear(), setattr(app, "last_tg", "Telegram disconnected."))[1],
              "/edit/relation": lambda: app.edit_relation(data),

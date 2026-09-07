@@ -97,6 +97,7 @@ PROVIDERS: dict[str, dict] = {
     },
     "Codex (latest)": {
         "exe": "npx", "docs": "https://developers.openai.com/codex", "isolated": True,
+        "version_argv": ["npx", "-y", "@openai/codex@latest", "--version"],     # the binary that will run, not the npm runner
         "login_argv": ["npx", "-y", "@openai/codex@latest", "login"], "logout_hint": "npx -y @openai/codex@latest logout",
         "status_cmd_argv": ["npx", "-y", "@openai/codex@latest", "login", "status"], "status_ok": r"logged in",
         "files": [HOME / ".codex" / "auth.json"], "subscription_only": True,
@@ -207,7 +208,10 @@ def probe(name: str) -> dict:
         out["node_missing"] = not npm
         out["detail"] = f"{p['exe']} is not installed." + ("" if npm else " Node.js is needed to install it.")
         return out
-    rc, v = run(_argv(exe_path, "--version"), timeout=25)
+    if p.get("version_argv"):
+        vexe = which(p["version_argv"][0]); rc, v = run(_argv(vexe, *p["version_argv"][1:]), timeout=90) if vexe else (1, "")
+    else:
+        rc, v = run(_argv(exe_path, "--version"), timeout=25)
     if rc == 0 and v:      # the first line that carries a version, not an update notice underneath it
         out["version"] = next((ln.strip() for ln in v.splitlines() if re.search(r"\d+\.\d+", ln)), v.splitlines()[0].strip())[:60]
     if p.get("needs_node"):
@@ -257,6 +261,37 @@ def probe(name: str) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- probes: one real request through the launcher a turn uses
+# A row is Connected only when a model of that provider has answered a real request, and it says when.
+_probes: dict[str, dict[str, dict]] = {}      # provider -> model -> {"ok", "when", "message"}
+_probe_lock = threading.Lock()
+
+
+def record_probe(provider: str, model: str, ok: bool, message: str = "") -> None:
+    with _probe_lock:
+        _probes.setdefault(provider, {})[model or ""] = {"ok": bool(ok), "when": time.time(), "message": (message or "")[:200]}
+
+
+def probes_of(provider: str) -> dict[str, dict]:
+    with _probe_lock: return {m: dict(r) for m, r in _probes.get(provider, {}).items()}
+
+
+def first_accessible(provider: str, exclude: str = "") -> str | None:
+    """The first of the provider's models, in its own listed order, that answered a probe. None if none has."""
+    from agents import PROVIDERS as AGENT_PROVIDERS
+    with _probe_lock: rows = _probes.get(provider, {})
+    order = list(AGENT_PROVIDERS.get(provider, {}).get("models", [])) + [m for m in rows if m not in AGENT_PROVIDERS.get(provider, {}).get("models", [])]
+    for m in order:
+        if m and m != exclude and rows.get(m, {}).get("ok"): return m
+    return None
+
+
+def last_good_probe(provider: str) -> dict | None:
+    rows = probes_of(provider); good = [(r["when"], m, r) for m, r in rows.items() if r.get("ok")]
+    if not good: return None
+    when, m, r = max(good); return {"model": m, "when": when}
+
+
 # ---------------------------------------------------------------- the cache, kept warm from launch
 _cache: dict[str, tuple[float, dict]] = {}
 _inflight: set[str] = set()
@@ -304,6 +339,14 @@ def state() -> dict:
             if j: row["job"] = {"kind": j["kind"], "lines": j["lines"][-14:], "done": j["done"], "ok": j["ok"],
                                 "note": j.get("note", ""), "waited": j.get("waited", 0)}
             row["key_set"] = bool(_key_in_env(p))
+            # Connected means a model answered a real request; a status command alone is only Signed in
+            good = last_good_probe(n); row["probes"] = probes_of(n); row["shares"] = p.get("shares", "")
+            if row["state"] == "connected":
+                if good:
+                    row["probe_model"] = good["model"]; row["probe_time"] = time.strftime("%H:%M:%S", time.localtime(good["when"]))
+                    row["detail"] = f"{good['model']} answered at {row['probe_time']}." + (" " + row["detail"] if row.get("detail") else "")
+                else:
+                    row["state"] = "signed_in"; row["detail"] = "Signed in, by its own status. Not yet probed with a real request; Start probes every seat, or press Probe."
             out[n] = row
     return out
 
