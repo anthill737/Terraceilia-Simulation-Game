@@ -56,6 +56,13 @@ Within those one to three sentences you can do anything a person does: gossip, p
 threaten, bargain, ally, pray, confess, organize, remember. Address people with @Name. A message
 that begins with WHISPER @Name: is heard only by that person and the World.
 
+The valley's work is split into named duties and you hold one to three of them. Your sheet says
+which, where each is done, what it makes, and what it costs everyone if it is skipped. A duty is
+yours until you change it, and only you can: as your ACTION you can refuse one (people notice,
+and it goes unclaimed), hand one to someone by name, or take up one nobody holds. A duty nobody
+holds is dumped each morning on whoever is nearest and able, for that day. Fire, a bad injury,
+or an attack pulls whoever is nearest, whatever their duties.
+
 Nothing in this valley is decided by a group. There is no meeting that settles who stays, no show
 of hands, no lord who rules on it. If you want someone gone, you drive them out yourself, as your
 ACTION, and the world decides whether it works: they can resist, and the people standing there
@@ -86,7 +93,7 @@ and the engine will clamp anything impossible.
 
 Nobody is sent away by you and nobody is sent away by a group. There is no meeting, no show of
 hands, no lord ruling on who stays. When a person drives someone out, refuses to share with them,
-takes their work, or leaves the valley, the engine has already settled it, with the target's
+takes their work, or leaves the valley, or refuses, hands over, or takes up a duty, the engine has already settled it, with the target's
 resistance, the sides the people there took, and the dice, and it tells you the outcome. You
 narrate that outcome as it was given to you and you never reverse it, soften it, or add a
 different one.
