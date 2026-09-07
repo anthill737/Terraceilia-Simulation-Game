@@ -45,8 +45,8 @@ class App:
             w = g.world
             return {"id": g.id, "day": w.day, "status": g.status, "current": r.current, "created": w.created,
                     "map": w.map, "map_name": w.map_name, "map_generated": w.map_generated, "map_style": w.style, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
-                    "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies), "roster": w.roster,
-                    "characters": [{k: c.get(k) for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing", "sick", "needs", "duties", "dumped", "emergency")} for c in w.characters.values()],
+                    "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies), "roster": w.roster, "phase": w.phase,
+                    "characters": [{k: c.get(k) for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing", "sick", "needs", "duties", "dumped", "emergency", "activity")} for c in w.characters.values()],
                     "seats": [{"name": x["name"], "color": x["color"]} for x in g.seats], "version": r.version}
 
     def snapshot(self, since: int = -1, terms: bool = False, tail: int = 120) -> dict:
@@ -66,7 +66,7 @@ class App:
                     "characters": chars, "ledger": ledger, "pending": pending, "map": mp, "relations": json.loads(json.dumps(w.relations)),
                     "threads": list(w.threads), "fires": dict(w.fires),
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies),
-                    "roster": w.roster, "duty_state": w.duties, "duty_defs": DUTY_DEFS,
+                    "roster": w.roster, "duty_state": w.duties, "duty_defs": DUTY_DEFS, "phase": w.phase, "morning": w.morning,
                     "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
                     "terms": tstates,
                     "phone_url": self.phone_url, "away_url": self.away_url, "last_god": self.last_god,

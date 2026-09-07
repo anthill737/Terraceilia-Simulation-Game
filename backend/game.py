@@ -350,7 +350,7 @@ class Run:
             g = self.g; g.turn += 1
             color = next((x.get("color") for x in g.seats if x["name"] == speaker), None)
             place = g.world.characters.get(speaker, {}).get("location") if kind == "speech" else None
-            e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": g.world.day, "color": color, "place": place}
+            e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": g.world.day, "phase": g.world.phase, "color": color, "place": place}
             g.transcript.append(e); self.version += 1
             seats = list(enumerate(g.seats)); locs = {n: c.get("location") for n, c in g.world.characters.items()}
         for i, seat in seats:   # file writes outside the lock
@@ -423,7 +423,7 @@ class Run:
         new = [(e, touched_text(e, me, my_place, ties)) for e in g.transcript[seen:]]; new = [(e, v) for e, v in new if v]
         parts = [PLAYER_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP, known to everyone (the only places and things that exist):\n" + map_text(w.map) + "\n",
                  f"Day {w.day}, {season_of(w.day)}, {w.weather}. Everyone who lives in the valley: " + ", ".join(c["name"] for c in w.living() if c["name"] != me) + ".\n",
-                 w.sheet(me), "\n" + w.duty_brief(me) + "\n", "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
+                 w.sheet(me), "\n" + (w.duty_brief(me) if w.phase == "morning" else "YOUR DUTIES: " + (", ".join(DUTIES[k]["label"] for k in w.characters[me].get("duties", [])) or "none") + ".") + "\n", "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
         u = self.day_urges.get(me) or []
         if u: parts.append("YOUR URGES TODAY, which are your nature and not a suggestion; act on at least one of them, in words or in your ACTION, and do not apologize for it:\n" + "\n".join(f"- {x}" for x in u) + "\n")
         if new:
@@ -440,11 +440,14 @@ class Run:
         acts = "\n".join(f"- {a['who']} (roll d6 = {rolls.get(a['who'], 0)}): {a['text']}" for a in actions) or "- nobody acted"
         talk = [e for e in g.transcript if e.get("day", 0) == w.day and e["kind"] in ("speech", "convener")]
         talk_s = "\n".join(f"- {e['speaker']}: {e['text'][:300]}" for e in talk[-40:])
+        morning_s = next((e["text"].split("\n\nUNDONE:")[0] for e in reversed(g.transcript) if e["kind"] == "morning" and e.get("day") == w.day), "")
         settled_s = ("\nSETTLED BY THE ENGINE TODAY. These are done; the people involved have already been moved, marked, or sent away. Narrate each exactly as written, in your own plain words, and do not reverse or soften any of them:\n"
                      + "\n".join(f"- {s['text']}" for s in settled) + "\n") if settled else ""
         return "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", f"It is day {w.day}.",
             "\nThe people, as the engine knows them:\n" + sheets,
             "\nTHE DUTIES, who holds each, and what nobody holds:\n" + w.duties_text(),
+            "\nTHIS MORNING'S WORK, settled by the engine (do not narrate it again; it is already in the chronicle):\n" + (morning_s or "- nobody worked"),
+            "\nUNDONE TODAY, by name, with what it costs (say who it hurts, and let people react to it):\n" + w.undone_text(),
             "\nTheir notable ties (a -> b: type, feeling -5..5, trust -5..5; everyone also has milder opinions of everyone else, which you may assume are ordinary):\n" + "\n".join(f"- {a} -> {b}: {r['type']}, feeling {r['feeling']:+d}, trust {r['trust']:+d}" for a, rs in w.relations.items() for b, r in rs.items() if a in w.characters and b in w.characters and (r['type'] != 'none' or abs(r['feeling']) + abs(r['trust']) >= 4)),
             "\nTHIS MORNING, as the engine found the valley (season, weather, what is low, broken, sick, or burning):\n" + w.dawn_text(),
             f"\nThe stores: {w.ledger_text()}.\nThe places (roof, warmth, filth, each 0 to 10):\n" + w.places_text(),
@@ -454,7 +457,7 @@ class Run:
             ("\nEVENTS OF THE DAY. These have already happened; the engine has applied their wounds, losses, and ruins. Narrate each one vividly, make the people at that place witness it, and let it change what happens next. They are not optional and you may not soften them:\n" + "\n".join(f"- {e}" for e in events) + "\n") if events else "",
             settled_s,
             "\nWhat was said today (including whispers you are allowed to hear):\n" + (talk_s or "- nothing"),
-            "\nActions to resolve, with the die the engine rolled for each (1 is a disaster, 6 a triumph, scaled by the character's stats):\n" + acts,
+            "\nThe afternoon's actions to resolve, with the die the engine rolled for each (1 is a disaster, 6 a triumph, scaled by the character's stats):\n" + acts,
             "\nWrite one line per person who acted, and nothing else: their name, a colon, then what came of their action in at most two sentences. A death goes in that person's line, by name and cause. No opening line, no weather, no closing line, no line for anyone who did not act. Everything else goes in the block, not the narration. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
             '```json\n{"results":[{"who":"Name","hp":-2,"gold":3,"location":"The mill","skill":"axe","standing":-1,"note":"why"}],'
             '"events":["one line per world event"],"ledger":{"grain":1,"meat":0,"fish":0,"wood":-1,"meals":0,"tools":0,"herbs":0,"road_safe":false,"built":["a granary"]},'
@@ -478,9 +481,18 @@ class Run:
                 if self.stop_flag.is_set(): break
                 if w.day > g.max_days or (g.max_minutes and time.time() - g.started_at > g.max_minutes * 60) or len(w.living()) <= 1:
                     self._epilogue(); break
-                self._player_phase()
+                if (w.day_report or {}).get("day") != w.day: self._dawn()
+                if self._prime_day() or self.stop_flag.is_set(): break
+                self._morning_phase()
+                if self.stop_flag.is_set(): break
+                self._afternoon_phase()
                 if self.stop_flag.is_set(): break
                 self._world_phase()
+                if self.stop_flag.is_set(): break
+                self._evening_phase()
+                if self.stop_flag.is_set(): break
+                with self.lock: w.end_day(); self.version += 1
+                g.save(chronicle=True)
         finally:
             with self.lock: self.current = None; g.status = "stopped" if self.stop_flag.is_set() and w.day < g.max_days else "done"; g.save(chronicle=True)
 
@@ -536,36 +548,46 @@ class Run:
         self._record("The valley", "\n".join(lines), "dawn")
         g.save()
 
-    def _player_phase(self) -> None:
-        """Every living character gets one prompt; anyone named or whispered to gets one reaction. Then the day resolves."""
+    def _prime_day(self) -> bool:
+        """Codex is primed once a day, alone, before the seats run in parallel. True if the run must stop."""
         g = self.g; w = g.world
         if self.codex_provider() and not self.stop_flag.is_set():
             if not self.prime_codex(f"priming for day {w.day}"): self._codex_refused()
             while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
-            if self.stop_flag.is_set(): return
-        if (w.day_report or {}).get("day") != w.day: self._dawn()
-        alive = [i for i, seat in enumerate(g.seats) if i > 0 and seat["name"] in w.characters and w.characters[seat["name"]]["alive"] and not w.characters[seat["name"]]["gone"]]
-        self.day_urges = {g.seats[i]["name"]: urges(w.characters[g.seats[i]["name"]], w, self.rng) for i in alive}
-        acted: set[int] = set(); reacted: set[int] = set(); queue = list(alive); threads: dict[int, threading.Thread] = {}
-        name_to_i = {g.seats[i]["name"].lower(): i for i in alive}
+        return self.stop_flag.is_set()
+
+    def _able_seats(self) -> list[int]:
+        g = self.g; w = g.world
+        return [i for i, seat in enumerate(g.seats) if i > 0 and seat["name"] in w.characters and w.able(w.characters[seat["name"]])]
+
+    def _touched(self, i: int) -> bool:
+        """Something reached this person since their last turn, or their nature is pushing them today."""
+        g = self.g; w = g.world; me = g.seats[i]["name"]; c = w.characters[me]
+        if self.day_urges.get(me): return True
+        seen = int(g.last_seen.get(str(i), 0)); ties = w.ties_of(me)
+        return any(touched_text(e, me, c["location"], ties) for e in g.transcript[seen:])
+
+    def _round(self, seats: list[int], instruction: str, label: str, on_reply, reactions: bool = True) -> None:
+        """One round of prompts to the given seats, in parallel. With reactions on, anyone named or whispered to at the same place
+        gets a turn to answer, and the convener's @mentions wake people. on_reply(i, text) takes each answer that is not PASS."""
+        g = self.g; w = g.world
+        reacted: set[int] = set(); queue = list(seats); threads: dict[int, threading.Thread] = {}
+        name_to_i = {g.seats[i]["name"].lower(): i for i in self._able_seats()}
 
         def worker(i: int, react: bool) -> None:
-            instr = ("You witnessed the above. React in character to anyone who acted on you or spoke to you, then act if you have not acted today; if you already acted today, you may only speak, or reply exactly PASS."
-                     if react else "Introduce yourself in character if this is your first day, otherwise speak your mind, then take today's action.")
-            text = self._invoke(i, self._player_prompt(i, instr), f"day {w.day}")
+            instr = ("Someone spoke to you or acted on you, above. Answer them in character, in one to three sentences, or reply exactly PASS. " + instruction) if react else instruction
+            text = self._invoke(i, self._player_prompt(i, instr), f"day {w.day}, {label}")
             g.last_seen[str(i)] = len(g.transcript)
             if not text:
                 self._record("Engine", f"{g.seats[i]['name']} gave no answer this turn (see its terminal).", "system"); return
-            if text.strip().upper().rstrip(".") == "PASS": self._term(i, "(passed)"); return
+            if text.strip().upper().rstrip(".") == "PASS": self._term(i, "(passed)"); on_reply(i, None); return
             text = cap_speech(strip_dashes(text))         # one to three sentences, no dashes, the ACTION line kept whole
             for t in whisper_targets(text):
                 tc = next((c for c in w.living() if c["name"].lower() == t), None)
                 if tc and tc["location"] != w.characters[g.seats[i]["name"]]["location"]:
                     self._term(i, f"(your whisper to {tc['name']} went nowhere: they are at {tc['location']}, you are at {w.characters[g.seats[i]['name']]['location']})")
-            self._record(g.seats[i]["name"], text, "speech")
-            a = action_line(text)
-            if a and i not in acted:
-                acted.add(i); w.pending.append({"who": g.seats[i]["name"], "text": a, "turn": g.turn}); self.version += 1
+            on_reply(i, text)
+            if not reactions: return
             wts = whisper_targets(text)
             with self.lock:
                 here = w.characters[g.seats[i]["name"]]["location"]
@@ -577,8 +599,7 @@ class Run:
         seen_len = len(g.transcript)
         while not self.stop_flag.is_set():
             while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
-            # the convener spoke: anyone @mentioned is woken to answer now
-            if len(g.transcript) != seen_len:
+            if len(g.transcript) != seen_len:            # the convener spoke: anyone @mentioned is woken to answer now
                 for e in g.transcript[seen_len:]:
                     if e["kind"] == "convener":
                         with self.lock:
@@ -592,6 +613,85 @@ class Run:
                 t = threading.Thread(target=worker, args=(j, j in reacted), daemon=True); threads[j] = t; t.start()
             if not threads and not queue: break
             time.sleep(0.5)
+
+    def _speech_part(self, text: str) -> str:
+        """What a person said, without their ACTION line."""
+        return "\n".join(ln for ln in text.split("\n") if not re.match(r"^\s*ACTION:", ln, re.I)).strip()
+
+    def _morning_phase(self) -> None:
+        """Duties. Everyone able with work is asked for WORK, REFUSE, or a free action, which is a skip. The engine settles all of it,
+        writes one line per person, lands the cost of what nobody did, and lets a neighbour complain after two days."""
+        g = self.g; w = g.world
+        with self.lock: w.phase = "morning"; self.version += 1
+        self.day_urges = {g.seats[i]["name"]: urges(w.characters[g.seats[i]["name"]], w, self.rng) for i in self._able_seats()}
+        outcomes: dict[str, list[dict]] = {}
+        working = [i for i in self._able_seats() if w.characters[g.seats[i]["name"]].get("duties") or w.characters[g.seats[i]["name"]].get("dumped") or w.characters[g.seats[i]["name"]].get("emergency")]
+
+        def on_reply(i: int, text: str | None) -> None:
+            me = g.seats[i]["name"]
+            if text:
+                said = self._speech_part(text)
+                if said: self._record(me, said, "speech")
+            act = action_line(text or "") or ""
+            with self.lock: outcomes[me] = w.resolve_morning(me, act, self.rng); self.version += 1
+
+        instr = ("It is morning. Your ACTION line must begin with WORK (do all your work today), WORK followed by one duty's name (do that one and skip the rest), "
+                 "REFUSE (give up your duties; they go unclaimed and people notice), or anything else, which counts as skipping your work today and costs the same. "
+                 "The engine does the work and says what came of it; never describe the outcome yourself. Speak only if something touched you; otherwise give the ACTION line alone.")
+        self._round(working, instr, "morning", on_reply, reactions=False)
+        if self.stop_flag.is_set(): return
+        with self.lock:
+            for i in self._able_seats():
+                me = g.seats[i]["name"]
+                if me not in outcomes and (w.characters[me].get("duties") or w.characters[me].get("dumped") or w.characters[me].get("emergency")): outcomes[me] = w.resolve_morning(me, "", self.rng)
+            for c in w.living():
+                if not w.able(c): outcomes[c["name"]] = w.resolve_morning(c["name"], "", self.rng)
+            done = {r["duty"] for rs in outcomes.values() for r in rs if r.get("kind") == "work" and r.get("duty")}
+            m = w.end_morning(done, self.rng); self.version += 1
+        lines = [r["text"] for me in sorted(outcomes, key=lambda n: w.characters[n]["seat"]) for r in outcomes[me] if r.get("text")]
+        undone = [u["text"] for u in m["undone"]]
+        text = "\n".join(lines) or "Nobody had work to do."
+        if undone: text += "\n\nUNDONE: " + " ".join(undone)
+        if m["complaints"]: text += "\n\n" + "\n".join(m["complaints"])
+        self._record("The valley", text, "morning"); g.save()
+
+    def _afternoon_phase(self) -> None:
+        """Free actions, from the people something touched or whose nature is pushing them. Quiet days are allowed."""
+        g = self.g; w = g.world
+        with self.lock: w.phase = "afternoon"; self.version += 1
+        seats = [i for i in self._able_seats() if self._touched(i)]
+        acted: set[int] = set()
+
+        def on_reply(i: int, text: str | None) -> None:
+            if not text: return
+            me = g.seats[i]["name"]; self._record(me, text, "speech")
+            a = action_line(text)
+            if a and i not in acted:
+                with self.lock: acted.add(i); w.pending.append({"who": me, "text": a, "turn": g.turn}); self.version += 1
+
+        instr = ("It is afternoon and the work is done or skipped. If something touched you today or you have a want to act on, act on it now: speak if you must, then one ACTION line. "
+                 "If nothing touched you and you have nothing to do, reply exactly PASS.")
+        self._round(seats, instr, "afternoon", on_reply, reactions=True)
+
+    def _evening_phase(self) -> None:
+        """Dusk. Everyone goes home, or to the inn if it pulls them, and the people something touched talk where they are. No actions."""
+        g = self.g; w = g.world
+        with self.lock:
+            w.phase = "evening"; moves = w.evening_places(self.rng); self.version += 1
+        inn = next((p for p, d in w.map.items() if d.get("kind") == "inn"), None)
+        at_inn = [c["name"] for c in w.living() if inn and c["location"] == inn]
+        self._record("The valley", f"Evening. " + (f"At {inn}: {', '.join(at_inn)}. " if at_inn else "") + "Everyone else is at home.", "evening")
+        seats = [i for i in self._able_seats() if self._touched(i)]
+
+        def on_reply(i: int, text: str | None) -> None:
+            if not text: return
+            me = g.seats[i]["name"]; said = self._speech_part(text)
+            if action_line(text): self._term(i, "(no actions in the evening; only what you said was kept)")
+            if said: self._record(me, said, "speech")
+
+        instr = "It is evening. You are where you are for the night, with whoever is there. Say something to them if you have something to say, in one to three sentences, or reply exactly PASS. No ACTION line tonight."
+        self._round(seats, instr, "evening", on_reply, reactions=True)
+        g.save()
 
     def _world_phase(self) -> None:
         g = self.g; w = g.world
@@ -612,7 +712,7 @@ class Run:
             if res is not None: break
         if self.stop_flag.is_set(): return
         if res is None:
-            self._record("Engine", "The World gave no usable result; the day ends unchanged.", "system"); w.pending = []; w.day += 1; g.save(); return
+            self._record("Engine", "The World gave no usable result; the afternoon passes unchanged.", "system"); w.pending = []; g.save(); return
         log: list[str] = []
         w.pending = []; w.fate = [f for f in w.fate if f not in told_fate]; w.apply(res, log); self.version += 1
         text = cap_outcomes(strip_dashes(strip_json(out or ""))) or "The day passes."
@@ -621,7 +721,7 @@ class Run:
         self._record("World", text + "\n\n" + w.standings_table(), "world")
         if elog: log = elog + log
         if log: self._record("Engine", "Adjustments: " + "; ".join(log), "system")
-        g.save(chronicle=True)
+        g.save()
 
     def _epilogue(self) -> None:
         import telegram

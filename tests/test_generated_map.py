@@ -137,7 +137,6 @@ class MapTests(unittest.TestCase):
         self.assertTrue(w.map_generated); self.assertEqual(w.map_name, "Harrowmere")
         self.assertTrue(set(w.characters) <= set(FIXED_MAP["names"]), "people were not named from the generated map")
         for c in w.characters.values(): c["hp"] = c["hp_max"] = 40      # so the fire wounds them without killing them
-        homes = {n: c["location"] for n, c in w.characters.items()}
         self.assertEqual(w.ignite("Saltmarket"), "Saltmarket is burning")
         self.assertEqual(w.destroy("Fenchapel", "the bell"), "the bell destroyed")
         old_hook = threading.excepthook; threading.excepthook = lambda a: errs.append(a)
@@ -148,7 +147,7 @@ class MapTests(unittest.TestCase):
         self.assertEqual(g.status, "done"); self.assertGreater(w.day, 3)
         self.assertEqual(errs, [], f"a thread raised: {errs}")
         for t in r.terms: self.assertNotIn("[engine error", "\n".join(t["lines"]))
-        self.assertTrue(any(c["location"] != homes[n] for n, c in w.characters.items()), "nobody travelled")
+        self.assertTrue(any("mud and argument" in e["text"] for e in g.transcript if e["kind"] == "world"), "the World never resolved an afternoon")
         self.assertIn("the bell", w.map["Fenchapel"].get("destroyed", []))
         self.assertTrue(w.map["Saltmarket"].get("destroyed"), "the fire ruined nothing")
         # The fire burns for three days and then burns itself out, which resolves its situation. It may also spread to a
