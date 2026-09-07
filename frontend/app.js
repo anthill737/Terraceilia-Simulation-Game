@@ -36,9 +36,9 @@ function renderValley(s){if(!s.created){$('valley').innerHTML='<div class="empty
  const wasOpen=new Set([...$('valley').querySelectorAll('details[open]')].map(d=>d.dataset.k));const scroll=$('valley').scrollTop;
  const L=s.ledger;const pct=Math.min(100,Math.round(100*L.grain_weeks/L.grain_needed));
  let h=`<div class="ledger"><b>Day ${s.day}</b> &middot; grain for <b>${L.grain_weeks}</b> of ${L.grain_needed} weeks<div class="bar" style="--c:var(--accent)"><i style="width:${pct}%"></i></div>${L.roofs_broken} roofs broken &middot; road ${L.road_safe?'safe':'unsafe'} after dark &middot; ${L.sick} sick<br>Built: ${esc(L.built.join(', ')||'nothing yet')}${s.pending.length?`<br><span class="note">${s.pending.length} action(s) waiting for the World</span>`:''}</div>`;
- const byPlace={};s.characters.forEach(c=>{(byPlace[c.alive&&!c.banished?c.location:'Gone']=byPlace[c.alive&&!c.banished?c.location:'Gone']||[]).push(c)});
+ const byPlace={};s.characters.forEach(c=>{(byPlace[c.alive&&!c.gone?c.location:'Gone']=byPlace[c.alive&&!c.gone?c.location:'Gone']||[]).push(c)});
  const th=(s.threads||[]).filter(t=>t.status==='open');if(th.length)h+=`<div class="ledger"><b>Open situations</b> (${th.length})${th.map(t=>`<div class="thr">#${t.id} \u00b7 day ${t.day}${t.place?' \u00b7 '+esc(t.place):''}: ${esc(t.text)}</div>`).join('')}</div>`;
- h+=Object.entries(byPlace).map(([pl,cs])=>`<div class="place">${esc(pl)}</div>`+cs.map(c=>`<div class="card ${c.alive?'':'dead'}" style="--c:${esc(seatColor(c.name)||'#888')}"><span class="nm">${esc(c.name)}</span> <span class="st">${esc(c.trade)} &middot; ${esc(c.location)} &middot; ${esc(c.standing)}${c.banished?' &middot; banished':''}${c.alive?'':' &middot; dead: '+esc(c.cause_of_death)}</span>
+ h+=Object.entries(byPlace).map(([pl,cs])=>`<div class="place">${esc(pl)}</div>`+cs.map(c=>`<div class="card ${c.alive?'':'dead'}" style="--c:${esc(seatColor(c.name)||'#888')}"><span class="nm">${esc(c.name)}</span> <span class="st">${esc(c.trade)} &middot; ${esc(c.location)} &middot; ${esc(c.standing)}${c.gone?' &middot; gone':''}${c.alive?'':' &middot; dead: '+esc(c.cause_of_death)}</span>
   <div class="bar"><i style="width:${Math.round(100*c.hp/c.hp_max)}%"></i></div>HP ${c.hp}/${c.hp_max} &middot; STR ${c.str} SPD ${c.spd} &middot; gold ${c.gold} &middot; ${Object.keys(c.skills).length?Object.entries(c.skills).map(([k,v])=>k+' '+v).join(', '):'no skills'}
   ${relChips(s,c.name)}
   <details data-k="p:${esc(c.name)}"><summary>${esc(c.personality)}</summary>${c.traits?'Disposition: '+Object.entries(c.traits).map(([k,v])=>k+' '+v).join(', ')+'<br>':''}Secret: ${esc(c.secret)}<br>Fear: ${esc(c.fear)}<br>Want: ${esc(c.want)}</details></div>`).join('')).join('');
@@ -177,7 +177,7 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
 
 function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)return;
  const seat=(s.seats||[]).find(x=>x.name===c.name)||{};
- $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b><span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.banished?'banished':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>`;
+ $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b><span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
  const html=(peoTab==='bio'?paneBio(s,c):peoTab==='health'?paneHealth(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<div class="note" style="margin-top:10px">${esc(peoNote)}</div>`);
@@ -192,7 +192,7 @@ function paneBio(s,c){const places=s.places||[];
  return `<div class="pg"><div><label>Name</label><input id="b_name" value="${esc(c.name)}"></div><div><label>Trade</label><input id="b_trade" value="${esc(c.trade)}"></div></div>
  <div class="pg3"><div><label>Home</label><input id="b_home" value="${esc(c.home)}" list="b_places"><datalist id="b_places">${places.map(p=>`<option>${esc(p)}</option>`).join('')}</datalist></div>
   <div><label>Where they are now</label><select id="b_loc">${places.map(p=>`<option ${p===c.location?'selected':''}>${esc(p)}</option>`).join('')}</select></div>
-  <div><label>State</label><select id="b_state"><option value="alive" ${c.alive&&!c.banished?'selected':''}>alive</option><option value="banished" ${c.banished?'selected':''}>banished</option><option value="dead" ${!c.alive?'selected':''}>dead</option></select></div></div>
+  <div><label>State</label><select id="b_state"><option value="alive" ${c.alive&&!c.gone?'selected':''}>alive</option><option value="gone" ${c.gone?'selected':''}>gone from the valley</option><option value="dead" ${!c.alive?'selected':''}>dead</option></select></div></div>
  <div class="pg"><div><label>Played by</label><select id="b_prov"></select></div><div><label>Model</label><select id="b_model"></select><input id="b_custom" placeholder="custom model" style="display:none;margin-top:4px"></div></div>
  <div class="pg"><div><label>Personality</label><textarea id="b_pers">${esc(c.personality)}</textarea></div><div><label>Secret, known only to them</label><textarea id="b_secret">${esc(c.secret)}</textarea></div></div>
  <div class="pg"><div><label>Fear</label><textarea id="b_fear">${esc(c.fear)}</textarea></div><div><label>What they want more than anything</label><textarea id="b_want">${esc(c.want)}</textarea></div></div>
@@ -220,7 +220,7 @@ function paneHealth(s,c){
    <div class="foot">Terraceilia keeps one wound level for a person, not separate limbs and organs. Everything above is read from it.</div></div>
   <div class="card2"><div class="ch">Where they stand</div>
    ${row('Living',c.alive?'yes':'no, '+esc(c.cause_of_death||'unknown'),c.alive?'good':'poor')}
-   ${row('Banished',c.banished?'yes':'no',c.banished?'poor':'')}
+   ${row('Gone from the valley',c.gone?'yes':'no',c.gone?'poor':'')}
    ${row('Place',esc(c.location))}
    ${row('Fire where they are',burning?'burning now':'no',burning?'poor':'good')}
    ${row('Ruined there',ruined.length?esc(ruined.join(', ')):'nothing',ruined.length?'poor':'')}
@@ -239,7 +239,7 @@ function paneStats(s,c){const sk=Object.entries(c.skills||{});
    ${row('Speed',`${bar(c.spd,9)}<input class="vin" type="number" id="s_spd" min="0" max="9" value="${c.spd}">`)}
    <div class="ch" style="margin-top:16px">In the valley</div>
    ${row('Gold',`<input class="vin" type="number" id="s_gold" min="0" value="${c.gold}">`)}
-   ${row('Standing',`<select class="vin wide" id="s_stand">${['unknown','respected','feared','pitied','hated','loved'].map(x=>`<option ${x===c.standing?'selected':''}>${x}</option>`).join('')}</select>`)}
+   ${row('Standing',`<select class="vin wide" id="s_stand">${['hated','shunned','unknown','known','respected','loved'].map(x=>`<option ${x===c.standing?'selected':''}>${x}</option>`).join('')}</select>`)}
    ${row('Trade',esc(c.trade||'none'))}
    ${row('Home',esc(c.home||'nowhere'))}</div>
   <div class="card2"><div class="ch">Skills</div>
@@ -301,8 +301,8 @@ function peoWire(s,c){const pane=$('peoPane');
     personality:$('b_pers').value,secret:$('b_secret').value,fear:$('b_fear').value,want:$('b_want').value,
     ...pickVal($('b_prov'),$('b_model'),$('b_custom'))};
    if(st==='dead')d.hp=0;
-   if(st==='banished')d.banished=true;
-   if(st==='alive'){d.banished=false;d.alive=true;if(c.hp<=0)d.hp=1}
+   if(st==='gone')d.gone=true;
+   if(st==='alive'){d.gone=false;d.alive=true;if(c.hp<=0)d.hp=1}
    const nn=d.new_name;peoNote='';const r=await api('/edit/character',{name:peoSel,...d});
    if(nn&&nn!==peoSel&&(r.characters||[]).some(x=>x.name===nn))peoSel=nn;
    peoNote=r.last_god||'no change';peoPaneHtml='';render(r)}}
@@ -375,7 +375,7 @@ function renderSituations(s){const box=$('sitList');if(typing(box))return;const 
  box.querySelectorAll('[data-out]').forEach(b=>b.onclick=async()=>{b.disabled=true;render(await api('/god/extinguish',{place:b.dataset.out}))})}
 
 // ---------- Fate
-function renderFate(s){const alive=(s.characters||[]).filter(c=>c.alive&&!c.banished).map(c=>c.name);
+function renderFate(s){const alive=(s.characters||[]).filter(c=>c.alive&&!c.gone).map(c=>c.name);
  const places=s.places||[];const put=(id,arr,keep)=>{const el=$(id);const v=keep&&arr.includes(el.value)?el.value:arr[0];el.innerHTML=arr.map(x=>`<option ${x===v?'selected':''}>${esc(x)}</option>`).join('');el.value=v};
  put('f_whisper_who',alive,true);put('f_move_who',alive,true);put('f_smite_who',alive,true);
  put('f_move_place',places,true);put('f_fire_place',places,true);put('f_dest_place',places,true);
@@ -510,7 +510,7 @@ $('sayBtn').onclick=async()=>{const t=$('sayText').value.trim();if(!t)return;$('
 
 // ---------- @ mentions in the composer
 let acItems=[],acIdx=0,acStart=-1;
-function people(){return (S&&S.characters||[]).filter(c=>c.alive&&!c.banished)}
+function people(){return (S&&S.characters||[]).filter(c=>c.alive&&!c.gone)}
 function acClose(){$('ac').classList.remove('open');acItems=[]}
 function acRender(){$('ac').innerHTML=acItems.map((x,i)=>`<div class="${i===acIdx?'on':''}" data-i="${i}"><span class="dot" style="background:${esc(seatColor(x.name))}"></span><span>${esc(x.name)}</span><small>${esc(x.trade)} \u00b7 ${esc(x.location)}</small></div>`).join('');
  document.querySelectorAll('#ac div').forEach(d=>{d.onmousedown=e=>{e.preventDefault();acPick(+d.dataset.i)}});$('ac').classList.toggle('open',acItems.length>0)}

@@ -56,9 +56,9 @@ class PeopleEditTests(unittest.TestCase):
 
     def test_the_rest_of_the_screen_still_saves(self) -> None:
         self.app.edit_character({"name": "Bett", "trade": "eel catcher", "home": "The mill", "str": 8, "gold": 12,
-                                 "standing": "feared", "traits": {"drink": 5}, "want": "a dry roof"})
+                                 "standing": "respected", "traits": {"drink": 5}, "want": "a dry roof"})
         c = self.me()
-        self.assertEqual((c["trade"], c["home"], c["str"], c["gold"], c["standing"]), ("eel catcher", "The mill", 8, 12, "feared"))
+        self.assertEqual((c["trade"], c["home"], c["str"], c["gold"], c["standing"]), ("eel catcher", "The mill", 8, 12, "respected"))
         self.assertEqual(c["traits"]["drink"], 5)
         self.assertEqual(c["want"], "a dry roof")
         self.assertTrue(c.get("changed"), "a changed life makes them play the new self")
