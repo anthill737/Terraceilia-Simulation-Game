@@ -268,6 +268,16 @@ header .sheetbtn{font-size:13px;padding:0 11px}
 .tie .mut{display:flex;gap:5px;align-items:center;color:var(--ink-dim);font-size:11.5px;white-space:nowrap}
 .tie .mut input{width:auto;height:auto}
 
+/* duties */
+.dutylist{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.duty{display:grid;grid-template-columns:auto 1fr;grid-template-areas:"box name" "box made" "box who" "box breaks";gap:2px 10px;align-items:start;padding:9px 11px;border:1px solid var(--edge2);border-radius:5px;background:var(--tab2);cursor:pointer;font-size:12.5px}
+.duty input{grid-area:box;width:auto;height:auto;margin-top:3px;accent-color:var(--gold)}
+.duty .dl{grid-area:name;color:var(--ink)}.duty .dl i{font-style:normal;color:var(--ink-faint);font-size:11.5px}
+.duty .dm{grid-area:made;color:var(--ink-dim);font-size:11.5px}.duty .dh{grid-area:who;color:var(--ink-dim);font-size:11.5px}.duty .dh.poor{color:#d0785f}
+.duty .db{grid-area:breaks;color:var(--ink-faint);font-size:11px}
+.duty.on{border-color:var(--gold);box-shadow:inset 0 0 0 1px rgba(201,162,39,.35)}.duty.un{border-style:dashed}
+@media (max-width:820px){.dutylist{grid-template-columns:1fr}}
+
 /* log */
 .logday{font:600 11px Inter,sans-serif;letter-spacing:1.2px;text-transform:uppercase;color:var(--gold);margin:16px 2px 8px;
  border-bottom:1px solid var(--edge2);padding-bottom:5px}
