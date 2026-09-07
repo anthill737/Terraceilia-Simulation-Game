@@ -186,7 +186,7 @@ const MapView=(()=>{
  function readWeather(s){const t=narration(s);
   weather={snow:/\bsnow/.test(t),rain:/\brain|drizzle|downpour/.test(t),fog:/\bfog|mist|ash\b/.test(t),wolves:/\bwol(f|ves)\b/.test(t),fire:/\bfire\b|burn|blaze/.test(t),night:/\bnight|dusk|dark/.test(t)};
   if(sky==='ash')weather.fog=true;if(sky==='storm')weather.rain=true;
-  if(s.ledger&&s.ledger.grain_weeks!==undefined&&s.day>=8&&!s.map_generated)weather.snow=weather.snow||s.day>=8}
+  const w=(s.weather||'');if(/snow|bitter/.test(w))weather.snow=true;if(/rain|storm/.test(w))weather.rain=true;if(w==='storm')weather.night=weather.night||false}
  function renderWeather(){const g=$('weather');if(!g)return;const key=JSON.stringify(weather)+sky;if(g.dataset.key===key)return;g.dataset.key=key;g.innerHTML='';const R=rng(3);
   if(weather.snow){for(let i=0;i<70;i++){const x=R()*1000,y=R()*780;const f=el('circle',{cx:x,cy:y,r:1.2+R()*1.6,fill:'#fff',opacity:.7},g);el('animate',{attributeName:'cy',values:`${y};${y+780}`,dur:`${9+R()*8}s`,repeatCount:'indefinite'},f);el('animate',{attributeName:'cx',values:`${x};${x+30};${x-10};${x+20}`,dur:`${9+R()*8}s`,repeatCount:'indefinite'},f)}}
   if(weather.rain){for(let i=0;i<60;i++){const x=R()*1000,y=R()*780;const l=el('line',{x1:x,y1:y,x2:x-4,y2:y+14,stroke:'#9fc7e0','stroke-width':1.2,opacity:.5},g);el('animate',{attributeName:'y1',values:`${y};${y+780}`,dur:`${1.2+R()*.8}s`,repeatCount:'indefinite'},l);el('animate',{attributeName:'y2',values:`${y+14};${y+794}`,dur:`${1.2+R()*.8}s`,repeatCount:'indefinite'},l)}}
@@ -216,7 +216,7 @@ const MapView=(()=>{
  function render(s){S_=s;if(!s.map||!(s.created||s.map_generated))return;const svg=$('mapSvg');
   const mk=(s.map_name||'')+'|'+Object.keys(s.map).join('|')+'|'+JSON.stringify(s.map_style||{});
   if(!built||svg.dataset.gid!==s.id||svg.dataset.mk!==mk){buildBase(s);svg.dataset.gid=s.id;svg.dataset.mk=mk}
-  readWeather(s);renderWeather();renderFire(s);renderDaylight();const dt=$('dayText');if(dt)dt.textContent=`Day ${s.day} · grain for ${s.ledger.grain_weeks} of ${s.ledger.grain_needed} weeks`;
+  readWeather(s);renderWeather();renderFire(s);renderDaylight();const dt=$('dayText');if(dt)dt.textContent=`Day ${s.day}${(s.day_report||{}).season?' · '+s.day_report.season:''}${s.weather?' · '+s.weather:''} · grain ${(s.ledger||{}).grain??0} · meals ${(s.ledger||{}).meals??0} · wood ${(s.ledger||{}).wood??0}`;
   document.querySelectorAll('.road.unsafe').forEach(r=>r.classList.toggle('open',!!s.ledger.road_safe));
   for(const [n,d] of Object.entries(s.map)){const gone=d.destroyed||[];const ru=$('ru-'+n.replace(/\W/g,'_'));if(ru)ru.textContent=gone.length?'ruined: '+gone.join(', '):''}
   const thinking=new Set((s.current||'').split(', ').filter(Boolean));const acted={};(s.pending||[]).forEach(a=>acted[a.who]=a.text);

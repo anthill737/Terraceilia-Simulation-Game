@@ -72,7 +72,7 @@ def answer(text: str) -> str:
         ppl = re.findall(r"^- (.+?) \(.*?, at (.+?)\): STR", text, re.M)
         results = []
         if ppl and adj.get(ppl[0][1]): results.append({"who": ppl[0][0], "location": adj[ppl[0][1]][0], "note": "walked"})
-        return "The day passes in mud and argument.\n" + fenced({"results": results, "events": [], "ledger": {"grain_weeks": 0}})
+        return "The day passes in mud and argument.\n" + fenced({"results": results, "events": [], "ledger": {"grain": 0}})
     if "The year is over" in text:
         return "The chronicle ends here, in the fen."
     return "I keep my own counsel and watch the water.\nACTION: I mend my nets and listen."
