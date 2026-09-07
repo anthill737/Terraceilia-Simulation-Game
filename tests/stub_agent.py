@@ -67,7 +67,7 @@ def answer(text: str) -> str:
                    "secret": "owes the miller", "fear": "the mere at night", "want": "a dry roof"} for i, n in enumerate(names)]
         rels = [{"a": names[0], "b": names[1], "type": "rival", "feeling": -2, "trust": -1, "mutual": True, "why": "the same eel run"}] if len(names) > 1 else []
         return "The fen wakes under a low sky.\n" + fenced({"people": people, "relations": rels})
-    if "Actions to resolve" in text:                      # a day's resolution: the first person walks one path
+    if "actions to resolve" in text:                      # a day's resolution: the first person walks one path
         adj = {m.group(1): [a.strip() for a in m.group(2).split(",")] for m in re.finditer(r"^- (.+?): .*? Paths lead to: (.+?)\.$", text, re.M)}
         ppl = re.findall(r"^- (.+?) \(.*?, at (.+?)\): STR", text, re.M)
         results = []
@@ -75,6 +75,8 @@ def answer(text: str) -> str:
         return "The day passes in mud and argument.\n" + fenced({"results": results, "events": [], "ledger": {"grain": 0}})
     if "The year is over" in text:
         return "The chronicle ends here, in the fen."
+    if "It is morning" in text: return "ACTION: WORK"
+    if "It is evening" in text: return "Cold night." if "Say something" in text else "PASS"
     return "I keep my own counsel and watch the water.\nACTION: I mend my nets and listen."
 
 

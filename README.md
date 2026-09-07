@@ -78,28 +78,30 @@ That takes a minute or two. Then day one begins.
 
 ## How a day goes
 
-1. **The people speak.** Every living person still in the valley gets one prompt containing their
-   sheet, where they are and who is with them, the valley's unresolved situations, and everything
-   they saw and heard since their last turn. Extreme traits push daily urges on them: a drunkard has
-   been drinking since noon, a wanton one wants somebody, a schemer has decided somebody is in the
-   way. They answer in character, a few sentences, and end with exactly one `ACTION:` line.
-2. **Reactions.** Anyone addressed with `@Name`, or whispered to with `WHISPER @Name:`, gets a turn
-   to answer. Whispers are heard only by the target and the World, and only if the target is standing
-   in the same place.
-3. **The World resolves the day.** The engine rolls a die for every action, draws the day's events
-   from the drama dial, spreads any fires, and hands it all to the World. The World narrates what
-   happened, place by place, and proposes results in a JSON block: wounds, gold, moves, deaths,
-   the prosperity ledger, new situations, changed feelings. The engine validates every line and
-   clamps anything impossible.
-4. **The chronicle.** What the whole valley learned goes into the chronicle. What each person
-   witnessed goes into their own memory file.
+1. **Dawn.** The engine rolls the weather, spoils the stores, wears the roofs, feeds and warms the
+   people from what there is, lets sickness in, and buries nobody. Every unclaimed duty is dumped on
+   the nearest able person for the day; a fire, a bad injury, or an attack pulls whoever is nearest.
+   A line goes into the chronicle with the season, the weather, and what is low, broken, sick, or
+   burning.
+2. **Morning: duties.** Everyone able with work is given their duties with place, output, and what
+   it costs the valley if skipped. Their `ACTION:` line must begin with `WORK` (all of it), `WORK`
+   and one duty's name, or `REFUSE`; anything else counts as skipping. The engine resolves it: output
+   rolled from skill and dice, the ledger moved, the skill nudged up. Skipping or refusing drops
+   standing and the duty goes unclaimed. What nobody did lands its cost and goes to the World and
+   the chronicle by name; after two days a neighbour complains by name.
+3. **Afternoon: free actions.** Only the people something touched, or whose nature is pushing them,
+   are asked. Anyone named or whispered to at the same place gets a turn to answer. Driving someone
+   out, refusing to share, taking work, leaving, and every duty change are settled by the engine
+   before the World sees anything.
+4. **The World resolves the afternoon.** It is given the morning's work, what went undone, the
+   settled outcomes, the day's events, and the afternoon's actions with a die for each, and writes
+   one outcome per person who acted, two sentences at most.
+5. **Evening: talk.** Everyone goes home, or to the inn if it pulls them, and the people something
+   touched talk where they are. No actions. Then the day ends.
 
-Nothing is decided by a body or a show of hands. If someone has to go, a person drives them out
-as their action, and the engine settles it: the target can resist, the people standing there take a
-side, and the outcome is rolled from standing, ties, and dice. A person can also refuse to share
-with someone, take their work from them, or leave the valley for good, all settled the same way.
-Anyone driven out or gone is benched with the reason in their log. The year ends when the days run
-out, the clock runs out, or one person is left standing. Then the World writes the epilogue.
+Every villager's reply is cut to three sentences before the action line, every World outcome to two,
+and every dash a model writes is replaced on the way in. Quiet days are allowed: a person with nothing
+touching them replies PASS and is not asked again.
 
 ### The people
 
