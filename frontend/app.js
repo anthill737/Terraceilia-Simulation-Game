@@ -85,10 +85,11 @@ function render(s){const first=!S||S.id!==s.id;if(first){T=[];lastTurn=-1}mergeT
   $('makingHead').textContent=drawing?'The map is being drawn from your description':'The World is making the valley';
   $('makingNote').textContent=drawing?'The ground, the water, the sky, the places and the names all come from what you wrote. Then the World rolls the people. Watch the World\u2019s terminal.':'Rolling every life, secret, and grudge. This takes a minute or two. Watch the World\u2019s terminal.'}
  $('chronEmpty').style.display=s.transcript.length?'none':'block';
- const msgHtml=e=>`<div class="msg ${e.kind}${/^\s*WHISPER\s+@/im.test(e.text)?' whisper':''}${e.kind==='convener'&&/@[A-Za-z]/.test(e.text)?' private':''}" style="${e.color?'--c:'+esc(e.color):''}"><div class="hd"><span class="who">${esc(e.speaker)}</span><span class="meta">Day ${e.day??0}, turn ${e.turn}${e.place?' \u00b7 '+esc(e.place):''}</span></div><div class="body">${rich(e.text)}</div></div>`;
- const have=$('msgs').children.length;
+ const part=e=>e.phase&&e.day?`Day ${e.day} · ${e.phase}`:'';
+ const msgHtml=(e,i,arr)=>{const prev=i>0?arr[i-1]:null;const key=part(e);const div=key&&(!prev||part(prev)!==key)?`<div class="daypart">${esc(key)}</div>`:'';return div+`<div class="msg ${e.kind}${/^\s*WHISPER\s+@/im.test(e.text)?' whisper':''}${e.kind==='convener'&&/@[A-Za-z]/.test(e.text)?' private':''}" style="${e.color?'--c:'+esc(e.color):''}"><div class="hd"><span class="who">${esc(e.speaker)}</span><span class="meta">Day ${e.day??0}, turn ${e.turn}${e.place?' \u00b7 '+esc(e.place):''}</span></div><div class="body">${rich(e.text)}</div></div>`};
+ const have=$('msgs').querySelectorAll('.msg').length;
  if(first||have>s.transcript.length){$('msgs').innerHTML=s.transcript.map(msgHtml).join('');chronBottom()}
- else if(have<s.transcript.length){const atB=$('chron').scrollHeight-$('chron').scrollTop-$('chron').clientHeight<120;$('msgs').insertAdjacentHTML('beforeend',s.transcript.slice(have).map(msgHtml).join(''));if(atB)chronBottom()}
+ else if(have<s.transcript.length){const atB=$('chron').scrollHeight-$('chron').scrollTop-$('chron').clientHeight<120;$('msgs').insertAdjacentHTML('beforeend',s.transcript.slice(have).map((e,i)=>msgHtml(e,have+i,s.transcript)).join(''));if(atB)chronBottom()}
  // a hidden panel has no height to scroll, so land on the newest day the moment it is shown
  const chronNow=getComputedStyle($('chron')).display!=='none';
  if(chronNow&&!chronShown)chronBottom();
@@ -106,7 +107,28 @@ function refreshSheet(name,s){if(!s)return;
  else if(name==='situations')renderSituations(s);
  else if(name==='fate')renderFate(s);
  else if(name==='connections'){renderConn(s);renderTg(s)}
+ else if(name==='colony')renderColony(s)
  else if(name==='more')renderMore(s)}
+
+// ---------- Colony: the day's work and who holds it, the ledger with today's change, the season and the weather
+let colHtml='';
+function renderColony(s){const R=s.day_report||{};const L=s.ledger||{};const ch=R.change||{};const defs=s.duty_defs||{};const roster=(s.roster||{}).duties||{};const st=s.duty_state||{};
+ if(!s.created){$('colHead').innerHTML='<div class="empty">The colony appears here once the World has rolled it.</div>';$('colDuties').innerHTML='';$('colLedger').innerHTML='';$('colPlaces').innerHTML='';$('colMorning').innerHTML='';colHtml='';return}
+ const sick=(s.characters||[]).filter(c=>c.alive&&!c.gone&&c.sick).map(c=>c.name);const bodies=Object.entries(s.bodies||{});
+ const head=`<div class="colday"><b>Day ${s.day}</b><span class="colseason">${esc(R.season||'')}</span><span class="colweather">${esc(s.weather||'')}</span>${s.status==='running'&&s.phase?`<span class="note">${esc(s.phase)}</span>`:''}${R.growing===false?'<span class="note">nothing grows</span>':''}</div>
+  <div class="note">${sick.length?`Sick and cannot work: ${sick.map(esc).join(', ')}. `:''}${bodies.length?`Unburied: ${bodies.map(([n,p])=>esc(n)+' at '+esc(p)).join(', ')}. `:''}${Object.keys(s.fires||{}).length?`Burning: ${Object.keys(s.fires).map(esc).join(', ')}. `:''}${(R.hungry||[]).length?`Hungry: ${R.hungry.map(esc).join(', ')}. `:''}${(R.freezing||[]).length?`Freezing: ${R.freezing.map(esc).join(', ')}. `:''}</div>`;
+ const duties=Object.entries(defs).map(([k,d])=>{const r=roster[k]||{};const x=st[k]||{};const hs=(s.characters||[]).filter(c=>c.alive&&!c.gone&&(c.duties||[]).includes(k)).map(c=>c.name);
+  const un=!hs.length;const done=x.done_day===s.day;const sickSet=new Set(sick);const who=(hs.length?hs.map(h=>esc(h)+(sickSet.has(h)?' (sick)':'')).join(', '):'')+(r.dumped_on&&!hs.includes(r.dumped_on)?`${hs.length?', ':''}<span class="poor">dumped on ${esc(r.dumped_on)}</span>`:'')||'nobody';
+  return `<div class="colduty ${un?'un':''} ${done?'done':''}"><span class="cdn"><b>${esc(d.label)}</b><i>${esc(r.place||'')}</i></span><span class="cdw ${un?'poor':''}">${who}</span><span class="cds">${done?'done':x.undone_days?`undone ${x.undone_days} day${x.undone_days>1?'s':''}`:''}</span></div>`}).join('');
+ const ledger=STORES.map(k=>`<div class="srow"><span class="lbl">${k}</span><span class="dots"></span><span class="val ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'poor':''}">${L[k]??0}${ch[k]?`<i class="chg ${ch[k]>0?'up':'down'}">${ch[k]>0?'+':''}${ch[k]}</i>`:'<i class="chg"></i>'}</span></div>`).join('')
+  +`<div class="srow"><span class="lbl">road after dark</span><span class="dots"></span><span class="val ${L.road_safe?'good':'poor'}">${L.road_safe?'safe':'unsafe'}</span></div><div class="srow"><span class="lbl">built</span><span class="dots"></span><span class="val">${esc((L.built||[]).join(', ')||'nothing')}</span></div>`;
+ const pc=(R.places||{});const places=Object.entries(s.upkeep||{}).map(([p,u])=>{const d=pc[p]||{};const cell=(k,v,bad)=>`<span class="${bad?'poor':''}">${k} ${v}${d[k]?`<i class="chg ${d[k]>0?'up':'down'}">${d[k]>0?'+':''}${d[k]}</i>`:''}</span>`;
+  const roofed=!['forest','fields','water','road','cave','ruin'].includes(((s.map||{})[p]||{}).kind);
+  return `<div class="colplace"><b>${esc(p)}</b>${roofed?cell('roof',u.roof,u.roof<4):'<span class="note">no roof</span>'}${cell('warmth',u.warmth,u.warmth<=2)}${cell('filth',u.filth,u.filth>=6)}</div>`}).join('');
+ const m=(s.transcript||[]).slice().reverse().find(e=>e.kind==='morning'&&e.day===s.day);
+ const morning=m?`<div class="card2" style="margin-top:12px"><div class="ch">This morning</div><div class="colmorn">${rich(m.text)}</div></div>`:'';
+ const html=head+'|'+duties+'|'+ledger+'|'+places+'|'+morning;if(html===colHtml)return;colHtml=html;
+ $('colHead').innerHTML=head;$('colDuties').innerHTML=duties||'<div class="note">No duties yet.</div>';$('colLedger').innerHTML=ledger;$('colPlaces').innerHTML=places;$('colMorning').innerHTML=morning}
 document.querySelectorAll('.sheetclose').forEach(b=>b.onclick=()=>sheet(''));
 document.querySelectorAll('.sheetwrap').forEach(w=>w.onclick=e=>{if(e.target===w)sheet('')});
 document.querySelectorAll('.sheetbtn').forEach(b=>b.onclick=()=>sheet(b.dataset.sheet));
@@ -170,7 +192,7 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
   return `<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
    <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${(((s.titles||{})[c.name])||[]).length?esc(((s.titles||{})[c.name]).join(', '))+' · ':''}${esc(c.location)}${c.sick?' · sick':''}</span>
    <span class="chp ${band}"><i style="width:${c.alive?pct:0}%"></i></span>
-   <span class="chhp">${c.alive?`hp ${c.hp}/${c.hp_max}`:'dead'}</span></button>`}).join('')
+   <span class="chhp">${c.alive?`hp ${c.hp}/${c.hp_max}`:'dead'}</span>${c.alive&&c.activity?`<span class="chact">${esc(c.activity)}</span>`:''}</button>`}).join('')
   ||'<div class="empty">Nobody matches that.</div>';
  if(html!==peoStripHtml){$('peoStrip').innerHTML=html;peoStripHtml=html;
   $('peoStrip').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{if(peoSel!==b.dataset.n){peoSel=b.dataset.n;peoNote='';peoPaneHtml=''}renderPeople(S)})}
@@ -183,7 +205,7 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
 function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)return;
  const seat=(s.seats||[]).find(x=>x.name===c.name)||{};
  const tt=((s.titles||{})[c.name]||[]);
- $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b>${tt.length?`<span class="ttl">${esc(tt.join(', '))}</span>`:''}<span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>`;
+ $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b>${tt.length?`<span class="ttl">${esc(tt.join(', '))}</span>`:''}<span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return g.text?`<span class="wants">wants <b>${esc(g.text)}</b> · ${wp[0]}%</span>`:''})()}`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
  const html=(peoTab==='bio'?paneBio(s,c):peoTab==='health'?paneHealth(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):peoTab==='duties'?paneDuties(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<div class="note" style="margin-top:10px">${esc(peoNote)}</div>`);
@@ -493,7 +515,7 @@ $('d_reset').onclick=()=>{disp={...DISP};dispSave(disp)};
 // ---------- More (phone)
 function renderMore(s){const started=s.created||s.transcript.length>0||s.status==='running'||s.status==='paused';
  $('moreList').innerHTML=(started?'':`<button class="btn" style="width:100%;margin-bottom:8px" data-m="setup">Set this game up</button>`)+
- [['world','World'],['situations','Situations'],['fate','Fate'],['connections','Connections'],['display','Display']]
+ [['colony','Colony'],['world','World'],['situations','Situations'],['fate','Fate'],['connections','Connections'],['display','Display']]
  .map(([k,l])=>`<button class="btn" style="width:100%;margin-bottom:8px;justify-content:flex-start" data-m="${k}">${l}</button>`).join('')
  +`<button class="btn" style="width:100%;margin-bottom:8px" data-m="x-chronicle">Export the chronicle</button>`
  +`<button class="danger" style="width:100%;margin-bottom:8px" data-m="stop">Stop this year</button>`
