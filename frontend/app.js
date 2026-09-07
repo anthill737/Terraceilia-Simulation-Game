@@ -19,8 +19,9 @@ function rich(t){let h=esc(t);const hold=[];const keep=x=>{hold.push(x);return `
  h=h.replace(/\u0000(\d+)\u0000/g,(m,i)=>hold[+i]);
  return h.split(/\n{2,}/).map(p=>`<p>${p.replace(/\n/g,'<br>')}</p>`).join('')}
 function fillSel(sel,opts,val){const h=opts.map(o=>`<option ${o===val?'selected':''}>${esc(o)}</option>`).join('');if(sel.innerHTML!==h)sel.innerHTML=h;sel.value=val}
-function modelUI(pfx,val){const p=$(pfx+'_p'),m=$(pfx+'_m'),c=$(pfx+'_c');fillSel(p,Object.keys(providers),val.provider);const ms=(providers[val.provider]||{models:[]}).models.concat(['Custom...']);const known=ms.includes(val.model);fillSel(m,ms,known?val.model:'Custom...');c.style.display=known?'none':'';if(!known)c.value=val.model}
-function modelVal(pfx){const m=$(pfx+'_m').value;return {provider:$(pfx+'_p').value,model:m==='Custom...'?($(pfx+'_c').value.trim()||''):m}}
+const FIRST='First model that answers';
+function modelUI(pfx,val){const p=$(pfx+'_p'),m=$(pfx+'_m'),c=$(pfx+'_c');fillSel(p,Object.keys(providers),val.provider);const ms=[FIRST].concat((providers[val.provider]||{models:[]}).models,['Custom...']);const v=val.model||FIRST;const known=ms.includes(v);fillSel(m,ms,known?v:'Custom...');c.style.display=known?'none':'';if(!known)c.value=val.model}
+function modelVal(pfx){const m=$(pfx+'_m').value;return {provider:$(pfx+'_p').value,model:m==='Custom...'?($(pfx+'_c').value.trim()||''):m===FIRST?'':m}}
 const DRAMA=['nothing','a whisper','quiet','calm','ordinary','lively','eventful','hard','harsh','brutal','chaos'];
 const STORES=['grain','meat','fish','wood','meals','tools','herbs'];
 const NEEDW={food:['starving','hungry','fed'],warmth:['freezing','cold','warm'],rest:['exhausted','tired','rested'],spirit:['broken','low','in good spirits']};
@@ -145,9 +146,9 @@ document.querySelectorAll('#gearMenu .list button').forEach(b=>b.onclick=async()
  else if(g==='quit'){if(!confirm('Quit Terraceilia? Every CLI it started is killed. Games are kept.'))return;try{await api('/shutdown',{})}catch(e){}document.body.innerHTML='<div style="padding:40px;color:var(--muted)">Terraceilia is closed.</div>'}});
 
 // ---------- People
-function modelPick(pfx,val,selP,selM,inpC){fillSel(selP,Object.keys(providers),val.provider);const ms=(providers[val.provider]||{models:[]}).models.concat(['Custom...']);const known=ms.includes(val.model);fillSel(selM,ms,known?val.model:'Custom...');inpC.style.display=known?'none':'';if(!known)inpC.value=val.model;
- selP.onchange=()=>{const m2=(providers[selP.value]||{models:['']}).models.concat(['Custom...']);fillSel(selM,m2,m2[0]);inpC.style.display='none'};selM.onchange=()=>{inpC.style.display=selM.value==='Custom...'?'':'none';if(selM.value==='Custom...')inpC.focus()}}
-function pickVal(selP,selM,inpC){const m=selM.value;return {provider:selP.value,model:m==='Custom...'?inpC.value.trim():m}}
+function modelPick(pfx,val,selP,selM,inpC){fillSel(selP,Object.keys(providers),val.provider);const ms=[FIRST].concat((providers[val.provider]||{models:[]}).models,['Custom...']);const v=val.model||FIRST;const known=ms.includes(v);fillSel(selM,ms,known?v:'Custom...');inpC.style.display=known?'none':'';if(!known)inpC.value=val.model;
+ selP.onchange=()=>{const m2=[FIRST].concat((providers[selP.value]||{models:[]}).models,['Custom...']);fillSel(selM,m2,FIRST);inpC.style.display='none'};selM.onchange=()=>{inpC.style.display=selM.value==='Custom...'?'':'none';if(selM.value==='Custom...')inpC.focus()}}
+function pickVal(selP,selM,inpC){const m=selM.value;return {provider:selP.value,model:m==='Custom...'?inpC.value.trim():m===FIRST?'':m}}
 // ---------- People: the character screen. Everyone across the top, the chosen one below.
 let peoSel='',peoTab='bio',peoFilter='',tieSort='strongest',peoNote='',peoStripHtml='',peoPaneHtml='',peoShown='';
 const REL=['none','spouse','lover','kin','friend','rival','enemy','creditor','debtor','master','servant'];
@@ -452,10 +453,10 @@ function renderFate(s){const alive=(s.characters||[]).filter(c=>c.alive&&!c.gone
   $('f_smite').onclick=async()=>{const n=$('f_smite_who').value;if(!confirm('Strike '+n+' down? They die at once.'))return;const r=await api('/god/smite',{name:n});say(r.last_god);render(r)}}}
 
 // ---------- Connections
-const CONN_LABEL={connected:'Connected',not_installed:'Not installed',not_signed_in:'Not signed in',checking:'Checking',error:'Error'};
+const CONN_LABEL={connected:'Connected',signed_in:'Signed in, not probed',not_installed:'Not installed',not_signed_in:'Not signed in',checking:'Checking',error:'Error'};
 function renderConn(s){const root=$('connList');if(typing(root))return;const c=s.connections||{};const used=new Set((s.seats||[]).map(x=>x.provider).concat([(s.world_model||{}).provider,(s.model_a||{}).provider,(s.model_b||{}).provider]));
  const keep={};root.querySelectorAll('.keyin').forEach(i=>keep[i.dataset.p]=i.value);
- root.innerHTML=Object.entries(c).map(([k,p])=>{const st=p.state==='connected'?'ok':p.state==='checking'?'unk':'bad';
+ root.innerHTML=Object.entries(c).map(([k,p])=>{const st=p.state==='connected'?'ok':(p.state==='checking'||p.state==='signed_in')?'unk':'bad';
   const job=p.job;const showKey=p.key_env&&p.state!=='connected';
   return `<div class="conn" data-p="${esc(k)}">
    <div class="hd"><span><b>${esc(k)}</b>${used.has(k)?' <span class="note">\u00b7 this game uses it</span>':''}${p.version?` <span class="note">\u00b7 ${esc(p.version)}</span>`:''}</span>
@@ -466,9 +467,11 @@ function renderConn(s){const root=$('connList');if(typing(root))return;const c=s
     ${p.state==='not_signed_in'&&p.can_login?`<button class="btn act" data-do="login">Sign in</button>`:''}
     ${p.state==='not_installed'&&!p.can_install?`<span class="note">Nothing to install: it is fetched fresh on every run.</span>`:''}
     ${showKey?`<input class="keyin" type="password" data-p="${esc(k)}" placeholder="${esc(p.key_env)} (this session only)" autocomplete="off"><button class="btn act" data-do="key">Use key</button>`:''}
-    ${p.state==='connected'?`<span class="note">Nothing to do.</span>`:''}
+    ${(p.state==='connected'||p.state==='signed_in')?`<button class="btn act" data-do="probe">Probe</button>`:''}
+    ${p.shares?`<span class="note">Shares one account with ${esc(p.shares)}; a game uses only one of them.</span>`:''}
     ${p.docs?`<a class="note" href="${esc(p.docs)}" target="_blank" rel="noopener" style="margin-left:auto">docs</a>`:''}
    </div>
+   ${Object.keys(p.probes||{}).length?`<div class="note" style="margin-top:6px">${Object.entries(p.probes).map(([m,r])=>`${esc(m||'(default)')}: ${r.ok?'answered':'refused'}${r.message?' ('+esc(r.message.slice(0,80))+')':''}`).join(' \u00b7 ')}</div>`:''}
    ${p.node_missing?`<div class="note" style="margin-top:6px">Node.js is needed first. <a href="https://nodejs.org" target="_blank" rel="noopener">Get Node.js</a>, then press Install.</div>`:''}
    ${job?`<div class="res">${job.note?esc(job.note)+'\n':''}${esc((job.lines||[]).join('\n'))}${!job.done&&job.kind==='login'?'\nWaiting for the sign in to finish... '+Math.round((job.waited||0))+'s':''}</div>
      ${job.done?`<div class="row"><button class="btn sm act" data-do="dismiss">Hide this</button></div>`:''}`:''}
@@ -479,6 +482,7 @@ function renderConn(s){const root=$('connList');if(typing(root))return;const c=s
   if(d==='key'){const inp=box.querySelector('.keyin');const r=await api('/connect/key',{provider:k,key:inp.value});inp.value='';render(r)}
   else if(d==='install')render(await api('/connect/install',{provider:k}));
   else if(d==='login')render(await api('/connect/login',{provider:k}));
+  else if(d==='probe')render(await api('/connect/probe',{provider:k}))
   else if(d==='dismiss')render(await api('/connect/dismiss',{provider:k}))})}
 
 // ---------- Telegram: the row, and the three step wizard behind it
@@ -558,7 +562,7 @@ function mapModelVal(){const v=modelVal('mm'),w=modelVal('wm');return (v.provide
 $('map_source').onchange=()=>{$('mapModelRow').style.display=$('map_source').value==='generated'?'':'none';save()};
 $('drama').oninput=()=>{$('dramaNote').textContent=$('drama').value+' \u00b7 '+DRAMA[+$('drama').value]};$('drama').onchange=save;
 ['title','world_text','players','max_days','max_minutes','repo'].forEach(id=>{const el=$(id);el.onfocus=()=>editing=true;el.onblur=()=>{editing=false;save()}});
-['wm','ma','mb','mm'].forEach(p=>{$(p+'_p').onchange=()=>{const ms=(providers[$(p+'_p').value]||{models:['']}).models.concat(['Custom...']);fillSel($(p+'_m'),ms,ms[0]);$(p+'_c').style.display='none';save()};$(p+'_m').onchange=()=>{const cu=$(p+'_m').value==='Custom...';$(p+'_c').style.display=cu?'':'none';if(cu){editing=true;$(p+'_c').focus()}else save()};$(p+'_c').onfocus=()=>editing=true;$(p+'_c').onblur=()=>{editing=false;save()}});
+['wm','ma','mb','mm'].forEach(p=>{$(p+'_p').onchange=()=>{const ms=[FIRST].concat((providers[$(p+'_p').value]||{models:[]}).models,['Custom...']);fillSel($(p+'_m'),ms,FIRST);$(p+'_c').style.display='none';save()};$(p+'_m').onchange=()=>{const cu=$(p+'_m').value==='Custom...';$(p+'_c').style.display=cu?'':'none';if(cu){editing=true;$(p+'_c').focus()}else save()};$(p+'_c').onfocus=()=>editing=true;$(p+'_c').onblur=()=>{editing=false;save()}});
 $('primary').onclick=async()=>{const s=S||{};
  if(s.status==='running'){render(await api('/pause',{}));return}
  if(!(s.created))await save();

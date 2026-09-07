@@ -292,12 +292,20 @@ Every request carries the token as `?token=` or a cookie.
   launched read-only anyway. Point them at an empty folder; nothing in it is touched.
 - Claude Code seats resume their session between turns, so a person keeps their whole context.
   The other providers start fresh each turn and rely on the memory file the engine writes for them.
-- Codex signs in with a subscription and rotates its refresh token. Several seats refreshing at once
-  race, and the losers are refused. So each day one Codex call runs on its own first, and the sign in
-  file it leaves is kept as a copy. If a seat is refused anyway, the year pauses, the copy is put back,
-  the priming call runs again, and the year carries on by itself if that worked. If it did not, the
-  year stays paused and says so with a link to Connections. One game never mixes the two Codex
-  installs, because they share one sign in.
+- Every CLI is launched by `backend/runner.py`, which reads the exit code and the runner's own error lines
+  before anything is taken as a line of dialogue. A refusal for want of a sign in pauses the year and asks you
+  to sign in and press Resume. A model that is not found or not accessible moves the seat to the first model
+  of that provider that answered the probe, with a line in the chronicle. A rate limit or a server error waits
+  with backoff and asks again. Credentials missing from the request itself is a launcher bug: the run stops and
+  shows the exact command it built. Anything else is asked again once, then the seat is benched for the turn
+  with the runner's message. Two clocks kill a hung process: thirty minutes on the wall whatever it prints,
+  and five minutes without a line.
+- Nothing in Terraceilia reads or writes any CLI's credential file. Codex's sign in belongs to Codex; the two
+  Codex installs share it, so one game uses only one of them, and Connections says so.
+- Start runs a preflight: every seat's chosen model answers one tiny request through the same launcher and
+  environment a turn uses, or the run stops and the reason is shown. A seat with no model chosen takes the
+  first model of its provider that answers; nothing is hardcoded. Connections shows Connected only after a
+  model has answered a real request, with the time, and the version of the binary that will actually run.
 - Codex refuses folders it has not been told to trust. The engine marks the run folder as trusted
   in `~/.codex/config.toml` and keeps a backup of the file beside it.
 - A game saved before some part of the colony existed is brought up to date when it is opened: duties,
@@ -309,12 +317,6 @@ Every request carries the token as `?token=` or a cookie.
   `days` and `fixed_by` for each.
 - The whole page is drawn from seven colours defined once at the top of `frontend/style.css`; the
   map's own painting keeps its colours. Seat colours are warm and earthen.
-- If a Codex seat is refused with a 401, or Codex says the refresh token was revoked, the year pauses,
-  the saved sign in is put back and primed again, and the year carries on by itself if that worked.
-  If it did not, the year stays paused and says so; sign in to Codex under Connections and press
-  Resume, which primes again, keeps the new sign in as the copy, and asks again any seat that was
-  refused mid-turn so nobody loses a morning to a rotated token. `codex login status` reports a
-  revoked token as signed in, so the Connections row cannot warn you first.
 - Prompts are code. `backend/prompts.py` is short and worth reading before changing anything.
 - A test runs a whole year to its end, and the end of a year is one of the things Telegram is told
   about. Set `TERRACEILIA_NO_TELEGRAM=1` for anything that is not a real game; the test suite sets it

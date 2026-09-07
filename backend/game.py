@@ -8,18 +8,14 @@ from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extra
                     whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES, PASTIMES)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
-TURN_TIMEOUT = 1800
-TAIL = 400
+import runner
+import connect
 
-# Codex signs in with a subscription and rotates its refresh token. Several processes refreshing at the same
-# moment race, and the losers are refused with 401; a losing write can leave auth.json unusable. So each day
-# one Codex call is made on its own first, and the file it leaves behind is kept as the copy to fall back on.
+TAIL = 400
+# Both Codex installs read one sign in, so a game never mixes them. Nothing here reads or writes that sign in: a refusal pauses
+# the run and asks the convener to sign in again; the CLI owns its own credentials.
 CODEX_PROVIDERS = ("Codex", "Codex (latest)")
-# What a dead sign in looks like on the wire: a 401, or Codex saying the refresh token is gone.
-CODEX_401 = re.compile(r"\b401\b|unauthorized|missing bearer|refresh token was revoked|could not be refreshed|invalid_grant|not logged in|login required", re.I)
-CODEX_AUTH = Path.home() / ".codex" / "auth.json"
-CODEX_BACKUP = Path.home() / ".codex" / "auth.json.terraceilia-backup"
-CODEX_PRIME = "Reply with exactly the single word: ready"
+PROBE_PROMPT = "Reply with exactly the single word: ready"
 
 # ---------------------------------------------------------------- a game (persisted)
 class Game:
@@ -30,9 +26,10 @@ class Game:
         self.created = d.get("created", dt.datetime.now().isoformat(timespec="minutes"))
         self.world_text = d.get("world_text", DEFAULT_WORLD)
         self.players = d.get("players", 20)
-        self.model_a = d.get("model_a", {"provider": "Claude Code", "model": "claude-haiku-4-5"})
-        self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": "gpt-5.4-mini"})
-        self.world_model = d.get("world_model", {"provider": "Claude Code", "model": "claude-fable-5-1"})
+        # an empty model means the first model of that provider that answers the probe; nothing is hardcoded
+        self.model_a = d.get("model_a", {"provider": "Claude Code", "model": ""})
+        self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": ""})
+        self.world_model = d.get("world_model", {"provider": "Claude Code", "model": ""})
         self.map_source = d.get("map_source") if d.get("map_source") in ("builtin", "generated") else "builtin"
         self.map_model = d.get("map_model") if isinstance(d.get("map_model"), dict) else None     # None: the World's model draws it
         self.max_days = d.get("max_days", 12)
@@ -150,8 +147,8 @@ class Run:
         self.day_urges: dict[str, list[str]] = {}
         self.map_generating = False
         self.blocked = ""                       # why the run is stuck, in words the convener can act on
-        self.codex_lock = threading.Lock(); self._in_codex_recovery = False
-        self.reprime = False; self.refused: set[int] = set()     # seats whose last call was refused with 401, to be asked again after the recovery
+        self.auth_lock = threading.Lock()
+        self.last_error: dict[int, dict] = {}   # seat -> what the runner said the last time it failed: kind, message, cmd
         self._sync_terms(); self._migrate()
 
     def _migrate(self) -> None:
@@ -191,51 +188,102 @@ class Run:
         self.g.save()
         self._record("Engine", f"{', '.join(moved)} moved to {keep}. The two Codex installs share one sign in, so one game uses only one of them.", "system")
 
-    def _backup_codex(self) -> None:
-        try:
-            if CODEX_AUTH.is_file(): shutil.copy2(CODEX_AUTH, CODEX_BACKUP)
-        except OSError: pass
-
-    def _restore_codex(self) -> bool:
-        try:
-            if CODEX_BACKUP.is_file(): shutil.copy2(CODEX_BACKUP, CODEX_AUTH); return True
-        except OSError: pass
-        return False
-
-    def prime_codex(self, label: str) -> bool:
-        """One short call through Codex, alone, before the seats run in parallel. It refreshes the token once
-        instead of every seat refreshing at once, and the file it leaves is then kept as the copy to restore."""
-        prov = self.codex_provider()
-        if not prov: return True
-        model = next((s["model"] for s in self.g.seats if s["provider"] == prov), "")
-        out = self._invoke(0, CODEX_PRIME, f"Codex {label}", provider=prov, model=model)
-        ok = bool(out) and not CODEX_401.search(out)
-        if ok: self._backup_codex()
-        return ok
-
-    def _codex_refused(self) -> None:
-        """A seat was refused with 401. Pause at once, put the saved sign in back, prime again, and carry on if
-        that worked. If it did not, stay paused and say plainly what the convener has to do."""
-        with self.codex_lock:
-            if self._in_codex_recovery: return
-            self._in_codex_recovery = True
-        try:
-            self.pause_flag.set()
+    # ---- what a failed call means, and what to do about it
+    def _auth_refused(self, provider: str) -> None:
+        """A seat was refused for want of a sign in. Pause at once and say what the convener has to do. Nothing is restored:
+        the CLI owns its credentials, and the convener signs in again and presses Resume."""
+        with self.auth_lock:
             with self.lock:
-                self.g.status = "paused"; self.blocked = "Codex was refused. Putting the saved sign in back."; self.version += 1; self.g.save()
-            self._record("Engine", "A Codex seat was refused with 401, which is what a rotated sign in looks like. The run is paused while the saved sign in is restored and primed again.", "system")
-            self._restore_codex()
-            if self.prime_codex("priming again after a refusal"):
-                with self.lock:
-                    self.blocked = ""; self.g.status = "running"; self.version += 1; self.g.save()
-                self.pause_flag.clear()
-                self._record("Engine", "Codex answered again. The year carries on.", "system")
-            else:
-                with self.lock:
-                    self.blocked = "Codex signed out, sign in and press Resume"; self.version += 1; self.g.save()
-                self._record("Engine", "Codex is still signed out. Open the gear, then Connections, sign in to Codex, and press Resume.", "system")
-        finally:
-            with self.codex_lock: self._in_codex_recovery = False
+                if self.g.status != "running": return
+                self.pause_flag.set(); self.g.status = "paused"; self.blocked = f"{provider} signed out, sign in and press Resume"; self.version += 1; self.g.save()
+            self._record("Engine", f"{provider} refused a call for want of a sign in. The run is paused. Open the gear, then Connections, sign in to {provider}, and press Resume.", "system")
+
+    def _stop_with(self, why: str) -> None:
+        with self.lock: self.blocked = why; self.version += 1
+        self._record("Engine", why, "system"); self.stop_flag.set(); self._kill_tree()
+
+    def resolve_model(self, provider: str, model: str) -> str:
+        """The model a call is made with: the seat's own, or for an empty one the first of that provider that answered the probe."""
+        return model or connect.first_accessible(provider) or ""
+
+    def ask(self, i: int, prompt: str, label: str, provider: str | None = None, model: str | None = None) -> str | None:
+        """One turn's worth of asking a seat, with the error policy: a rate limit or server error waits with backoff; a model
+        error moves the seat to the first model that answered the probe; a sign in refusal pauses the run until Resume; a
+        launcher bug stops the run with the command; anything else is asked again once, then the seat is benched for the turn."""
+        g = self.g; prov_name = provider or g.seats[i]["provider"]; waits = 0; retried = False; switched = False; auth_tries = 0
+        while not self.stop_flag.is_set():
+            text = self._invoke(i, prompt, label, provider=provider, model=model)
+            if text is not None: return text
+            err = self.last_error.get(i)
+            if not err: return None
+            kind, msg = err["kind"], err["message"]
+            if kind == "launcher":
+                self._stop_with(f"A launcher bug stopped the run: {prov_name} was started without its credentials ({msg}). The command that was built: {err['cmd']}"); return None
+            if kind == "auth":
+                connect.record_probe(prov_name, err.get("model", ""), False, msg)
+                if auth_tries >= 2: break
+                auth_tries += 1; self._auth_refused(prov_name)
+                while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
+                continue
+            if kind == "rate":
+                if waits >= len(runner.BACKOFF): break
+                wait = runner.BACKOFF[waits]; waits += 1
+                self._term(i, f"[{prov_name} asked us to wait: {msg}; waiting {int(wait)} seconds]"); time.sleep(wait); continue
+            if kind == "model" and not switched and provider is None:
+                switched = True; seat = g.seats[i]; better = connect.first_accessible(seat["provider"], exclude=seat["model"])
+                if better and better != seat["model"]:
+                    old = seat["model"]
+                    with self.lock: seat["model"] = better; g.cli_sessions.pop(str(i), None); self.version += 1; g.save()
+                    self._record("Engine", f"{seat['name']}'s model {old or '(none)'} was refused ({msg}); {seat['name']} now uses {better}, the first {seat['provider']} model that answered the probe.", "system")
+                    continue
+            if not retried:
+                retried = True; self._term(i, f"[asking again once: {msg}]"); continue
+            break
+        if self.stop_flag.is_set(): return None
+        err = self.last_error.get(i) or {}
+        self._record("Engine", f"{g.seats[i]['name']} is benched for this turn. {prov_name} said: {err.get('message', 'no answer')}", "system")
+        return None
+
+    def probe_model(self, provider: str, model: str) -> tuple[bool, str]:
+        """One tiny request through the same launcher and environment a turn uses. Records the result for Connections."""
+        text = self._invoke(0, PROBE_PROMPT, f"probe {provider} {model}", provider=provider, model=model)
+        err = self.last_error.get(0) or {}
+        ok = text is not None; msg = "" if ok else err.get("message", "no answer")
+        connect.record_probe(provider, model, ok, msg)
+        return ok, msg
+
+    def preflight(self) -> bool:
+        """Before anything is asked of anyone: every seat's chosen model answers one tiny request, or the run stops and says why.
+        A seat with no model chosen takes the first of its provider's models that answers."""
+        g = self.g
+        if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
+        with self.lock: self.current = "preflight"; self.version += 1
+        wanted: list[tuple[str, str]] = []
+        for x in g.seats:
+            key = (x["provider"], x.get("model", ""))
+            if key not in wanted: wanted.append(key)
+        for m in (g.model_a, g.model_b, g.world_model):
+            if len(g.seats) <= 1 and (m["provider"], m.get("model", "")) not in wanted: wanted.append((m["provider"], m.get("model", "")))
+        resolved: dict[tuple[str, str], str] = {}
+        for prov, model in wanted:
+            if self.stop_flag.is_set(): return False
+            if model:
+                ok, msg = self.probe_model(prov, model)
+                if not ok: self._stop_with(f"Preflight failed: {prov} {model} did not answer ({msg}). Nothing was started."); return False
+                resolved[(prov, model)] = model; continue
+            found = ""
+            for cand in PROVIDERS.get(prov, {}).get("models", []):
+                ok, msg = self.probe_model(prov, cand)
+                if ok: found = cand; break
+            if not found: self._stop_with(f"Preflight failed: no {prov} model answered the probe. Nothing was started."); return False
+            resolved[(prov, "")] = found
+        with self.lock:
+            for x in g.seats:
+                if not x.get("model"): x["model"] = resolved.get((x["provider"], ""), x.get("model", ""))
+            for m in (g.model_a, g.model_b, g.world_model):
+                if not m.get("model") and (m["provider"], "") in resolved: m["model"] = resolved[(m["provider"], "")]
+            self.current = None; self.version += 1; g.save()
+        return True
 
     # ---- setup: the map, then the people
     def world_seat(self) -> dict:
@@ -266,7 +314,7 @@ class Run:
         ok = False; problem = ""
         for attempt in range(2):
             if self.stop_flag.is_set(): break
-            out = self._invoke(0, map_prompt(g.world_text, problem), "map", provider=mm["provider"], model=mm["model"])
+            out = self.ask(0, map_prompt(g.world_text, problem), "map", provider=mm["provider"], model=mm["model"])
             v = validate_map(extract_json(out or ""))
             if v.get("ok"):
                 with self.lock: w.install_map(v); self.version += 1
@@ -318,7 +366,6 @@ class Run:
             g = self.g
             if self.busy() or self.map_generating: return
             if g.status == "paused" and self.thread and self.thread.is_alive():
-                if self.blocked: self.reprime = True          # the convener signed in again: prime before anyone speaks, and keep the new sign in as the copy
                 self.blocked = ""; self.pause_flag.clear(); g.status = "running"; self.version += 1; g.save(); return
             if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()     # the map and the people are made in the run, see _run
             if g.status in ("done", "stopped") and g.world.day > g.max_days: g.max_days = g.world.day + 5   # Continue: six more days
@@ -382,53 +429,41 @@ class Run:
         self.current = ", ".join(names) if names else None; self.version += 1
 
     def _invoke(self, i: int, prompt: str, label: str, provider: str | None = None, model: str | None = None) -> str | None:
-        """Run seat i's CLI on a prompt; return its final answer or None on failure (details in the terminal pane).
-        provider and model override the seat's own for this one call (the map model drawing through the World's seat); no session is resumed or kept then."""
-        g = self.g; seat = g.seats[i]; prov = PROVIDERS[provider or seat["provider"]]
+        """Run seat i's CLI on a prompt through the runner. Returns the answer, or None with self.last_error[i] set to what the
+        runner said: its kind (auth, model, rate, launcher, timeout, other), its own message, and the exact command that was built.
+        provider and model override the seat's own for this one call; no session is resumed or kept then."""
+        g = self.g; seat = g.seats[i]; prov_name = provider or seat["provider"]; prov = PROVIDERS[prov_name]
+        self.last_error.pop(i, None)
         if self.stop_flag.is_set(): return None
-        if shutil.which(prov["exe"]) is None:
-            self._term(i, f"'{prov['exe']}' is not installed or not on PATH"); return None
+        exe = connect.which(prov["exe"])
+        if exe is None:
+            self.last_error[i] = {"kind": "launcher", "message": f"'{prov['exe']}' is not installed or not on PATH", "cmd": prov["ro_cmd"], "model": model or seat.get("model", "")}
+            self._term(i, f"[runner error] '{prov['exe']}' is not installed or not on PATH"); return None
+        use_model = self.resolve_model(prov_name, model or seat.get("model", ""))
+        if not use_model:
+            self.last_error[i] = {"kind": "model", "message": f"no {prov_name} model is chosen and none has answered the probe", "cmd": prov["ro_cmd"], "model": ""}
+            self._term(i, f"[runner error] no {prov_name} model is chosen and none has answered the probe"); return None
         pfile = g.seat_dir(i) / f"prompt_{g.turn + 1:03d}_{int(time.time() * 1000) % 100000}.md"; pfile.write_text(prompt, encoding="utf-8")
-        cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pfile), model=model or seat["model"])
+        cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pfile), model=use_model)
         sid = g.cli_sessions.get(str(i)) if provider is None else None
         if sid and prov.get("resume"): cmd += prov["resume"].format(sid=sid)
         with self.lock: self.terms[i]["state"] = "speaking"; self.speaking.add(i); self._set_current()
         self._term(i, "=" * 60 + f"\n{seat['name']}: {label}\n" + "=" * 60)
-        out: list[str] = []; speech: str | None = None; new_sid = None; err_tail: list[str] = []; rc = None
-        try:
-            proc = subprocess.Popen(cmd, cwd=g.repo, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                    encoding="utf-8", errors="replace", start_new_session=(os.name != "nt"))
-            self.procs[i] = proc
-            def pump(p):  # noqa: ANN001
-                for ln in p.stderr: err_tail.append(ln.rstrip("\n")); del err_tail[:-8]; self._term(i, ln.rstrip("\n"))
-            threading.Thread(target=pump, args=(proc,), daemon=True).start()
-            for ln in proc.stdout:
-                out.append(ln)
-                if prov["speech"] == "claude_stream":
-                    try:
-                        ev = json.loads(ln)
-                        if ev.get("session_id"): new_sid = ev["session_id"]
-                    except Exception: pass
-                    shown, final = render_claude_event(ln)
-                    if shown: self._term(i, shown)
-                    if final is not None: speech = final
-                else: self._term(i, ln.rstrip("\n"))
-            rc = proc.wait(timeout=TURN_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            self.procs[i].kill(); self._term(i, f"[timed out after {TURN_TIMEOUT}s]")
-        except Exception as exc:  # noqa: BLE001
-            self._term(i, f"[engine error: {type(exc).__name__}: {exc}]")
+        r = runner.launch(cmd, g.repo, prov["speech"], on_out=lambda ln: self._term(i, ln), on_err=lambda ln: self._term(i, ln), procs=self.procs, key=i,
+                          stop_flag=self.stop_flag, wall=runner.TURN_TIMEOUT, quiet=runner.NO_OUTPUT_TIMEOUT)
         with self.lock:
             self.terms[i]["state"] = "waiting"; self.speaking.discard(i); self._set_current()
-            if new_sid and provider is None: g.cli_sessions[str(i)] = new_sid
-        if speech is None and prov["speech"] != "claude_stream": speech = "".join(out).strip()
-        if speech and prov["speech"] == "copilot": speech = clean_copilot(speech)
-        if (provider or seat["provider"]) in CODEX_PROVIDERS and CODEX_401.search("".join(out) + "\n".join(err_tail)):
-            self.refused.add(i); speech = None
-            if not self._in_codex_recovery and provider is None: threading.Thread(target=self._codex_refused, daemon=True).start()
-        if not speech:
-            self._term(i, f"[ended without an answer: exit {rc}]" + ("\n" + "\n".join(err_tail) if err_tail else ""))
+            if r.session_id and provider is None and r.ok: g.cli_sessions[str(i)] = r.session_id
+        if not r.ok:
+            self.last_error[i] = {"kind": r.kind, "message": r.message, "cmd": cmd, "model": use_model, "rc": r.rc}
+            self._term(i, f"[runner error, {r.kind}: {r.message} (exit {r.rc})]")
             g.cli_sessions.pop(str(i), None); return None
+        speech = r.speech or ""
+        if prov["speech"] == "copilot": speech = clean_copilot(speech)
+        if not speech.strip():
+            self.last_error[i] = {"kind": "other", "message": f"ended without an answer (exit {r.rc})", "cmd": cmd, "model": use_model, "rc": r.rc}
+            self._term(i, f"[runner error, other: ended without an answer (exit {r.rc})]"); g.cli_sessions.pop(str(i), None); return None
+        connect.record_probe(prov_name, use_model, True, "")
         self._term(i, "\ndone.\n"); return speech
 
     # ---- prompts
@@ -460,6 +495,7 @@ class Run:
     def _run(self) -> None:
         g = self.g; w = g.world
         try:
+            if not self.preflight(): return
             if not w.created:
                 if len(g.seats) <= 1:            # a fresh game: the map first, then the people, then their lives
                     self.prepare_map()
@@ -472,7 +508,6 @@ class Run:
                 if w.day > g.max_days or (g.max_minutes and time.time() - g.started_at > g.max_minutes * 60) or len(w.living()) <= 1:
                     self._epilogue(); break
                 if (w.day_report or {}).get("day") != w.day: self._dawn()
-                if self._prime_day() or self.stop_flag.is_set(): break
                 self._morning_phase()
                 if self.stop_flag.is_set(): break
                 self._afternoon_phase()
@@ -484,7 +519,7 @@ class Run:
                 with self.lock: w.end_day(); self.version += 1
                 g.save(chronicle=True)
         finally:
-            with self.lock: self.current = None; g.status = "stopped" if self.stop_flag.is_set() and w.day < g.max_days else "done"; g.save(chronicle=True)
+            with self.lock: self.current = None; g.status = "stopped" if self.stop_flag.is_set() else "done"; g.save(chronicle=True)
 
     def _create_world(self) -> None:
         g = self.g; w = g.world
@@ -502,7 +537,7 @@ class Run:
         people: dict = {}; out = None
         for attempt in range(2):
             if self.stop_flag.is_set(): return
-            out = self._invoke(0, prompt if attempt == 0 else prompt + "\n\nYour last reply had no valid JSON block. Reply again with the narration and the fenced json block.", "creation")
+            out = self.ask(0, prompt if attempt == 0 else prompt + "\n\nYour last reply had no valid JSON block. Reply again with the narration and the fenced json block.", "creation")
             data = extract_json(out or "") or {}
             people = {str(p.get("name")): p for p in data.get("people", []) if isinstance(p, dict)}
             if out and len(people) >= max(1, len(names) // 2): break
@@ -539,26 +574,6 @@ class Run:
         self._record("The valley", "\n".join(lines), "dawn")
         g.save()
 
-    def _prime_day(self) -> bool:
-        """Codex is primed once a day, alone, before the seats run in parallel. A refusal pauses the run; after the pause,
-        whether the recovery lifted it or the convener signed in and pressed Resume, it primes again before going on. True if the run must stop."""
-        g = self.g; w = g.world
-        while self.codex_provider() and not self.stop_flag.is_set():
-            self.reprime = False
-            if self.prime_codex(f"priming for day {w.day}"): break
-            self._codex_refused()
-            while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
-        return self.stop_flag.is_set()
-
-    def _wait_out_recovery(self) -> None:
-        """A seat was refused: the recovery thread is starting or running. Wait for it, and for any pause it leaves behind."""
-        for _ in range(40):
-            if self._in_codex_recovery or self.pause_flag.is_set() or self.stop_flag.is_set(): break
-            time.sleep(0.25)
-        while (self._in_codex_recovery or self.pause_flag.is_set()) and not self.stop_flag.is_set(): time.sleep(0.5)
-        if self.reprime and not self.stop_flag.is_set() and self.codex_provider():
-            self.reprime = False; self.prime_codex(f"priming again after the convener signed in")
-
     def _able_seats(self) -> list[int]:
         g = self.g; w = g.world
         return [i for i, seat in enumerate(g.seats) if i > 0 and seat["name"] in w.characters and w.able(w.characters[seat["name"]])]
@@ -580,13 +595,9 @@ class Run:
         def worker(i: int, react: bool) -> None:
             base = instruction(i) if callable(instruction) else instruction
             instr = ("Someone spoke to you or acted on you, above. Answer them in character, in one to three sentences, or reply exactly PASS. " + base) if react else base
-            text = self._invoke(i, self._player_prompt(i, instr), f"day {w.day}, {label}")
-            if text is None and i in self.refused and not self.stop_flag.is_set():
-                self.refused.discard(i); self._wait_out_recovery()
-                if not self.stop_flag.is_set(): self._term(i, "(asked again after the sign in came back)"); text = self._invoke(i, self._player_prompt(i, instr), f"day {w.day}, {label}, again")
+            text = self.ask(i, self._player_prompt(i, instr), f"day {w.day}, {label}")
             g.last_seen[str(i)] = len(g.transcript)
-            if not text:
-                self._record("Engine", f"{g.seats[i]['name']} gave no answer this turn (see its terminal).", "system"); return
+            if not text: on_reply(i, None); return
             if text.strip().upper().rstrip(".") == "PASS": self._term(i, "(passed)"); on_reply(i, None); return
             text = cap_speech(strip_dashes(text))         # one to three sentences, no dashes, the ACTION line kept whole
             for t in whisper_targets(text):
@@ -737,7 +748,7 @@ class Run:
         with self.lock: self.version += 1
         g.save()
         engine_text = "\n".join(o["text"] for o in outcomes)
-        out = self._invoke(0, self._world_prompt(outcomes), f"day {w.day} resolution") if outcomes else ""
+        out = self.ask(0, self._world_prompt(outcomes), f"day {w.day} resolution") if outcomes else ""
         if self.stop_flag.is_set(): return
         kept, dropped = w.check_narration(strip_dashes(strip_json(out or "")), outcomes)
         text = cap_outcomes(kept) if kept.strip() else engine_text
@@ -753,7 +764,7 @@ class Run:
         g = self.g; w = g.world
         prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "The year is over. Here is the final state:\n" + w.standings_table(),
                             "\nWrite the chronicle's closing: what became of the valley and of each person, living, dead, and gone, in the order they mattered. No json block."])
-        out = self._invoke(0, prompt, "epilogue")
+        out = self.ask(0, prompt, "epilogue")
         self._record("World", strip_dashes(out or "The chronicle ends here.") + "\n\n" + w.standings_table(), "epilogue")
         dead = [c["name"] for c in w.characters.values() if not c["alive"]]
         telegram.notify(f"{g.title or 'Terraceilia'}: the year is over on day {w.day}. "
