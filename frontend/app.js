@@ -168,7 +168,7 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
  const html=rows.map(c=>{const pct=Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))));
   const band=(!c.alive||pct<30)?'low':pct<60?'mid':'';
   return `<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
-   <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${esc(c.location)}${c.sick?' · sick':''}</span>
+   <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${(((s.titles||{})[c.name])||[]).length?esc(((s.titles||{})[c.name]).join(', '))+' · ':''}${esc(c.location)}${c.sick?' · sick':''}</span>
    <span class="chp ${band}"><i style="width:${c.alive?pct:0}%"></i></span>
    <span class="chhp">${c.alive?`hp ${c.hp}/${c.hp_max}`:'dead'}</span></button>`}).join('')
   ||'<div class="empty">Nobody matches that.</div>';
@@ -182,7 +182,8 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
 
 function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)return;
  const seat=(s.seats||[]).find(x=>x.name===c.name)||{};
- $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b><span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>`;
+ const tt=((s.titles||{})[c.name]||[]);
+ $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b>${tt.length?`<span class="ttl">${esc(tt.join(', '))}</span>`:''}<span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
  const html=(peoTab==='bio'?paneBio(s,c):peoTab==='health'?paneHealth(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):peoTab==='duties'?paneDuties(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<div class="note" style="margin-top:10px">${esc(peoNote)}</div>`);
@@ -200,7 +201,8 @@ function paneBio(s,c){const places=s.places||[];
   <div><label>State</label><select id="b_state"><option value="alive" ${c.alive&&!c.gone?'selected':''}>alive</option><option value="gone" ${c.gone?'selected':''}>gone from the valley</option><option value="dead" ${!c.alive?'selected':''}>dead</option></select></div></div>
  <div class="pg"><div><label>Played by</label><select id="b_prov"></select></div><div><label>Model</label><select id="b_model"></select><input id="b_custom" placeholder="custom model" style="display:none;margin-top:4px"></div></div>
  <div class="pg"><div><label>Personality</label><textarea id="b_pers">${esc(c.personality)}</textarea></div><div><label>Secret, known only to them</label><textarea id="b_secret">${esc(c.secret)}</textarea></div></div>
- <div class="pg"><div><label>Fear</label><textarea id="b_fear">${esc(c.fear)}</textarea></div><div><label>What they want more than anything</label><textarea id="b_want">${esc(c.want)}</textarea></div></div>
+ <div class="pg"><div><label>Fear</label><textarea id="b_fear">${esc(c.fear)}</textarea></div><div><label>What they want more than anything</label><textarea id="b_want">${esc(c.want)}</textarea>
+  ${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return `<div class="wantline"><span>In plain terms: <b>${esc(g.text||'nothing measured')}</b></span><span class="wbar"><i style="width:${wp[0]}%"></i></span><span class="note">${wp[0]}% · ${esc(wp[1])}</span><button type="button" class="btn sm" id="b_reroll">Roll a new want</button></div>${(c.wants_reached||[]).length?`<div class="note">Reached: ${c.wants_reached.map(x=>'day '+x.day+', '+esc(x.text)).join('; ')}</div>`:''}`})()}</div></div>
  <div class="row"><button class="primary" id="b_save">Save</button><span class="note">A changed life or model starts them fresh on their next turn.</span></div>`}
 
 // ---- Health. Only what the engine really keeps: one wound level, where they stand, and what is happening to them.
@@ -246,7 +248,7 @@ function paneStats(s,c){const sk=Object.entries(c.skills||{});
    ${row('Speed',`${bar(c.spd,9)}<input class="vin" type="number" id="s_spd" min="0" max="9" value="${c.spd}">`)}
    <div class="ch" style="margin-top:16px">In the valley</div>
    ${row('Gold',`<input class="vin" type="number" id="s_gold" min="0" value="${c.gold}">`)}
-   ${row('Standing',`<select class="vin wide" id="s_stand">${['hated','shunned','unknown','known','respected','loved'].map(x=>`<option ${x===c.standing?'selected':''}>${x}</option>`).join('')}</select>`)}
+   ${row('Standing',`<select class="vin wide" id="s_stand">${['hated','shunned','nobody','known','respected','loved'].map(x=>`<option ${x===c.standing?'selected':''}>${x}</option>`).join('')}</select>`)}
    ${row('Trade',esc(c.trade||'none'))}
    ${row('Home',esc(c.home||'nowhere'))}</div>
   <div class="card2"><div class="ch">Skills</div>
@@ -319,6 +321,7 @@ function paneLog(s,c){const rx=rxName(c.name);
 function peoWire(s,c){const pane=$('peoPane');
  if(peoTab==='bio'){const seat=(s.seats||[]).find(x=>x.name===c.name)||{provider:Object.keys(providers)[0]||'',model:''};
   modelPick('b',seat,$('b_prov'),$('b_model'),$('b_custom'));
+  if($('b_reroll'))$('b_reroll').onclick=()=>peoApply({reroll_want:true});
   $('b_save').onclick=async()=>{const st=$('b_state').value;
    const d={new_name:$('b_name').value.trim(),trade:$('b_trade').value,home:$('b_home').value,location:$('b_loc').value,
     personality:$('b_pers').value,secret:$('b_secret').value,fear:$('b_fear').value,want:$('b_want').value,
