@@ -4,6 +4,8 @@ from __future__ import annotations
 import json, math, os, random, shutil, sys, tempfile, threading, time, unittest
 from pathlib import Path
 
+os.environ["TERRACEILIA_NO_TELEGRAM"] = "1"   # a test finishes a year, and a finished year messages a real person
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend")); sys.path.insert(0, str(ROOT / "tests"))
 import agents, engine, game  # noqa: E402

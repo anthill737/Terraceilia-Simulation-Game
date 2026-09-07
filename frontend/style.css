@@ -143,24 +143,23 @@ header .sheetbtn{font-size:13px;padding:0 11px}
  #placePanel{left:12px;right:12px;width:auto}
 }
 
-/* ---------- the people screen: a list on the left, the person on the right ---------- */
+/* ---------- the people screen: everyone across the top, the chosen one below ---------- */
 .panel.wide{width:min(1120px,100%)}
-.peoWrap{display:grid;grid-template-columns:272px 1fr;gap:16px;align-items:start;min-height:0}
-.peoLeft{display:flex;flex-direction:column;gap:8px;min-width:0}
+.peoTop{display:flex;gap:8px;margin-bottom:10px}
 #peoPick{display:none}
-#peoList{max-height:min(66vh,720px);overflow:auto;border:1px solid var(--line);border-radius:var(--r-card);background:var(--bg)}
-.prow{display:grid;grid-template-columns:10px 1fr;gap:8px;align-items:center;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--line);border-left:3px solid transparent}
-.prow:last-child{border-bottom:0}.prow:hover{background:var(--s2)}.prow.on{background:var(--s2);border-left-color:var(--c,var(--accent))}
-.prow .dot{width:10px;height:10px;border-radius:50%;background:var(--c,#888)}
-.prow .who{min-width:0;display:block}.prow .who b{display:block;font-size:13px;color:var(--c,var(--text));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.prow .who i{display:block;font-style:normal;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.prow .hp{grid-column:2;height:4px;background:var(--s3);border-radius:2px;overflow:hidden;display:block;margin-top:4px}
-.prow .hp i{display:block;height:100%;background:var(--c,var(--accent))}
-.prow.dead{opacity:.45}.prow.dead .who b{text-decoration:line-through}
-.peoRight{min-width:0}
+#peoStrip{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 10px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+.chip{flex:0 0 auto;width:146px;height:auto;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);text-align:left;display:block;white-space:normal}
+.chip:hover{background:var(--s2)}
+.chip.on{border-color:var(--c);background:var(--s2);box-shadow:inset 0 0 0 1px var(--c)}
+.chip .cn{display:flex;align-items:center;gap:6px;font-weight:600;font-size:12.5px;color:var(--c);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:0 0 8px}
+.chip .cp{display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+.chip .chp{display:block;height:4px;background:var(--s3);border-radius:2px;overflow:hidden;margin-top:7px}
+.chip .chp i{display:block;height:100%;background:var(--c)}
+.chip.dead{opacity:.45}.chip.dead .cn{text-decoration:line-through}
 #peoHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-#peoHead b{font-size:16px;color:var(--c,var(--text))}
-.ptabs{display:flex;border-bottom:1px solid var(--line);margin-bottom:12px;flex-wrap:wrap}
+#peoHead b{font-size:17px;color:var(--c,var(--text))}
+.ptabs{display:flex;border-bottom:1px solid var(--line);margin-bottom:14px;flex-wrap:wrap}
 .ptabs button{border-radius:0;border:0;color:var(--muted);height:38px;padding:0 14px}
 .ptabs button.on{color:var(--accent);box-shadow:inset 0 -2px 0 var(--accent)}
 #peoPane{min-height:220px}
@@ -170,22 +169,27 @@ header .sheetbtn{font-size:13px;padding:0 11px}
 #peoPane textarea{min-height:80px;padding:6px 8px;font-size:13px;line-height:1.45;resize:vertical;width:100%;height:auto}
 .skillrow{display:grid;grid-template-columns:1fr 90px auto;gap:8px;align-items:center;margin-bottom:6px}
 
-/* the twelve dials */
-.dial{position:relative;padding:20px 0 2px;margin-bottom:12px}
-.dial .dname{font-size:11.5px;color:var(--muted)}
-.dial .dw{position:absolute;top:0;transform:translateX(-50%);font-size:11.5px;color:var(--accent);white-space:nowrap;pointer-events:none}
-.dial .dends{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-top:2px}
-.bar-in{-webkit-appearance:none;appearance:none;height:10px;border-radius:5px;border:0;padding:0;width:100%;accent-color:auto}
-.bar-in::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:17px;border-radius:3px;background:#EDEDEF;border:1px solid #0a0a0c;cursor:pointer}
-.bar-in::-moz-range-thumb{width:12px;height:17px;border-radius:3px;background:#EDEDEF;border:1px solid #0a0a0c;cursor:pointer}
+/* steps you click, rather than a slider you drag */
+.seg{display:flex;gap:2px;height:18px}
+.seg button{flex:1 1 0;min-width:0;height:100%;padding:0;border:1px solid var(--line);border-radius:3px;background:var(--s3);cursor:pointer}
+.seg button:hover{background:var(--s2);border-color:var(--edge)}
+.seg button.mid{background:var(--s2);border-color:var(--edge)}
+.seg button.on{background:var(--accent);border-color:var(--accent)}
+.seg button.on.neg{background:var(--danger);border-color:var(--danger)}
+.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px 26px}
+.dial{min-width:0}
+.dtop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px}
+.dname{font-size:12px;color:var(--muted);white-space:nowrap}
+.dword{font-size:11.5px;color:var(--accent);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.dends{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-top:4px}
 
 /* ties */
-.tieHead{display:flex;gap:8px;align-items:center;margin-bottom:8px}.tieHead select{width:auto;height:30px;font-size:12.5px}
-.tie{display:grid;grid-template-columns:1.1fr .9fr 1.5fr 1.5fr auto auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px}
+.tieHead{display:flex;gap:8px;align-items:center;margin-bottom:10px}.tieHead select{width:auto;height:30px;font-size:12.5px}
+.tie{display:grid;grid-template-columns:1.05fr .85fr 1.3fr 1.3fr auto auto;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:12.5px}
 .tie b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tie select{height:28px;font-size:12px}.tie .num{font-size:11px;color:var(--muted);text-align:center}
-.tie .cell{min-width:0}.tie button{height:28px;padding:0 8px;font-size:12px}
-.tie .mut{display:flex;gap:4px;align-items:center;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.tie select{height:28px;font-size:12px}.tie .cell{min-width:0}.tie button.btn{height:28px;padding:0 8px;font-size:12px}
+.tlab{font-size:11px;color:var(--muted);margin-bottom:4px}.tlab b{color:var(--text)}
+.tie .mut{display:flex;gap:5px;align-items:center;color:var(--muted);font-size:11.5px;white-space:nowrap}
 .tie .mut input{width:auto;height:auto}
 
 /* log */
@@ -196,9 +200,9 @@ header .sheetbtn{font-size:13px;padding:0 11px}
 .logrow p{margin:0 0 .5em}.logrow p:last-child{margin:0}
 
 @media (max-width:820px){
- .peoWrap{grid-template-columns:1fr}
- #peoList,#peoFilter{display:none}
+ #peoStrip{display:none}
  #peoPick{display:block}
  .pg,.pg3,.pg4{grid-template-columns:1fr}
- .tie{grid-template-columns:1fr 1fr;gap:6px}
+ .dgrid{grid-template-columns:1fr}
+ .tie{grid-template-columns:1fr 1fr;gap:8px}
 }

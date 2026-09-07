@@ -62,18 +62,12 @@
 
 <!-- ---------------------------------------------------------------- sheets, one at a time -->
 <div class="sheetwrap" id="sheet-people"><div class="panel wide"><h1>People <button class="icon sheetclose" aria-label="Close">&#10005;</button></h1>
- <div class="peoWrap">
-  <div class="peoLeft">
-   <input id="peoFilter" placeholder="Filter by name, trade or place" autocomplete="off">
-   <select id="peoPick"></select>
-   <div id="peoList"></div>
-  </div>
-  <div class="peoRight">
-   <div id="peoHead"></div>
-   <div class="ptabs"><button data-p="bio" class="on">Bio</button><button data-p="stats">Stats</button><button data-p="disp">Disposition</button><button data-p="ties">Ties</button><button data-p="log">Log</button></div>
-   <div id="peoPane"></div>
-  </div>
- </div></div></div>
+ <div class="peoTop"><input id="peoFilter" placeholder="Filter by name, trade or place" autocomplete="off"><select id="peoPick"></select></div>
+ <div id="peoStrip"></div>
+ <div id="peoHead"></div>
+ <div class="ptabs"><button data-p="bio" class="on">Bio</button><button data-p="stats">Stats</button><button data-p="disp">Disposition</button><button data-p="ties">Ties</button><button data-p="log">Log</button></div>
+ <div id="peoPane"></div>
+ </div></div>
 
 <div class="sheetwrap" id="sheet-world"><div class="panel"><h1>World <button class="icon sheetclose" aria-label="Close">&#10005;</button></h1>
  <div class="field"><label>Title</label><input id="g_title"></div>

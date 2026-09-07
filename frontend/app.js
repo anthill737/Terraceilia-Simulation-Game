@@ -7,6 +7,8 @@ async function api(p,b){const r=await fetch(p,{method:b?'POST':'GET',headers:{'C
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const STATUS={idle:'Not started',running:'Running',paused:'Paused',done:'The year is over',stopped:'Stopped'};
 const mobile=()=>window.matchMedia('(max-width:820px)').matches;
+let chronShown=false;
+function chronBottom(){const c=$('chron');requestAnimationFrame(()=>{c.scrollTop=c.scrollHeight})}
 function seatColor(n){const x=(S&&S.seats||[]).find(y=>y.name===n);return x?x.color:''}
 function rich(t){let h=esc(t);const hold=[];const keep=x=>{hold.push(x);return `\u0000${hold.length-1}\u0000`};
  h=h.replace(/^\s*ACTION:\s*(.+)$/gm,(m,a)=>keep(`<span class="act">ACTION: ${a}</span>`));
@@ -78,8 +80,12 @@ function render(s){const first=!S||S.id!==s.id;if(first){T=[];lastTurn=-1}mergeT
  $('chronEmpty').style.display=s.transcript.length?'none':'block';
  const msgHtml=e=>`<div class="msg ${e.kind}${/^\s*WHISPER\s+@/im.test(e.text)?' whisper':''}${e.kind==='convener'&&/@[A-Za-z]/.test(e.text)?' private':''}" style="${e.color?'--c:'+esc(e.color):''}"><div class="hd"><span class="who">${esc(e.speaker)}</span><span class="meta">day ${e.day??0}${e.place?' \u00b7 '+esc(e.place):''} \u00b7 ${e.time}</span></div><div class="body">${rich(e.text)}</div></div>`;
  const have=$('msgs').children.length;
- if(first||have>s.transcript.length){$('msgs').innerHTML=s.transcript.map(msgHtml).join('');$('chron').scrollTop=$('chron').scrollHeight}
- else if(have<s.transcript.length){const atB=$('chron').scrollHeight-$('chron').scrollTop-$('chron').clientHeight<120;$('msgs').insertAdjacentHTML('beforeend',s.transcript.slice(have).map(msgHtml).join(''));if(atB)$('chron').scrollTop=$('chron').scrollHeight}
+ if(first||have>s.transcript.length){$('msgs').innerHTML=s.transcript.map(msgHtml).join('');chronBottom()}
+ else if(have<s.transcript.length){const atB=$('chron').scrollHeight-$('chron').scrollTop-$('chron').clientHeight<120;$('msgs').insertAdjacentHTML('beforeend',s.transcript.slice(have).map(msgHtml).join(''));if(atB)chronBottom()}
+ // a hidden panel has no height to scroll, so land on the newest day the moment it is shown
+ const chronNow=getComputedStyle($('chron')).display!=='none';
+ if(chronNow&&!chronShown)chronBottom();
+ chronShown=chronNow;
  $('typing').style.display=s.current?'block':'none';$('typing').textContent=s.current?(who.length>3?who.length+' people are':s.current+(who.length>1?' are':' is'))+' composing':'';
  renderValley(s);renderTerms(s);
  if(openSheet)refreshSheet(openSheet,s)}
@@ -113,8 +119,8 @@ document.querySelectorAll('#gearMenu .list button').forEach(b=>b.onclick=async()
 function modelPick(pfx,val,selP,selM,inpC){fillSel(selP,Object.keys(providers),val.provider);const ms=(providers[val.provider]||{models:[]}).models.concat(['Custom...']);const known=ms.includes(val.model);fillSel(selM,ms,known?val.model:'Custom...');inpC.style.display=known?'none':'';if(!known)inpC.value=val.model;
  selP.onchange=()=>{const m2=(providers[selP.value]||{models:['']}).models.concat(['Custom...']);fillSel(selM,m2,m2[0]);inpC.style.display='none'};selM.onchange=()=>{inpC.style.display=selM.value==='Custom...'?'':'none';if(selM.value==='Custom...')inpC.focus()}}
 function pickVal(selP,selM,inpC){const m=selM.value;return {provider:selP.value,model:m==='Custom...'?inpC.value.trim():m}}
-// ---------- People: the character screen. A list on the left, the person on the right.
-let peoSel='',peoTab='bio',peoFilter='',tieSort='strongest',peoNote='',peoListHtml='',peoPaneHtml='';
+// ---------- People: the character screen. Everyone across the top, the chosen one below.
+let peoSel='',peoTab='bio',peoFilter='',tieSort='strongest',peoNote='',peoStripHtml='',peoPaneHtml='',peoShown='';
 const REL=['none','spouse','lover','kin','friend','rival','enemy','creditor','debtor','master','servant'];
 // key, label, the word at each end, and the five words the dial can read
 const TRAITS=[
@@ -123,37 +129,42 @@ const TRAITS=[
  ['honesty','Honesty','liar','honest',['lies as easily as breathing','lies when it suits','bends it when it pays','mostly honest','cannot lie without it showing']],
  ['greed','Greed','giving','grasping',['gives without counting','shares when asked','wants a fair share','wants more than their share','would sell a grave for coin']],
  ['courage','Courage','coward','reckless',['runs from anything','avoids danger','takes ordinary risks','brave, sometimes stupidly','reckless']],
- ['tongue','Tongue','crude','eloquent',['grunts and curses','blunt and short','talks like a villager','well spoken','eloquent and knows it']],
+ ['tongue','Tongue','silent','talkative',['barely talks','blunt and short','talks like anyone else','articulate and clear','talks a lot']],
  ['desire','Desire','chaste','wanton',['no interest in anyone','keeps desire private','notices, sometimes acts','flirts and takes lovers','wanton, and the valley talks']],
  ['piety','Piety','godless','devout',['thinks the chapel a fraud','goes for appearances','believes quietly','devout, and judges by it','preaches whether asked or not']],
  ['ambition','Ambition','content','hungry',['wants to be left alone','wants a quiet life','a little better than their father','means to rise','means to run the valley']],
  ['loyalty','Loyalty','turncoat','faithful',['sells out anyone','loyal while it pays','keeps faith with their own','stands by friends at a cost','would die for their people']],
  ['cunning','Cunning','simple','scheming',['simple, says what they think','straightforward','sees a trick coming','sly, plans two moves ahead','a schemer, every friendship a piece']],
  ['drink','Drink','sober','drunkard',['never touches it','a cup at feast days','drinks like anyone','drinks too much','a drunkard']]];
-const barCentre=v=>{const a=50,b=50+v*10,l=Math.min(a,b),r=Math.max(a,b),c=v<0?'var(--danger)':'var(--accent)';
- return `linear-gradient(90deg,var(--s3) 0 ${l}%,${c} ${l}% ${r}%,var(--s3) ${r}% 100%)`};
-const barLeft=(v,lo,hi)=>{const q=(v-lo)/(hi-lo)*100;return `linear-gradient(90deg,var(--accent) 0 ${q}%,var(--s3) ${q}% 100%)`};
-const dialPos=v=>{const q=(v-1)/4*100,t=v===1?'0':v===5?'-100%':'-50%';
- return `left:calc(${q}% + ${((0.5-q/100)*12).toFixed(2)}px);transform:translateX(${t})`};
 const rxName=n=>new RegExp('(?<![\\w@])'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
 
+// cells you click, rather than a slider you drag
+function seg(min,max,v){let h='';
+ for(let i=min;i<=max;i++){
+  const on=min<0?((v>0&&i>0&&i<=v)||(v<0&&i<0&&i>=v)):(i<=v);
+  const cls=[on?'on':'',on&&v<0?'neg':'',(min<0&&i===0)?'mid':''].filter(Boolean).join(' ');
+  h+=`<button type="button" data-i="${i}"${cls?` class="${cls}"`:''}></button>`}
+ return `<div class="seg" data-v="${v}">${h}</div>`}
+
 function renderPeople(s){const pane=$('peoPane');
- if(!s.characters.length){$('peoHead').innerHTML='';$('peoList').innerHTML='';$('peoPick').innerHTML='';peoListHtml='';peoPaneHtml='';
+ if(!s.characters.length){$('peoStrip').innerHTML='';$('peoPick').innerHTML='';$('peoHead').innerHTML='';peoStripHtml='';peoPaneHtml='';
   pane.innerHTML='<div class="empty">Nobody lives here yet. Press Start and the World rolls them.</div>';return}
  if(!s.characters.some(c=>c.name===peoSel))peoSel=s.characters[0].name;
- peoRenderList(s);
- // never rebuild the pane under someone's hands
+ peoRenderStrip(s);
+ // never rebuild the panel under someone's hands
  const busy=pane.contains(document.activeElement)&&/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
  if(!busy)peoRenderPane(s)}
 
-function peoRenderList(s){const q=peoFilter.trim().toLowerCase();
+function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
  const rows=s.characters.filter(c=>!q||`${c.name} ${c.trade||''} ${c.location}`.toLowerCase().includes(q));
- const html=rows.map(c=>`<div class="prow ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}">
-  <span class="dot"></span><span class="who"><b>${esc(c.name)}</b><i>${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)}</i></span>
-  <span class="hp"><i style="width:${Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))))}%"></i></span></div>`).join('')
+ const html=rows.map(c=>`<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
+  <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${esc(c.location)}</span>
+  <span class="chp"><i style="width:${Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))))}%"></i></span></button>`).join('')
   ||'<div class="empty">Nobody matches that.</div>';
- if(html!==peoListHtml){$('peoList').innerHTML=html;peoListHtml=html;
-  $('peoList').querySelectorAll('.prow').forEach(r=>r.onclick=()=>{if(peoSel!==r.dataset.n){peoSel=r.dataset.n;peoNote='';peoPaneHtml=''}renderPeople(S)})}
+ if(html!==peoStripHtml){$('peoStrip').innerHTML=html;peoStripHtml=html;
+  $('peoStrip').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{if(peoSel!==b.dataset.n){peoSel=b.dataset.n;peoNote='';peoPaneHtml=''}renderPeople(S)})}
+ if(peoShown!==peoSel){peoShown=peoSel;const on=$('peoStrip').querySelector('.chip.on');
+  if(on&&on.scrollIntoView)on.scrollIntoView({block:'nearest',inline:'nearest'})}
  const opts=rows.map(c=>`<option ${c.name===peoSel?'selected':''}>${esc(c.name)}</option>`).join('');
  const pick=$('peoPick');if(pick.innerHTML!==opts)pick.innerHTML=opts;
  if(pick.value!==peoSel)pick.value=peoSel}
@@ -196,12 +207,12 @@ function paneStats(s,c){const sk=Object.entries(c.skills||{});
 
 // ---- Disposition
 function paneDisp(s,c){const t=c.traits||{};
- return `<div class="note" style="margin-bottom:12px">Their nature, which they play without softening. Moving a dial takes effect at once and starts them fresh on their next turn.</div>`
+ return `<div class="note" style="margin-bottom:14px">Their nature, which they play without softening. Clicking a step takes effect at once and starts them fresh on their next turn.</div><div class="dgrid">`
   +TRAITS.map(([k,label,lo,hi,words])=>{const v=Math.max(1,Math.min(5,+t[k]||3));
-   return `<div class="dial" data-k="${k}"><div class="dname">${label}</div>
-    <span class="dw" style="${dialPos(v)}">${esc(words[v-1])}</span>
-    <input class="bar-in dv" type="range" min="1" max="5" step="1" value="${v}" style="background:${barLeft(v,1,5)}">
-    <div class="dends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`}).join('')}
+   return `<div class="dial" data-k="${k}">
+    <div class="dtop"><span class="dname">${label}</span><span class="dword">${esc(words[v-1])}</span></div>
+    ${seg(1,5,v)}
+    <div class="dends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`}).join('')+`</div>`}
 
 // ---- Ties
 function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
@@ -210,13 +221,13 @@ function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
  else if(tieSort==='type')rows.sort((a,b)=>(a.r.type||'none').localeCompare(b.r.type||'none')||a.o.name.localeCompare(b.o.name));
  else rows.sort((a,b)=>(Math.abs(b.r.feeling)+Math.abs(b.r.trust))-(Math.abs(a.r.feeling)+Math.abs(a.r.trust))||a.o.name.localeCompare(b.o.name));
  if(!rows.length)return '<div class="empty">There is nobody else left to have an opinion about.</div>';
- return `<div class="tieHead"><span class="note">How ${esc(c.name)} feels about everyone else. Both run from -5 to 5.</span>
+ return `<div class="tieHead"><span class="note">How ${esc(c.name)} feels about everyone else. Both run from -5 to 5. Click a step to set it.</span>
    <label class="note" style="margin-left:auto">Sort <select id="t_sort">${[['strongest','strongest first'],['name','by name'],['type','by kind of tie']].map(([v,l])=>`<option value="${v}" ${v===tieSort?'selected':''}>${l}</option>`).join('')}</select></label></div>`
   +rows.map(({o,r})=>`<div class="tie" data-b="${esc(o.name)}">
    <b style="color:${esc(seatColor(o.name)||'var(--text)')}">${esc(o.name)}</b>
    <div class="cell"><select class="tt">${REL.map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select></div>
-   <div class="cell"><input class="bar-in tf" type="range" min="-5" max="5" step="1" value="${r.feeling}" style="background:${barCentre(r.feeling)}"><div class="num">feeling ${r.feeling>=0?'+':''}${r.feeling}</div></div>
-   <div class="cell"><input class="bar-in tr" type="range" min="-5" max="5" step="1" value="${r.trust}" style="background:${barCentre(r.trust)}"><div class="num">trust ${r.trust>=0?'+':''}${r.trust}</div></div>
+   <div class="cell"><div class="tlab">feeling <b>${r.feeling>=0?'+':''}${r.feeling}</b></div>${seg(-5,5,r.feeling)}</div>
+   <div class="cell"><div class="tlab">trust <b>${r.trust>=0?'+':''}${r.trust}</b></div>${seg(-5,5,r.trust)}</div>
    <label class="mut" title="also set the same the other way"><input type="checkbox" class="tm"> both ways</label>
    <button class="btn twhy">Why</button></div>`).join('')}
 
@@ -257,25 +268,20 @@ function peoWire(s,c){const pane=$('peoPane');
    await peoApply({str:+$('s_str').value,spd:+$('s_spd').value,hp:+$('s_hp').value,hp_max:+$('s_hpm').value,
     gold:+$('s_gold').value,standing:$('s_stand').value,skills})}}
  else if(peoTab==='disp'){
-  pane.querySelectorAll('.dv').forEach(inp=>{
-   inp.oninput=()=>{const d=inp.closest('.dial'),v=+inp.value,words=(TRAITS.find(t=>t[0]===d.dataset.k)||[])[4]||[];
-    const w=d.querySelector('.dw');w.textContent=words[v-1]||'';w.style.cssText=dialPos(v);inp.style.background=barLeft(v,1,5)};
-   inp.onchange=()=>peoApply({traits:{[inp.closest('.dial').dataset.k]:+inp.value}})})}
+  pane.querySelectorAll('.dial').forEach(d=>d.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>peoApply({traits:{[d.dataset.k]:+b.dataset.i}})))}
  else if(peoTab==='ties'){
   $('t_sort').onchange=e=>{tieSort=e.target.value;peoPaneHtml='';renderPeople(S)};
-  const send=async row=>{peoNote='';
-   const r=await api('/edit/relation',{a:peoSel,b:row.dataset.b,type:row.querySelector('.tt').value,
-    feeling:+row.querySelector('.tf').value,trust:+row.querySelector('.tr').value,mutual:row.querySelector('.tm').checked});
-   peoNote='Saved '+new Date().toLocaleTimeString();peoPaneHtml='';render(r)};
-  pane.querySelectorAll('.tie').forEach(row=>{
-   const f=row.querySelector('.tf'),t=row.querySelector('.tr');
-   f.oninput=()=>{f.style.background=barCentre(+f.value);f.nextElementSibling.textContent=`feeling ${+f.value>=0?'+':''}${f.value}`};
-   t.oninput=()=>{t.style.background=barCentre(+t.value);t.nextElementSibling.textContent=`trust ${+t.value>=0?'+':''}${t.value}`};
-   f.onchange=()=>send(row);t.onchange=()=>send(row);row.querySelector('.tt').onchange=()=>send(row);
+  pane.querySelectorAll('.tie').forEach(row=>{const segs=row.querySelectorAll('.seg');
+   const send=async()=>{peoNote='';
+    const r=await api('/edit/relation',{a:peoSel,b:row.dataset.b,type:row.querySelector('.tt').value,
+     feeling:+segs[0].dataset.v,trust:+segs[1].dataset.v,mutual:row.querySelector('.tm').checked});
+    peoNote='Saved '+new Date().toLocaleTimeString();peoPaneHtml='';render(r)};
+   segs.forEach(sg=>sg.querySelectorAll('button').forEach(b=>b.onclick=()=>{sg.dataset.v=b.dataset.i;send()}));
+   row.querySelector('.tt').onchange=send;
    row.querySelector('.twhy').onclick=()=>showWhy(peoSel,row.dataset.b)})}}
 
 document.querySelectorAll('.ptabs button').forEach(b=>b.onclick=()=>{peoTab=b.dataset.p;peoNote='';peoPaneHtml='';if(S)renderPeople(S)});
-$('peoFilter').oninput=()=>{peoFilter=$('peoFilter').value;peoListHtml='';if(S)peoRenderList(S)};
+$('peoFilter').oninput=()=>{peoFilter=$('peoFilter').value;peoStripHtml='';if(S)peoRenderStrip(S)};
 $('peoPick').onchange=()=>{peoSel=$('peoPick').value;peoNote='';peoPaneHtml='';if(S)renderPeople(S)};
 
 // ---------- World
