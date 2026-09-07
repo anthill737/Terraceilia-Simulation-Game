@@ -133,8 +133,10 @@ Fires burn for days, wreck what is at a place, hurt the people there, and spread
 ### Needs and the ledger
 
 Every person has food, warmth and rest on a scale of 0 to 10, and health. They fall every day. A
-need at zero takes health each morning, and health at zero is death. Sick people cannot work and
-get worse until someone tends them.
+need at zero takes health each morning, and health at zero is death. A starving or freezing person
+spends the morning seeing to it before any duty: they eat what the stores hold or go home and burn
+wood, and the duty waits without being lost. Sick people cannot work and get worse until someone
+tends them.
 
 The valley keeps grain (in sacks), meat, fish, wood, meals, tools and herbs, and every place has a
 roof, a warmth and a filth score. All of it decays daily and nothing comes back without work. Unburied
