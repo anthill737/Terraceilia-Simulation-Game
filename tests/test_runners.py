@@ -221,8 +221,17 @@ class Preflight(Base):
             connect.PROVIDERS.pop("Stub", None)
             with connect._lock: connect._cache.pop("Stub", None)
 
-    def test_defaults_are_not_hardcoded(self) -> None:
-        g = game.Game(engine.now_id()); self.assertEqual((g.model_a["model"], g.model_b["model"], g.world_model["model"]), ("", "", ""))
+    def test_defaults(self) -> None:
+        """Claude seats and the World take the first model that answers; Codex villagers default to gpt-5.6-luna."""
+        g = game.Game(engine.now_id()); self.assertEqual((g.model_a["model"], g.model_b["model"], g.world_model["model"]), ("", "gpt-5.6-luna", ""))
+        self.assertEqual(g.model_b["provider"], "Codex (latest)")
+
+
+class CodexModels(unittest.TestCase):
+    def test_the_codex_lists(self) -> None:
+        for p in ("Codex", "Codex (latest)"):
+            self.assertEqual(agents.PROVIDERS[p]["models"], ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.3-codex-spark"])
+            self.assertNotIn("gpt-5.5", agents.PROVIDERS[p]["models"]); self.assertIn(game.CODEX_DEFAULT, agents.PROVIDERS[p]["models"])
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ TAIL = 400
 # Both Codex installs read one sign in, so a game never mixes them. Nothing here reads or writes that sign in: a refusal pauses
 # the run and asks the convener to sign in again; the CLI owns its own credentials.
 CODEX_PROVIDERS = ("Codex", "Codex (latest)")
+CODEX_DEFAULT = "gpt-5.6-luna"
 PROBE_PROMPT = "Reply with exactly the single word: ready"
 
 # ---------------------------------------------------------------- a game (persisted)
@@ -28,7 +29,7 @@ class Game:
         self.players = d.get("players", 20)
         # an empty model means the first model of that provider that answers the probe; nothing is hardcoded
         self.model_a = d.get("model_a", {"provider": "Claude Code", "model": ""})
-        self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": ""})
+        self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": CODEX_DEFAULT})   # Codex villagers default to luna
         self.world_model = d.get("world_model", {"provider": "Claude Code", "model": ""})
         self.map_source = d.get("map_source") if d.get("map_source") in ("builtin", "generated") else "builtin"
         self.map_model = d.get("map_model") if isinstance(d.get("map_model"), dict) else None     # None: the World's model draws it
