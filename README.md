@@ -85,16 +85,23 @@ That takes a minute or two. Then day one begins.
    A line goes into the chronicle with the season, the weather, and what is low, broken, sick, or
    burning.
 2. **Morning: duties.** Everyone able with work is given their duties with place, output, and what
-   it costs the valley if skipped. Their `ACTION:` line must begin with `WORK` (all of it), `WORK`
-   and one duty's name, or `REFUSE`; anything else counts as skipping. The engine resolves it: output
-   rolled from skill and dice, the ledger moved, the skill nudged up. Skipping costs standing and
-   that day's work; skip the same work two mornings running and the duty goes unclaimed. REFUSE gives
-   it up at once. What nobody did lands its cost and goes to the World and the chronicle by name;
-   after two days a neighbour complains by name.
+   it costs the valley if skipped. `WORK` (all of it), `WORK` and one duty's name (that one first, or
+   taken up if nobody holds it), or `REFUSE` are read anywhere in the reply, with or without the
+   `ACTION:` prefix, in any case; anything else counts as skipping. Before the morning the engine
+   marks every held duty that cannot yield today (fields in winter, a kitchen with nothing to cook, a
+   burial with nobody dead, healing with nobody sick, teaching with nobody there) as nothing to do:
+   not a skip, not undone, and the holder is free for other work. The engine resolves the rest:
+   output rolled from skill and dice, the ledger moved, the skill nudged up. Skipping costs standing
+   and that day's work; skip the same work two mornings running and the duty goes unclaimed. REFUSE
+   gives it up at once. What nobody did lands its cost and goes to the World and the chronicle by
+   name; after two days a neighbour complains and names whoever holds it.
 3. **Afternoon: free time.** Only the people something touched, or whose nature is pushing them,
    are asked, and they may act. Everyone else spends the afternoon on their pastime, on the map, and
-   people whose pastimes put them in the same place are company and get a turn to talk. Anyone named
-   or whispered to at the same place gets a turn to answer. Driving someone out, refusing to share,
+   people whose pastimes put them in the same place are company and get a turn to talk. Every prompt
+   says who is at the speaker's place and that only they hear; a line with `@Name` is carried to that
+   person privately wherever they are, and anyone named at the same place gets a turn to answer. The
+   chronicle says who heard each line, and a line that addresses someone absent and not `@named` gets
+   "X is not here." from the engine. Driving someone out, refusing to share,
    taking work, leaving, and every duty change are settled by the engine before the World sees anything.
 4. **The engine resolves the afternoon, the World tells it.** Every free action is read into one of
    fourteen verbs (travel, talk, give, take, steal, hit, drive out, help, tend, court, pray, trade,
@@ -196,6 +203,9 @@ You are not a player, but you are not powerless.
 - **Watch them work.** The map walks each person along the paths to wherever their work or their
   action takes them, with a line under the name saying what they are doing and a thin bar that fills
   as the work resolves. Skippers show idle, the sick rest at home, emergencies move people at once.
+  A travel action starts the walk the moment it is posted; when the engine settles the round the walk
+  is finished to wherever they actually got. No token ever jumps: any change of place walks the path,
+  never under two seconds and longer for longer paths.
   It is driven by the engine's own record of what each person is doing, so a page opened halfway
   through shows the right stage, on a phone as much as on a desktop.
 - **Wreck and restore.** Click a place to see what is there. Destroy a fixture, restore one, or set

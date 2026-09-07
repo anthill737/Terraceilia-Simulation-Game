@@ -462,10 +462,14 @@ class Run:
 
     def _record(self, speaker: str, text: str, kind: str) -> None:
         with self.lock:
-            g = self.g; g.turn += 1
+            g = self.g; g.turn += 1; w = g.world
             color = next((x.get("color") for x in g.seats if x["name"] == speaker), None)
-            place = g.world.characters.get(speaker, {}).get("location") if kind == "speech" else None
-            e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": g.world.day, "phase": g.world.phase, "color": color, "place": place}
+            place = w.characters.get(speaker, {}).get("location") if kind == "speech" else None
+            heard = w.heard_by(speaker, text) if kind == "speech" else None
+            if kind == "speech":
+                absent = w.not_here(speaker, text)
+                if absent: text = text.rstrip() + "\n" + " ".join(f"{n} is not here." for n in absent)
+            e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": w.day, "phase": w.phase, "color": color, "place": place, "heard": heard}
             g.transcript.append(e); self.version += 1
             seats = list(enumerate(g.seats)); locs = {n: c.get("location") for n, c in g.world.characters.items()}
         for i, seat in seats:   # file writes outside the lock
@@ -652,18 +656,15 @@ class Run:
             if not text: on_reply(i, None); return
             if text.strip().upper().rstrip(".") == "PASS": self._term(i, "(passed)"); on_reply(i, None); return
             text = cap_speech(strip_dashes(text))         # one to three sentences, no dashes, the ACTION line kept whole
-            for t in whisper_targets(text):
-                tc = next((c for c in w.living() if c["name"].lower() == t), None)
-                if tc and tc["location"] != w.characters[g.seats[i]["name"]]["location"]:
-                    self._term(i, f"(your whisper to {tc['name']} went nowhere: they are at {tc['location']}, you are at {w.characters[g.seats[i]['name']]['location']})")
             on_reply(i, text)
             if not reactions: return
-            wts = whisper_targets(text)
+            wts = whisper_targets(text) | mentions(text)
             with self.lock:
                 here = w.characters[g.seats[i]["name"]]["location"]
                 for nm, j in name_to_i.items():
-                    if w.characters[g.seats[j]["name"]]["location"] != here: continue
-                    if j != i and j not in reacted and j not in threads and (re.search(r"(?<![\w@])" + re.escape(g.seats[j]["name"]) + r"\b", text, re.I) or nm in wts):
+                    if j == i or j in reacted or j in threads: continue
+                    same = w.characters[g.seats[j]["name"]]["location"] == here
+                    if nm in wts or (same and re.search(r"(?<![\w@])" + re.escape(g.seats[j]["name"]) + r"\b", text, re.I)):
                         reacted.add(j); queue.append(j)
 
         seen_len = len(g.transcript)
@@ -702,10 +703,9 @@ class Run:
             if text:
                 said = self._speech_part(text)
                 if said: self._record(me, said, "speech")
-            act = action_line(text or "") or ""
-            with self.lock: outcomes[me] = w.resolve_morning(me, act, self.rng); self.version += 1
+            with self.lock: outcomes[me] = w.resolve_morning(me, text or "", self.rng); self.version += 1
 
-        instr = ("It is morning. Your ACTION line must begin with WORK (do all your work today), WORK followed by one duty's name (do that one and skip the rest), "
+        instr = ("It is morning. Your ACTION line must begin with WORK (do all your work today), WORK followed by one duty's name (do that one first, then the rest, or take it up if nobody holds it), "
                  "REFUSE (give up your duties; they go unclaimed and people notice), or anything else, which counts as skipping your work today and costs the same. "
                  "The engine does the work and says what came of it; never describe the outcome yourself. Speak only if something touched you; otherwise give the ACTION line alone.")
         self._round(working, instr, "morning", on_reply, reactions=False)
@@ -718,7 +718,7 @@ class Run:
                 if not w.able(c): outcomes[c["name"]] = w.resolve_morning(c["name"], "", self.rng)
             done = {r["duty"] for rs in outcomes.values() for r in rs if r.get("kind") == "work" and r.get("duty")}
             m = w.end_morning(done, self.rng); self.version += 1
-        lines = [r["text"] for me in sorted(outcomes, key=lambda n: w.characters[n]["seat"]) for r in outcomes[me] if r.get("text")]
+        lines = list(w.nothing_lines) + [r["text"] for me in sorted(outcomes, key=lambda n: w.characters[n]["seat"]) for r in outcomes[me] if r.get("text")]
         undone = [u["text"] for u in m["undone"]]
         text = "\n".join(lines) or "Nobody had work to do."
         if undone: text += "\n\nUNDONE: " + " ".join(undone)
@@ -739,7 +739,8 @@ class Run:
             if a and i not in acted:
                 with self.lock:
                     acted.add(i); w.pending.append({"who": me, "text": a, "turn": g.turn})
-                    w.set_activity(me, "acting", a[:48], [{"place": w.characters[me]["location"], "what": a[:48], "dur": 8}]); self.version += 1
+                    if not w.start_walk(me, a): w.set_activity(me, "acting", a[:48], [{"place": w.characters[me]["location"], "what": a[:48], "dur": 8}])
+                    self.version += 1
 
         instr = ("It is afternoon, your free time. If something touched you today or you have a want to act on, act on it now: speak if you must, then one ACTION line. "
                  "If nothing presses, reply exactly PASS and you will spend the afternoon on your pastime.")

@@ -33,8 +33,33 @@ class MorningTests(unittest.TestCase):
         self.assertEqual(w.morning_intent("P0", "REFUSE"), ("refuse", None)); self.assertEqual(w.morning_intent("P0", "refuse the hunt"), ("refuse", "hunt"))
         self.assertEqual(w.morning_intent("P0", "I walk to the inn"), ("skip", None)); self.assertEqual(w.morning_intent("P0", ""), ("skip", None))
 
+    def test_every_form_of_work_and_refuse_is_read_anywhere_in_the_reply(self) -> None:
+        w = valley(); mi = lambda t: w.morning_intent("P0", t)  # noqa: E731
+        for t in ("WORK", "WORK.", "work", "Work.", "ACTION: WORK", "ACTION: WORK.", "action: work", "I am tired, but I will.\nACTION: WORK", "I suppose I will go. WORK.", "Fine.\nwork\n"):
+            self.assertEqual(mi(t), ("work", None), t)
+        for t in ("WORK the mill", "WORK mill.", "work: the mill", "ACTION: WORK the mill", "ACTION: Work the mill.", "I will see to the mill first.\nWORK the mill, then the rest."):
+            self.assertEqual(mi(t), ("work", "mill"), t)
+        for t in ("REFUSE", "REFUSE.", "refuse", "ACTION: REFUSE", "action: refuse.", "No. I will not.\nACTION: REFUSE"):
+            self.assertEqual(mi(t), ("refuse", None), t)
+        for t in ("REFUSE the hunt", "refuse hunt.", "ACTION: REFUSE the hunt", "Not the hunt, never again. REFUSE the hunt."):
+            self.assertEqual(mi(t), ("refuse", "hunt"), t)
+        self.assertEqual(mi("ACTION: WORK\nrefuse everything"), ("work", None), "the ACTION line wins over the rest of the reply")
+        self.assertEqual(mi("I walk to the inn"), ("skip", None)); self.assertEqual(mi(""), ("skip", None)); self.assertEqual(mi("ACTION: I go drinking"), ("skip", None))
+
+    def test_work_with_a_duty_does_that_one_first_then_the_rest(self) -> None:
+        w = valley(); c = w.characters["P0"]; c["duties"] = ["mill", "wood"]; c["dumped"] = []
+        for k in c["duties"]: c["skills"][DUTIES[k]["skill"]] = 9
+        w.ledger["grain"] = 9; out = w.resolve_morning("P0", "WORK the wood", random.Random(1))
+        self.assertEqual([r["duty"] for r in out if r.get("kind") == "work"], ["wood", "mill"]); self.assertEqual(c["duties"], ["mill", "wood"], "nothing is skipped or lost")
+
+    def test_work_with_an_unclaimed_duty_takes_it_up(self) -> None:
+        w = valley(); c = w.characters["P0"]; c["duties"] = []; c["dumped"] = []
+        for x in w.living(): x["duties"] = [k for k in x.get("duties", []) if k != "wood"]; x["dumped"] = [k for k in x.get("dumped", []) if k != "wood"]
+        out = w.resolve_morning("P0", "WORK the wood", random.Random(1))
+        self.assertEqual(out[0]["kind"], "claim"); self.assertIn("took up", out[0]["text"]); self.assertIn("wood", c["duties"]); self.assertTrue(any(r.get("kind") == "work" and r["duty"] == "wood" for r in out))
+
     def test_work_is_resolved_by_the_engine(self) -> None:
-        w = valley(); c = w.characters["P0"]; before = dict(w.ledger); n = len(c["duties"])
+        w = valley(); c = w.characters["P0"]; before = dict(w.ledger); n = len([k for k in c["duties"] if not w.nothing_today(k)])
         for k in c["duties"]: c["skills"][DUTIES[k]["skill"]] = 9
         w.ledger["grain"] = 9
         out = w.resolve_morning("P0", "WORK", random.Random(1))
@@ -69,12 +94,50 @@ class MorningTests(unittest.TestCase):
 
     def test_what_nobody_did_costs_and_after_two_days_a_neighbour_complains_by_name(self) -> None:
         w = valley(); w.ledger["road_safe"] = True
-        m1 = w.end_morning(set(), random.Random(1)); self.assertEqual(len(m1["undone"]), len(DUTIES)); self.assertFalse(w.ledger["road_safe"]); self.assertEqual(m1["complaints"], [])
+        m1 = w.end_morning(set(), random.Random(1)); self.assertEqual(len(m1["undone"]), len([k for k in DUTIES if not w.nothing_today(k)]), "a duty with nothing to do today is not undone"); self.assertFalse(w.ledger["road_safe"]); self.assertEqual(m1["complaints"], [])
         w.day = 2; m2 = w.end_morning({"mill"}, random.Random(1))
         self.assertTrue(m2["complaints"], "two days undone and nobody complained")
         line = m2["complaints"][0]; who = line.split(" complains")[0]; self.assertIn(who, w.characters); self.assertIn("2 days running", line)
         self.assertNotIn("the mill has gone undone", " ".join(m2["complaints"]))
         self.assertIn("UNDONE", w.undone_text().upper() or "UNDONE"); self.assertIn("days running", w.undone_text())
+
+    def test_a_duty_that_cannot_yield_today_is_nothing_to_do_not_a_skip(self) -> None:
+        w = valley(); c = w.characters["P0"]
+        for x in w.living(): x["duties"] = [k for k in x.get("duties", []) if k not in ("fields", "wood")]; x["dumped"] = []
+        c["duties"] = ["fields", "wood"]; c["skills"] = {"farming": 9, "woodcutting": 9}
+        w.day = 20; w.weather = "clear"; w.assign_day(random.Random(1))       # deep winter: the fields are dormant
+        self.assertTrue(w.nothing_today("fields")); self.assertFalse(w.nothing_today("wood"))
+        self.assertEqual([ln for ln in w.nothing_lines if ln.startswith("the fields")], ["the fields are dormant; P0 is free this morning."])
+        self.assertIn("nothing to do today, the fields are dormant", w.duty_brief("P0"))
+        s0 = c["standing_score"]; out = w.resolve_morning("P0", "WORK", random.Random(1))
+        worked = [r["duty"] for r in out if r.get("kind") == "work"]; self.assertIn("wood", worked); self.assertNotIn("fields", worked, "the dormant fields are not worked and not skipped")
+        self.assertEqual(c["standing_score"], s0); self.assertEqual(c["skip_streak"], 0); self.assertEqual(c["duties"], ["fields", "wood"])
+        m = w.end_morning({"wood"}, random.Random(1)); self.assertNotIn("fields", [u["duty"] for u in m["undone"]], "nothing to do is not undone")
+        # the other reasons
+        w2 = valley(); w2.ledger.update(grain=0, meat=0, fish=0); w2.bodies = {}
+        for x in w2.living(): x["sick"] = False
+        w2.assign_day(random.Random(1))
+        for k, why in (("kitchen", "there is nothing to cook"), ("burial", "there is nobody to bury"), ("healing", "nobody is sick")):
+            if any(k in x.get("duties", []) or k in x.get("dumped", []) for x in w2.living()): self.assertEqual(w2.duty_state(k).get("nothing_why"), why, k)
+        teacher = next((x for x in w2.living() if "teaching" in x.get("duties", []) or "teaching" in x.get("dumped", [])), None)
+        if teacher:
+            place = w2.duty_place("teaching")
+            for x in w2.living():
+                if x["name"] != teacher["name"]: x["location"] = next(pl for pl in w2.map if pl != place)
+            w2.mark_nothing_to_do(); self.assertEqual(w2.duty_state("teaching").get("nothing_why"), f"nobody is at {place} to teach")
+        # REFUSE still gives up a duty that had nothing to do
+        w3 = valley(); c3 = w3.characters["P0"]; c3["duties"] = ["fields"]; c3["dumped"] = []; w3.day = 20; w3.assign_day(random.Random(1))
+        w3.resolve_morning("P0", "REFUSE", random.Random(1)); self.assertEqual(c3["duties"], [])
+
+    def test_a_complaint_names_the_holder_even_when_the_duty_was_dumped(self) -> None:
+        w = valley(); w.day = 3
+        for x in w.living(): x["duties"] = []; x["dumped"] = []
+        w.characters["P0"]["duties"] = ["mill"]; w.duty_state("watch")["undone_days"] = 1; w.duty_state("mill")["undone_days"] = 1
+        w.assign_day(random.Random(1)); dumped_on = w.roster["duties"]["watch"]["dumped_on"]; self.assertTrue(dumped_on, "the watch is dumped on somebody")
+        m = w.end_morning(set(), random.Random(1)); lines = " ".join(m["complaints"])
+        self.assertNotIn("nobody has taken", lines)
+        watch = [c for c in m["complaints"] if "the watch" in c]; mill = [c for c in m["complaints"] if "the mill" in c]
+        self.assertTrue(watch and f"that {dumped_on} holds it" in watch[0], watch); self.assertTrue(mill and "that P0 holds it" in mill[0], mill)
 
     def test_evening_sends_people_home_or_to_the_inn(self) -> None:
         w = valley(); inn = next(p for p, d in w.map.items() if d.get("kind") == "inn")

@@ -112,7 +112,7 @@ class Sheets(unittest.TestCase):
         self.assertIn('class="crow colduty', col); self.assertIn('class="crow colplace', col); self.assertEqual(col.count('<div class="crow">'), 3, "the ledger rows share the row shape")
         duty = col[col.index('class="crow colduty'):col.index("</div>`", col.index('class="crow colduty'))]
         self.assertEqual([m for m in re.findall(r'class="(cdn|cdp|cdw|cds)', duty)], ["cdn", "cdp", "cdw", "cds"], "duty name, place, holder, status")
-        self.assertIn("${done?'':x.undone_days?`undone ${x.undone_days} day", duty, "status is blank when done")
+        self.assertIn("done?'':x.undone_days?`undone ${x.undone_days} day", duty, "status is blank when done"); self.assertIn("'nothing to do'", duty, "a duty with nothing to do today says so")
         row = CSS[CSS.index(".crow{"):CSS.index("}", CSS.index(".crow{"))]
         self.assertIn("display:grid", row); self.assertIn("height:calc(var(--u) * 4)", row); self.assertIn("grid-template-columns:1.2fr 1fr 1.2fr auto", row)
         self.assertIn(".crow>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis", CSS); self.assertIn(".crow .cdp{color:var(--muted)}", CSS); self.assertIn(".crow .cds{color:var(--rust)", CSS)

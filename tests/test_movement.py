@@ -32,7 +32,7 @@ class ActivityTests(unittest.TestCase):
 
     def test_labels_name_the_thing_or_the_person(self) -> None:
         w = valley(); c = w.characters["P0"]; c["duties"] = ["healing", "roofs"]; c["skills"] = {"healing": 9, "carpentry": 9}
-        w.characters["P1"]["sick"] = True; w.characters["P1"]["location"] = w.characters["P0"]["location"]
+        w.characters["P1"]["sick"] = True; w.characters["P1"]["location"] = w.characters["P0"]["location"]; w.mark_nothing_to_do()
         w.resolve_morning("P0", "WORK", random.Random(2)); stops = w.activities["P0"]["stops"]
         self.assertEqual(stops[0]["what"], "tending P1"); self.assertTrue(stops[1]["what"].startswith("mending the roof at "))
 
@@ -53,6 +53,23 @@ class ActivityTests(unittest.TestCase):
         for c in w.living(): self.assertIn(w.activities[c["name"]]["what"], ("at home", "at the inn")); self.assertEqual(w.activities[c["name"]]["stops"][0]["place"], c["location"])
         w.end_day()
         for c in w.living(): self.assertEqual(w.activities[c["name"]]["state"], "resting"); self.assertEqual(c["location"], c["home"])
+
+    def test_a_travel_action_starts_the_walk_before_the_engine_resolves_it(self) -> None:
+        w = valley(); c = w.characters["P0"]; here = c["location"]; far = max(w.map, key=lambda q: w.distance(q, here))
+        self.assertEqual(w.start_walk("P0", f"I walk to {far}"), far); a = w.activities["P0"]
+        self.assertTrue(a["provisional"]); self.assertEqual(a["from"], here); self.assertEqual(a["stops"][0]["place"], far); self.assertEqual(c["location"], here, "the engine has not moved them yet")
+        self.assertIsNone(w.start_walk("P0", "I sharpen my knife")); self.assertIsNone(w.start_walk("P0", f"I stay at {here}"))
+        r = w.resolve_verb("P0", w.parse_verb("P0", f"I walk to {far}"), random.Random(1)); a2 = w.activities["P0"]
+        self.assertFalse(a2.get("provisional")); self.assertEqual(a2["from"], here, "the settled walk starts from where they were"); self.assertEqual(a2["stops"][0]["place"], c["location"])
+        self.assertEqual(c["location"], w._path(here, far)[1]); self.assertTrue(r["ok"])
+
+    def test_the_map_walks_every_move_and_never_jumps(self) -> None:
+        import subprocess
+        r = subprocess.run(["node", str(ROOT / "tests" / "walks_check.js")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr); self.assertIn("six position changes in one poll give six walk animations", r.stdout); self.assertIn("ALL PASS", r.stdout)
+        js = (ROOT / "frontend" / "map.js").read_text(encoding="utf-8"); html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("Walks.plan(s,prev,serverNow())", js); self.assertIn("posAt(tl,now-tl.base", js); self.assertNotIn("function buildTimeline", js)
+        self.assertLess(html.index('src="walks.js"'), html.index('src="map.js"'))
 
     def test_the_map_is_told_with_a_clock(self) -> None:
         import connect, server, game, shutil, tempfile

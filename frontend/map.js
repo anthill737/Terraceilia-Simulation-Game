@@ -215,30 +215,16 @@ const MapView=(()=>{
   el('path',{class:'cloak',d:'M-8 12 L-6 -2 L0 -6 L6 -2 L8 12 Z',fill:col,stroke:'#0a0d0b','stroke-width':1.2},t);el('circle',{class:'head',cy:-9,r:5,fill:'#e6c8a6',stroke:'#0a0d0b','stroke-width':1.2},t);el('text',{y:6,'text-anchor':'middle',class:'ini'},t);
   el('text',{y:40,'text-anchor':'middle',class:'act',filter:'url(#halo)'},t);el('rect',{x:-20,y:44,width:40,height:3,rx:1.5,class:'pbar'},t);el('rect',{x:-20,y:44,width:0,height:3,rx:1.5,class:'pfill'},t)}
 
- // ---------- movement. The engine says what each person is doing, where, and since when; the map walks them there.
- // A timeline is built from the activity: a walk along the paths to each stop (so many seconds a hop), then a stay there
- // for the stop's seconds with the bar filling. Everything is a function of the time since the activity started, so a page
- // opened halfway through shows the right stage. When the timeline is over the token glides to its resting slot.
- const WALK=1.4,RUSH=0.25;let timelines={},raf=null,clockOff=0;
- function pathBetween(m,a,b){if(a===b||!m[a]||!m[b])return [a,b].filter((x,i,arr)=>m[x]&&arr.indexOf(x)===i);const prev={[a]:null};let q=[a];
-  while(q.length){const nq=[];for(const p of q){for(const n of (m[p].adj||[])){if(n in prev)continue;prev[n]=p;if(n===b){const out=[b];let c=b;while(prev[c]){c=prev[c];out.unshift(c)}return out}nq.push(n)}}q=nq}
-  return [a,b]}
- const nodeXY=(m,p)=>{const d=m[p];return d?{x:d.x,y:d.y+70}:null};
- function buildTimeline(s,a){let t=0;const segs=[];let cur=(a.from&&s.map[a.from])?a.from:null;const speed=a.immediate?RUSH:WALK;
-  for(const st of (a.stops||[])){if(!s.map[st.place])continue;
-   if(cur&&cur!==st.place){const path=pathBetween(s.map,cur,st.place);const hops=Math.max(1,path.length-1);segs.push({kind:'walk',t0:t,t1:t+hops*speed,pts:path.map(p=>nodeXY(s.map,p)).filter(Boolean),what:st.what});t+=hops*speed}
-   if(st.dur>0){segs.push({kind:'stay',t0:t,t1:t+st.dur,place:st.place,what:st.what});t+=st.dur}
-   cur=st.place}
-  return {segs,end:t,final:cur,what:a.what,state:a.state}}
- function posAt(tl,t,slotOf){for(const g of tl.segs){if(t>=g.t1)continue;const f=Math.max(0,(t-g.t0)/Math.max(.001,g.t1-g.t0));
-   if(g.kind==='walk'){const n=g.pts.length-1;if(n<1)continue;const k=Math.min(n-1,Math.floor(f*n)),lf=f*n-k;const p=g.pts[k],q=g.pts[k+1];return {x:p.x+(q.x-p.x)*lf,y:p.y+(q.y-p.y)*lf,what:g.what,bar:null,walking:true}}
-   const sl=slotOf(g.place);return {x:sl.x,y:sl.y,what:g.what,bar:f,walking:false}}
-  return null}
+ // ---------- movement. The engine says what each person is doing, where, and since when; Walks plans it and the map plays it.
+ // A timeline is a walk along the paths to each stop, then a stay there with the bar filling. It begins where the token stands,
+ // so a walk under way is finished to wherever the engine says they got, and a place that changes with no walk still walks.
+ let raf=null,clockOff=0;
+ const posAt=Walks.posAt;
  const serverNow=()=>Date.now()/1000-clockOff;
  function tick(){raf=null;if(!S_)return;let busy=false;const now=serverNow();
   for(const name in tokens){const t=tokens[name];if(t.classList.contains('drag'))continue;const tl=t._tl;let target=null,what=t._what||'',bar=null,walking=false;
-   if(tl){const a=t._act;const pos=posAt(tl,now-a.started,t._slotOf);if(pos){target=pos;what=pos.what;bar=pos.bar;walking=pos.walking;busy=true}else{t._tl=null}}
-   if(!target)target={x:+t.dataset.sx,y:+t.dataset.sy};
+   if(tl){const pos=posAt(tl,now-tl.base,t._slotOf);if(pos){target=pos;what=pos.what;bar=pos.bar;walking=pos.walking;busy=true}else{t._rest=tl.provisional&&tl.final?t._slotOf(tl.final):null;t._tl=null}}
+   if(!target)target=t._rest||{x:+t.dataset.sx,y:+t.dataset.sy};
    const cx=t._x??target.x,cy=t._y??target.y;let nx=target.x,ny=target.y;
    if(t._tl&&walking){nx=target.x;ny=target.y}else{const dx=target.x-cx,dy=target.y-cy;const d=Math.hypot(dx,dy);if(d>0.5){const step=Math.min(1,0.12);nx=cx+dx*step;ny=cy+dy*step;busy=true}}
    t._x=nx;t._y=ny;t.setAttribute('transform',`translate(${nx.toFixed(1)},${ny.toFixed(1)})`);t.classList.toggle('walking',!!walking);
@@ -259,11 +245,13 @@ const MapView=(()=>{
   const slotOf=(pl,name)=>{const d=s.map[pl];if(!d)return {x:500,y:400};const cs=byPlace[pl]||[];const n=Math.max(1,cs.length);let i=cs.findIndex(c=>c.name===name);if(i<0){i=n;}
    const ang=Math.PI*0.12+(i/Math.max(1,(i>=n?n:n-1)||1))*Math.PI*0.76;const rad=n>1||i>=n?60:0;return {x:d.x+(rad?Math.cos(ang)*rad:0),y:d.y+70+(rad?Math.sin(ang)*rad*0.4:4)}};
   const gt=$('tokens');const live=new Set();const acts=s.activities||{};
+  const prev={};for(const n in tokens){const t=tokens[n];if(t.classList.contains('drag'))continue;prev[n]={place:t.dataset.place,key:t._key||'',x:t._x,y:t._y}}
+  const planned=Walks.plan(s,prev,serverNow());
   s.characters.forEach(c=>{if(!c.alive||c.gone)return;const pl=c.location;const d=s.map[pl];if(!d)return;live.add(c.name);const sl=slotOf(pl,c.name);const n=(byPlace[pl]||[]).length;
     let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#7d7462');t.querySelector('.ini').textContent=c.name[0];el('text',{y:28,'text-anchor':'middle',class:'lbl',filter:'url(#halo)'},t).textContent=c.name;tokens[c.name]=t;bind(t,c.name);t._x=sl.x;t._y=sl.y;t.setAttribute('transform',`translate(${sl.x},${sl.y})`)}
     t.dataset.sx=sl.x;t.dataset.sy=sl.y;t._slotOf=p=>slotOf(p,c.name);
-    const a=acts[c.name];const key=a?`${a.started}|${a.state}|${a.what}`:'';
-    if(key!==t._key){t._key=key;t._act=a||null;t._tl=a&&a.stops&&a.stops.length?buildTimeline(s,a):null;if(t._tl&&t._tl.end<=0)t._tl=null}
+    const a=acts[c.name];const pn=planned[c.name];
+    if(pn){t._key=pn.key;t._act=a||null;t._tl=pn.tl&&pn.tl.end>0?pn.tl:null;t._rest=null}
     t._what=a?(a.state==='working'&&a.stops&&a.stops.length?a.stops[a.stops.length-1].what:a.what):'';
     t.classList.toggle('thinking',thinking.has(c.name));t.classList.toggle('hurt',c.hp<=c.hp_max/2);t.classList.toggle('idle',!!a&&a.state==='idle');t.classList.toggle('resting',!!a&&a.state==='resting');
     t.querySelector('.lbl').style.display=(n<=4||hover===c.name||selected===pl)?'':'none';

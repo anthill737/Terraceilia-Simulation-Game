@@ -443,6 +443,7 @@ class World:
         self.morning: dict = d.get("morning", {})                  # what the morning left undone, and who complained
         self.reached: list[dict] = d.get("reached", [])            # wants reached and not yet announced by the World
         self.activities: dict[str, dict] = d.get("activities", {})   # name -> what they are doing now, for the map to play
+        self.nothing_lines: list[str] = list(d.get("nothing_lines", []))   # today's duties with nothing to do, one line each
         self.phase: str = d.get("phase", "morning")                # morning, afternoon, evening
         self.bodies: dict[str, str] = d.get("bodies", {})          # the unburied dead: name -> where they lie
         self.day_report: dict = d.get("day_report", {})            # what dawn found: season, weather, changes, the low and the broken and the sick
@@ -504,7 +505,7 @@ class World:
                 "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
                 "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style,
                 "weather": self.weather, "upkeep": self.upkeep, "bodies": self.bodies, "day_report": self.day_report,
-                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase, "reached": self.reached, "activities": self.activities}
+                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase, "reached": self.reached, "nothing_lines": self.nothing_lines, "activities": self.activities}
 
     # ---- which map this game plays on
     def install_map(self, v: dict) -> None:
@@ -1230,7 +1231,38 @@ class World:
                 if e["place"] in self.map: c["location"] = e["place"]        # pulled at once, not when they get round to it
             e["pulled"] = [c["name"] for c in pool[:2]]
         self.roster = {"day": self.day, "duties": roster, "emergencies": emergencies}
+        self.mark_nothing_to_do()
         return self.roster
+
+    def nothing_reason(self, key: str) -> str | None:
+        """Why a duty cannot yield today, or None: fields in winter, a kitchen with nothing to cook, a burial with nobody dead,
+        healing with nobody sick, teaching with nobody at the place."""
+        d = DUTIES[key]; fx = d.get("effect", {}); place = self.duty_place(key)
+        if key == "fields" and season_rules(self.day, self.weather)["fields"][1] == 0.0: return "the fields are dormant"
+        any_of = d.get("consumes_any")
+        if any_of and not any(self.ledger.get(s2, 0) >= d["consumes"].get(s2, 1) for s2 in any_of): return "there is nothing to cook"
+        if "bury" in fx and not self.bodies: return "there is nobody to bury"
+        if "tend" in fx and not any(x.get("sick") for x in self.living()): return "nobody is sick"
+        if "teach" in fx and not [x for x in self.living() if x["location"] == place and key not in x.get("duties", []) and key not in x.get("dumped", [])]: return f"nobody is at {place} to teach"
+        return None
+
+    def mark_nothing_to_do(self) -> list[str]:
+        """Before the morning: every held duty that cannot yield today is marked, for today, as nothing to do. It is not a skip, it
+        does not burn the morning, and its holders are free for their other duties or an unclaimed one. Returns the chronicle lines."""
+        lines = []
+        for k in DUTIES:
+            st = self.duty_state(k); why = self.nothing_reason(k)
+            hs = [c["name"] for c in self.living() if k in c.get("duties", []) or k in c.get("dumped", [])]
+            if why and hs:
+                st["nothing_day"] = self.day; st["nothing_why"] = why
+                for h in hs: note_log(self.characters[h], self.day, f"{DUTIES[k]['label'].capitalize()}: {why}; you are free this morning.")
+                lines.append(f"{why}; {', '.join(hs)} {'is' if len(hs) == 1 else 'are'} free this morning.")
+            elif st.get("nothing_day") == self.day: st["nothing_day"] = None; st["nothing_why"] = ""
+        self.nothing_lines = lines
+        return lines
+
+    def nothing_today(self, key: str) -> bool:
+        return self.duty_state(key).get("nothing_day") == self.day
 
     def duty_brief(self, name: str) -> str:
         """What a person is told about their work today: each duty with its place, its output, and what it costs if skipped."""
@@ -1239,6 +1271,7 @@ class World:
             e = c["emergency"]; lines.append(f"EMERGENCY, before anything else: {e['text']}. Go to {e['place']} and deal with it.")
         for k in list(c.get("duties", [])) + list(c.get("dumped", [])):
             d = DUTIES[k]; place = self.duty_place(k, name); dumped = k in c.get("dumped", [])
+            if self.nothing_today(k): lines.append(f"- {d['label'].upper()}: nothing to do today, {self.duty_state(k).get('nothing_why', '')}. You are free for your other work or an unclaimed duty (WORK and its name)."); continue
             prod = ", ".join(f"{v} {s}" for s, v in d.get("produces", {}).items()) or ", ".join(f"{k2} {v:+d}" for k2, v in d.get("effect", {}).items() if k2 in ("roof", "warmth", "filth")) or "keeps things from getting worse"
             cost = ", ".join(f"{v} {s}" for s, v in d.get("consumes", {}).items())
             lines.append(f"- {d['label'].upper()}{' (dumped on you today, nobody holds it)' if dumped else ''}: {d['verb']} at {place}. Makes {prod}" + (f"; uses {cost}" if cost else "") + f". If skipped: {d['breaks']}.")
@@ -1491,14 +1524,21 @@ class World:
         return f"{name} ({', '.join(t)})" if t else name
 
     # ---- the morning: WORK, REFUSE, or anything else, which is a skip
+    INTENT_RX = re.compile(r"(?<![\w@])(?:ACTION\s*:\s*)?(WORK|REFUSE)\b[.:,]?\s*(.*)", re.I)
+
     def morning_intent(self, name: str, text: str) -> tuple[str, str | None]:
-        """("work", duty or None) for WORK and WORK <duty>; ("refuse", duty or None) for REFUSE and REFUSE <duty>; ("skip", None) for anything else."""
-        t = " ".join((text or "").strip().split())
-        m = re.match(r"^(work|refuse)\b[:,]?\s*(.*)$", t, re.I)
-        if not m: return ("skip", None)
-        kind = m.group(1).lower(); rest = m.group(2)
-        key = self.duty_key(rest) if rest else None
-        return (kind, key)
+        """("work", duty or None) for WORK, WORK., WORK <duty>; ("refuse", duty or None) for REFUSE and REFUSE <duty>; ("skip", None)
+        for anything else. The word is read anywhere in the reply, with or without the ACTION: prefix, in any case; an ACTION line
+        wins over the rest, then the first line that starts with the word, then the first place it appears."""
+        lines = [" ".join(ln.split()) for ln in (text or "").split("\n") if ln.strip()]
+        picks = [ln for ln in lines if re.match(r"^\s*ACTION\s*:", ln, re.I)] + [ln for ln in lines if re.match(r"^\s*(WORK|REFUSE)\b", ln, re.I)] + lines
+        for ln in picks:
+            m = self.INTENT_RX.search(ln)
+            if not m: continue
+            kind = m.group(1).lower(); rest = m.group(2).strip()
+            rest = re.split(r"[.!?;]", rest, maxsplit=1)[0] if rest else ""
+            return (kind, self.duty_key(rest) if rest else None)
+        return ("skip", None)
 
     def fight_fire(self, place: str, people: list[str], rng: random.Random) -> dict:
         """The people pulled to a fire try to put it out. Speed helps; a bad roll burns."""
@@ -1539,10 +1579,18 @@ class World:
     # ---- what each person is doing right now, for the map to walk them through
     # An activity is a state, a label, and the stops it takes them through, each with a place and how long the work there
     # shows for. The frontend plays it from `started`: walks the path to each stop, fills a bar for its seconds, and walks on.
-    def set_activity(self, name: str, state: str, what: str, stops: list[dict] | None = None, immediate: bool = False) -> dict:
+    def set_activity(self, name: str, state: str, what: str, stops: list[dict] | None = None, immediate: bool = False, frm: str | None = None, provisional: bool = False) -> dict:
         c = self.characters[name]
-        a = {"state": state, "what": what[:60], "from": c["location"], "stops": stops or [], "started": time.time(), "immediate": immediate, "day": self.day, "phase": self.phase}
+        a = {"state": state, "what": what[:60], "from": frm or c["location"], "stops": stops or [], "started": time.time(), "immediate": immediate, "day": self.day, "phase": self.phase, "provisional": provisional}
         self.activities[name] = a; c["activity"] = what[:60]; return a
+
+    def start_walk(self, name: str, text: str) -> str | None:
+        """An ACTION line with a travel verb starts the token walking toward the destination at once, before the engine settles the
+        round. The person has not moved: the engine says where they got to when it resolves. Returns the destination, or None."""
+        pv = self.parse_verb(name, text)
+        if pv.get("verb") != "travel" or not pv.get("place") or pv["place"] == self.characters[name]["location"]: return None
+        dest = pv["place"]; self.set_activity(name, "acting", f"walking to {dest}", [{"place": dest, "what": f"walking to {dest}", "dur": 0}], provisional=True)
+        return dest
 
     def work_label(self, r: dict) -> str:
         """The words under the name while the work shows: "mending the roof at The mill", "tending Alder"."""
@@ -1603,18 +1651,22 @@ class World:
             kind, key = "skip", None; c["could_not_face"] = True
         em = self.handle_emergency(name, rng)
         if em: out.append(dict(em, who=name)); c["needs"]["rest"] = max(0, c["needs"].get("rest", 5) - 1)
-        mine = list(c.get("duties", [])) + [k for k in c.get("dumped", []) if k not in c.get("duties", [])]
+        mine = [k for k in list(c.get("duties", [])) + [k for k in c.get("dumped", []) if k not in c.get("duties", [])] if not self.nothing_today(k)]
+        if kind == "work" and key and key not in mine and not self.holders(key) and self.able(c):
+            taken = self.claim_duty(name, key)                        # a free morning goes to an unclaimed duty they named
+            if taken.startswith(name): out.append({"kind": "claim", "who": name, "duty": key, "text": taken + "."}); mine.append(key)
         if not mine:
             if kind == "work": out.append({"kind": "idle", "who": name, "text": f"{name} had no work to do."})
             return out
         if kind == "work":
-            todo = [key] if key and key in mine else mine
+            todo = ([key] + [k for k in mine if k != key]) if key and key in mine else mine
             for k in todo:
                 r = self.do_duty(name, k, rng); r["kind"] = "work"; out.append(r)
             skipped = [k for k in mine if k not in todo]
             if not skipped: c["skip_streak"] = 0
         else:
-            skipped = [key] if (kind == "refuse" and key and key in mine) else mine
+            held = list(c.get("duties", [])) + [k for k in c.get("dumped", []) if k not in c.get("duties", [])]
+            skipped = [key] if (kind == "refuse" and key and key in held) else (held if kind == "refuse" else mine)
         if skipped:
             bump_standing(c, -1); labels = ", ".join(DUTIES[k]["label"] for k in skipped)
             lost = kind == "refuse"
@@ -1641,10 +1693,10 @@ class World:
         """After every morning: the duties nobody did land their cost, and after two days a neighbour complains by name."""
         undone: list[dict] = []; complaints: list[str] = []
         for k in DUTIES:
-            if k in done: continue
+            if k in done or self.nothing_today(k): continue
             u = self.mark_undone(k); undone.append(u)
             if u["days"] >= 2:
-                place = self.duty_place(k); hs = self.holders(k)
+                place = self.duty_place(k); hs = self.holders(k) or [c["name"] for c in self.living() if k in c.get("dumped", [])]
                 pool = [c for c in self.living() if c["name"] not in hs and c["location"] == place] or [c for c in self.living() if c["name"] not in hs]
                 if pool:
                     who = rng.choice(pool); blame = ", ".join(hs) if hs else "nobody"
@@ -1712,7 +1764,33 @@ class World:
             who = [x["name"] for x in self.at(a)]
             near.append(f"{a} ({', '.join(who) if who else 'nobody you can see'})")
         return (f"WHERE YOU ARE: {here}. {m['desc']}\nThings here you can use: {', '.join(m['fixtures'])}.\n"
-                f"People here with you: {', '.join(people) if people else 'nobody'}.\nOne path away: {'; '.join(near)}.")
+                f"{self.audience_line(name)}\nOne path away: {'; '.join(near)}.")
+
+    def audience_line(self, name: str) -> str:
+        """Who hears this person: the people at their place. Anyone elsewhere is reached by @Name, carried privately, or by walking."""
+        c = self.characters[name]; here = c["location"]; people = [x["name"] for x in self.at(here) if x["name"] != name]
+        head = f"You are at {here} with {', '.join(people)}. Only they hear what you say." if people else f"You are at {here} alone. Nobody hears what you say here."
+        return head + " To reach someone elsewhere, write @Name and it is carried to them privately, or travel."
+
+    def heard_by(self, speaker: str, text: str) -> list[str]:
+        """Who a speech reaches: everyone living at the speaker's place, plus anyone @named or whispered to, wherever they are."""
+        c = self.characters.get(speaker)
+        if not c: return []
+        here = c["location"]; names = {x["name"] for x in self.living() if x["name"] != speaker and x["location"] == here}
+        called = mentions(text) | whisper_targets(text)
+        names |= {x["name"] for x in self.living() if x["name"] != speaker and x["name"].lower() in called}
+        return sorted(names, key=lambda n: self.characters[n]["seat"])
+
+    def not_here(self, speaker: str, text: str) -> list[str]:
+        """People the speech addresses by name, as a vocative, who are not at the place and not @named: the engine says they are not here."""
+        c = self.characters.get(speaker)
+        if not c: return []
+        here = c["location"]; called = mentions(text) | whisper_targets(text); out = []
+        for x in self.living():
+            n = x["name"]
+            if n == speaker or x["location"] == here or n.lower() in called: continue
+            if re.search(r"(?:^|[.!?]\s+|\n)" + re.escape(n) + r"\s*[,!?:]", text) or re.search(r",\s*" + re.escape(n) + r"\s*(?:[.!?,;]|$)", text, re.M): out.append(n)
+        return out
 
     def sheet(self, name: str) -> str:
         c = self.characters[name]
@@ -1800,7 +1878,7 @@ class World:
             path = self._path(here, dest)
             step = path[1] if len(path) > 1 else None
             if not step: out["text"] = f"{actor} looked for a way to {dest} and found none."; return out
-            c["location"] = step; self.set_activity(actor, "acting", f"walking to {step}", [{"place": step, "what": f"walking to {step}", "dur": 3}])
+            self.set_activity(actor, "acting", f"walking to {step}", [{"place": step, "what": f"walking to {step}", "dur": 3}], frm=here); c["location"] = step
             out.update(ok=True, changed=True, text=f"{actor} walked to {step}." if step == dest else f"{actor} set out for {dest} and got as far as {step}; it is more than a day's walk."); return out
         if v == "pray":
             chapel = here if (self.map.get(here) or {}).get("kind") == "chapel" else None
@@ -2074,13 +2152,12 @@ def visible_text(entry: dict, viewer: str, viewer_place: str | None = None) -> s
     if entry.get("kind") == "convener":
         ms = mentions(entry.get("text", ""))
         if ms and v != "world" and v not in ms: return None
-    if entry.get("kind") == "speech" and v not in ("world", sp) and viewer_place is not None and entry.get("place") and entry["place"] != viewer_place:
-        return None
+    away = entry.get("kind") == "speech" and v not in ("world", sp) and viewer_place is not None and bool(entry.get("place")) and entry["place"] != viewer_place
     keep = []
     for ln in entry.get("text", "").split("\n"):
-        m = WHISPER_RE.match(ln)
-        if m and v not in (m.group(1).strip().lower(), "world", sp): continue
-        if m and v == m.group(1).strip().lower() and viewer_place is not None and entry.get("place") and entry["place"] != viewer_place: continue
+        m = WHISPER_RE.match(ln); called = ({m.group(1).strip().lower()} if m else set()) | (mentions(ln) if entry.get("kind") == "speech" else set())
+        if called and v not in called and v not in ("world", sp): continue       # carried privately to the people named, wherever they are
+        if away and v not in called: continue                                     # the rest is heard only where it was said
         keep.append(ln)
     out = "\n".join(keep).strip()
     return out or None
