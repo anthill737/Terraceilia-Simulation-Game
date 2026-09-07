@@ -166,10 +166,11 @@ class App:
                 g = self._latest(); self.runs.setdefault(g.id, Run(g)); self.gid = g.id
 
     def edit_game(self, d: dict) -> None:
-        """Game settings, editable at any time. Days and minutes apply to the running loop; the World's model on its next turn."""
+        """Game settings, editable at any time. Days and minutes apply to the running loop; the World's model on its next turn.
+        The description is fixed once the world is made; the region card is its only copy."""
         r = self.run; g = r.g
         with r.lock:
-            if "world_text" in d: g.world_text = str(d["world_text"])
+            if "world_text" in d and not g.world.created: g.world_text = str(d["world_text"])
             if "title" in d: g.title = str(d["title"])
             if "max_days" in d: g.max_days = max(1, int(d["max_days"] or 1))
             if "max_minutes" in d: g.max_minutes = max(0, int(d["max_minutes"] or 0))
