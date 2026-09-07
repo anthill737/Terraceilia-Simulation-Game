@@ -378,6 +378,8 @@ class World:
         self.upkeep: dict[str, dict] = d.get("upkeep", {})         # per place: roof, warmth, filth; beside the map, which is fixed
         self.duties: dict[str, dict] = d.get("duties", {})         # per duty: unclaimed since, done day, days undone
         self.roster: dict = d.get("roster", {})                    # today's assignment: who does what where, and the emergencies
+        self.morning: dict = d.get("morning", {})                  # what the morning left undone, and who complained
+        self.phase: str = d.get("phase", "morning")                # morning, afternoon, evening
         self.bodies: dict[str, str] = d.get("bodies", {})          # the unburied dead: name -> where they lie
         self.day_report: dict = d.get("day_report", {})            # what dawn found: season, weather, changes, the low and the broken and the sick
         for c in self.characters.values():           # games saved under the old rules
@@ -407,7 +409,7 @@ class World:
                 "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
                 "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style,
                 "weather": self.weather, "upkeep": self.upkeep, "bodies": self.bodies, "day_report": self.day_report,
-                "duties": self.duties, "roster": self.roster}
+                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase}
 
     # ---- which map this game plays on
     def install_map(self, v: dict) -> None:
@@ -1120,6 +1122,13 @@ class World:
     def do_duty(self, name: str, key: str, rng: random.Random) -> dict:
         """Work, resolved here: output rolled from skill and dice, the ledger moved, the skill nudged up. Returns what happened."""
         c = self.characters[name]; d = DUTIES[key]; L = self.ledger; place = self.duty_place(key, name); st = self.duty_state(key)
+        fx0 = d.get("effect", {}); st["done_day"] = self.day; st["undone_days"] = 0
+        if "tend" in fx0 and not any(x.get("sick") for x in self.living()):
+            return {"who": name, "duty": key, "place": place, "roll": 0, "skill": 0, "made": {}, "used": {}, "text": f"{name} went {d['verb']} at {place} and found nobody sick."}
+        if "bury" in fx0 and not self.bodies:
+            return {"who": name, "duty": key, "place": place, "roll": 0, "skill": 0, "made": {}, "used": {}, "text": f"{name} went {d['verb']} at {place} and found nobody to bury."}
+        if "teach" in fx0 and not [x for x in self.living() if x["name"] != name and x["location"] == place]:
+            return {"who": name, "duty": key, "place": place, "roll": 0, "skill": 0, "made": {}, "used": {}, "text": f"{name} went {d['verb']} at {place} and found nobody to teach."}
         skill = int(c.get("skills", {}).get(d["skill"], 0)); roll = rng.randint(1, 6); total = roll + skill
         factor = 0.0 if total <= 2 else 0.5 if total <= 5 else 1.0 if total <= 8 else 1.5
         out: dict = {"who": name, "duty": key, "place": place, "roll": roll, "skill": skill, "made": {}, "used": {}, "text": ""}
@@ -1158,9 +1167,8 @@ class World:
                     pupil["skills"][sk] = min(9, pupil["skills"].get(sk, 0) + 1); out["made"]["taught"] = f"{pupil['name']} in {sk}"; note_log(pupil, self.day, f"{name} taught you {sk}.")
         if d.get("needs_tools") and roll == 1 and L["tools"] > 0: L["tools"] -= 1; out["broke_tool"] = True
         if d.get("risk") == "hurt" and roll == 1: c["hp"] = max(0, c["hp"] - 2); out["hurt"] = True
-        c["needs"]["rest"] = max(0, c["needs"].get("rest", 5) - 2)
+        c["needs"]["rest"] = max(0, c["needs"].get("rest", 5) - 2); c["activity"] = d["verb"]
         if factor > 0 and rng.random() < .3 + .1 * (factor > 1): c["skills"][d["skill"]] = min(9, c["skills"].get(d["skill"], 0) + 1); out["learned"] = True
-        st["done_day"] = self.day; st["undone_days"] = 0
         said = {"roof": "the roof mended at {v}", "warmth": "the hearth warmed at {v}", "filth": "the filth cleared at {v}", "kept": "the stores kept from the rats",
                 "road_safe": "the road watched and safe tonight", "buried": "{v} buried", "tended": "{v} tended", "taught": "{v}"}
         bits = []
@@ -1186,6 +1194,118 @@ class World:
             if s == "road_safe": L["road_safe"] = False
             elif s in STORES: L[s] = max(0, L[s] + v)
         return {"duty": key, "days": st["undone_days"], "text": f"{d['label'].capitalize()} went undone: {d['breaks']}."}
+
+    # ---- the morning: WORK, REFUSE, or anything else, which is a skip
+    def morning_intent(self, name: str, text: str) -> tuple[str, str | None]:
+        """("work", duty or None) for WORK and WORK <duty>; ("refuse", duty or None) for REFUSE and REFUSE <duty>; ("skip", None) for anything else."""
+        t = " ".join((text or "").strip().split())
+        m = re.match(r"^(work|refuse)\b[:,]?\s*(.*)$", t, re.I)
+        if not m: return ("skip", None)
+        kind = m.group(1).lower(); rest = m.group(2)
+        key = self.duty_key(rest) if rest else None
+        return (kind, key)
+
+    def fight_fire(self, place: str, people: list[str], rng: random.Random) -> dict:
+        """The people pulled to a fire try to put it out. Speed helps; a bad roll burns."""
+        total = 0; hurt = []
+        for n in people:
+            c = self.characters[n]; r = rng.randint(1, 6); total += r + int(c["spd"]) // 3
+            if r == 1: c["hp"] = max(0, c["hp"] - 1); hurt.append(n)
+        ok = total >= 7 and self.extinguish(place)
+        txt = (f"{', '.join(people)} put out the fire at {place}." if ok else f"{', '.join(people)} fought the fire at {place} and could not put it out.") + (f" {', '.join(hurt)} got burned." if hurt else "")
+        for n in people: note_log(self.characters[n], self.day, txt.replace(n, "You", 1) if txt.startswith(n) else txt)
+        return {"kind": "fire", "place": place, "ok": ok, "text": txt}
+
+    def handle_emergency(self, name: str, rng: random.Random) -> dict | None:
+        """Whatever pulled this person this morning comes first. Fire is fought by everyone pulled to it at once."""
+        c = self.characters[name]; e = c.get("emergency")
+        if not e: return None
+        c["emergency"] = None
+        if e["kind"] == "fire":
+            if e["place"] not in self.fires: return {"kind": "fire", "place": e["place"], "ok": True, "text": f"{name} went to the fire at {e['place']} and found it already out."}
+            crew = [name] + [n for n in e.get("pulled", []) if n != name and self.characters.get(n, {}).get("emergency") is e and self.able(self.characters[n])]
+            for n in crew: self.characters[n]["emergency"] = None
+            for n in crew:
+                if self.characters[n]["location"] != e["place"]: self.characters[n]["location"] = e["place"]
+            return self.fight_fire(e["place"], crew, rng)
+        if e["kind"] == "injury":
+            t = self.characters.get(e.get("who") or "")
+            if t and t["alive"]:
+                c["location"] = e["place"]; t["tended_day"] = self.day; t["hp"] = min(t["hp_max"], t["hp"] + 1)
+                if self.ledger["herbs"] > 0: self.ledger["herbs"] -= 1; t["hp"] = min(t["hp_max"], t["hp"] + 1)
+                note_log(t, self.day, f"{name} came and saw to your wounds."); return {"kind": "injury", "place": e["place"], "ok": True, "text": f"{name} went to {e['place']} and saw to {t['name']}'s wounds."}
+            return None
+        if e["kind"] == "attack":
+            c["location"] = e["place"]; r = rng.randint(1, 6) + int(c["str"]) // 3; ok = r >= 5
+            if not ok: c["hp"] = max(0, c["hp"] - 2)
+            return {"kind": "attack", "place": e["place"], "ok": ok, "text": f"{name} went to {e['place']} against {e['text']} and " + ("drove it off." if ok else "was beaten back and hurt.")}
+        return None
+
+    def resolve_morning(self, name: str, action: str | None, rng: random.Random) -> list[dict]:
+        """One person's morning, settled: the emergency first if one pulled them, then WORK on their duties (or the one named),
+        or REFUSE (the duties go unclaimed and standing drops), or a skip, which costs the same as a refusal for the day."""
+        c = self.characters[name]; out: list[dict] = []
+        if not self.able(c):
+            out.append({"kind": "sick", "who": name, "text": f"{name} is sick and did no work."}); return out
+        kind, key = self.morning_intent(name, action or "")
+        em = self.handle_emergency(name, rng)
+        if em: out.append(dict(em, who=name)); c["needs"]["rest"] = max(0, c["needs"].get("rest", 5) - 1)
+        mine = list(c.get("duties", [])) + [k for k in c.get("dumped", []) if k not in c.get("duties", [])]
+        if not mine:
+            if kind == "work": out.append({"kind": "idle", "who": name, "text": f"{name} had no work to do."})
+            return out
+        if kind == "work":
+            todo = [key] if key and key in mine else mine
+            for k in todo:
+                r = self.do_duty(name, k, rng); r["kind"] = "work"; out.append(r)
+            skipped = [k for k in mine if k not in todo]
+        else:
+            skipped = [key] if (kind == "refuse" and key and key in mine) else mine
+        if skipped:
+            for k in skipped:
+                if k in c.get("duties", []): c["duties"].remove(k)
+                if k in c.get("dumped", []): c["dumped"].remove(k)
+                st = self.duty_state(k)
+                if not self.holders(k): st["unclaimed_day"] = self.day
+            bump_standing(c, -1)
+            verb = "refused" if kind == "refuse" else "skipped"
+            labels = ", ".join(DUTIES[k]["label"] for k in skipped)
+            note_log(c, self.day, f"You {verb} {labels}. It is no longer yours, and people noticed.")
+            out.append({"kind": kind if kind == "refuse" else "skip", "who": name, "duties": skipped, "text": f"{name} {verb} {labels}; {'it is' if len(skipped) == 1 else 'they are'} nobody's now."})
+        return out
+
+    def end_morning(self, done: set[str], rng: random.Random) -> dict:
+        """After every morning: the duties nobody did land their cost, and after two days a neighbour complains by name."""
+        undone: list[dict] = []; complaints: list[str] = []
+        for k in DUTIES:
+            if k in done: continue
+            u = self.mark_undone(k); undone.append(u)
+            if u["days"] >= 2:
+                place = self.duty_place(k); hs = self.holders(k)
+                pool = [c for c in self.living() if c["name"] not in hs and c["location"] == place] or [c for c in self.living() if c["name"] not in hs]
+                if pool:
+                    who = rng.choice(pool); blame = ", ".join(hs) if hs else "nobody"
+                    line = f"{who['name']} complains that {DUTIES[k]['label']} has gone undone {u['days']} days running, and that {blame} {'holds' if hs else 'has taken'} it."
+                    complaints.append(line); note_log(who, self.day, line.replace(who["name"], "You", 1).replace("complains", "complained", 1))
+                    for h in hs: note_log(self.characters[h], self.day, f"{who['name']} complained, by name, that you have left {DUTIES[k]['label']} undone {u['days']} days running."); self.set_rel(who["name"], h, feeling=-1, delta=True, why=f"left {DUTIES[k]['label']} undone")
+        self.morning = {"day": self.day, "undone": undone, "complaints": complaints}
+        return self.morning
+
+    def undone_text(self) -> str:
+        m = self.morning if (self.morning or {}).get("day") == self.day else {}
+        if not m or not m.get("undone"): return "- every duty was done today"
+        return "\n".join(f"- {u['text']}" + (f" ({u['days']} days running)" if u["days"] > 1 else "") for u in m["undone"]) + ("\n" + "\n".join(f"- {c}" for c in m.get("complaints", [])) if m.get("complaints") else "")
+
+    def evening_places(self, rng: random.Random) -> dict[str, str]:
+        """At dusk everyone goes home, unless the inn pulls them: drinkers and talkers go there, and anyone whose home is gone."""
+        inn = next((p for p, d in self.map.items() if d.get("kind") == "inn"), None); moves = {}
+        for c in self.living():
+            tr = c.get("traits", {}); home = c.get("home") if c.get("home") in self.map else c["location"]
+            pull = (int(tr.get("drink", 3)) >= 4) or (int(tr.get("tongue", 3)) >= 4 and rng.random() < .5) or (int(tr.get("desire", 3)) >= 4 and rng.random() < .4)
+            dest = inn if (inn and pull and not c.get("sick")) else home
+            if dest and dest != c["location"]: c["location"] = dest; moves[c["name"]] = dest
+            c["activity"] = "at the inn" if dest == inn and inn != home else "at home"
+        return moves
 
     def duties_text(self) -> str:
         """The roster for the World: who holds what, what is unclaimed, and what has gone undone and for how long."""
@@ -1282,7 +1402,11 @@ class World:
         if "road_safe" in L: g["road_safe"] = bool(L["road_safe"])
         for b in L.get("built", []) or []:
             if str(b).strip() and str(b).strip() not in g["built"]: g["built"].append(str(b).strip()[:60])
-        self.day += 1
+
+    def end_day(self) -> None:
+        """Evening is over. Whatever was dumped or pulled today is cleared, and tomorrow begins at dawn."""
+        for c in self.characters.values(): c["dumped"] = []; c["emergency"] = None; c["activity"] = ""
+        self.day += 1; self.phase = "morning"
 
 
 

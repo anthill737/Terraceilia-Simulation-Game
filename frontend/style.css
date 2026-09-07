@@ -86,7 +86,8 @@ table.st{border-collapse:collapse;font-size:12.5px;margin-top:8px}table.st td,ta
 #placePanel .fx button{height:26px;padding:0 10px;font-size:12px}
 #centerTabs{display:flex;border-bottom:1px solid var(--line);background:var(--s1)}#centerTabs button{border-radius:0;border:0;color:var(--muted);height:44px;padding:0 18px}#centerTabs button.on{color:var(--accent);box-shadow:inset 0 -2px 0 var(--accent)}
 .msg.fate{--c:#E879F9}
-.msg.dawn{--c:#9fc7e0;background:#0d1216}.msg.dawn .body{font-size:13.5px;color:#cfd8d6}
+.msg.dawn,.msg.morning,.msg.evening{--c:#9fc7e0;background:#0d1216}.msg.dawn .body,.msg.morning .body,.msg.evening .body{font-size:13.5px;color:#cfd8d6}
+.msg.morning{--c:#c9b28a}.msg.evening{--c:#a37fb0}.logrow.morning{--c:#c9b28a}.logrow.evening{--c:#a37fb0}
 .stores{display:flex;flex-wrap:wrap;gap:4px 10px;margin:6px 0}.stk{font-size:12.5px;color:var(--muted)}.stk b{color:var(--text)}.stk i{font-style:normal;margin-left:3px;color:var(--faint)}.stk.low b{color:#f08b86}
 .logrow.dawn{--c:#9fc7e0}
 #making{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;z-index:5;background:rgba(9,9,11,.6)}

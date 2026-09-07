@@ -61,7 +61,7 @@ function renderRail(s){const live=new Set(s.live||[]);$('railCount').textContent
 function render(s){const first=!S||S.id!==s.id;if(first){T=[];lastTurn=-1}mergeTranscript(s);S=s;providers=s.providers;
  const busy=s.status==='running';const started=s.created||s.transcript.length>0||busy||s.status==='paused';
  $('hdrTitle').textContent=s.title||'';const who=s.current?s.current.split(', '):[];
- $('statusText').innerHTML=s.current?(who.length>2?`<b>${who.length} people</b> are speaking`:`<b>${esc(s.current)}</b> ${who.length>1?'are':'is'} speaking`):`Day ${s.day} \u00b7 ${STATUS[s.status]||s.status}`;
+ $('statusText').innerHTML=s.current?(who.length>2?`<b>${who.length} people</b> are speaking`:`<b>${esc(s.current)}</b> ${who.length>1?'are':'is'} speaking`):`Day ${s.day}${s.status==='running'&&s.phase?' \u00b7 '+s.phase:''} \u00b7 ${STATUS[s.status]||s.status}`;
  $('status').classList.toggle('live',busy);
  const prim=$('primary');prim.textContent=busy?'Pause':s.status==='paused'?'Resume':started?(s.status==='done'?'Continue (6 more days)':'Continue'):'Start';
  prim.className=busy?'btn':'primary';
@@ -304,7 +304,7 @@ function paneLog(s,c){const rx=rxName(c.name);
  const rows=[];
  for(const e of (s.transcript||[])){
   if(e.speaker===c.name){rows.push({e,text:e.text});continue}
-  if(!['world','system','fate','epilogue','convener','dawn'].includes(e.kind))continue;
+  if(!['world','system','fate','epilogue','convener','dawn','morning','evening'].includes(e.kind))continue;
   const b=body(e.text);if(!rx.test(b))continue;
   const hits=b.split(/(?<=[.!?])\s+/).filter(x=>rx.test(x));
   rows.push({e,text:hits.length?hits.join(' '):b.slice(0,240)})}
