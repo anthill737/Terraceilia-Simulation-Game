@@ -156,6 +156,16 @@ on the nearest able person with room for it, who is told so, and a fire, a bad i
 pulls whoever is nearest regardless of duty. Work is resolved by the engine: output rolled from skill
 and dice, the ledger moved, the skill nudged up.
 
+### Wants and recognition
+
+Every person's want is measured. The engine rolls it from their nature and life: gold to put by, a
+skill to reach or to be best at, a tie to win (to be liked, to be trusted, to be someone's lover),
+or an evening spent somewhere. The World writes the want line in their own terms around it, and every
+prompt tells the person how close they are. When a want is reached the valley hears of it, standing
+rises, and a new want is rolled. Skill comes from work and from being taught, and whoever is best at
+a duty's skill, alone at the top, is called by it in every prompt and on the People sheet: the miller,
+the healer, the woodcutter. Everyone starts as nobody and earns from there.
+
 ## The convener's hand
 
 You are not a player, but you are not powerless.
