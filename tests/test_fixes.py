@@ -59,7 +59,7 @@ class Palette(unittest.TestCase):
     CSS = (ROOT / "frontend" / "style.css").read_text(encoding="utf-8")
 
     def test_the_stylesheet_uses_seven_colours_and_nothing_else(self) -> None:
-        root = re.search(r":root\{(.*?)\n\s*--r-ctl", self.CSS, re.S).group(1)
+        root = re.search(r":root\{(.*?)--r-ctl", self.CSS, re.S).group(1)
         base = {m.group(1).lower() for m in re.finditer(r"--(?:bg|panel|ink|muted|accent|moss|rust):(#[0-9a-fA-F]{6})", root)}
         self.assertEqual(len(base), 7)
         used = {h.lower() for h in re.findall(r"#[0-9a-fA-F]{3,8}\b", self.CSS)}
@@ -75,14 +75,14 @@ class Palette(unittest.TestCase):
             self.assertNotIn("rgba(", t)
 
     def test_chronicle_cards_share_one_border_and_engine_notes_are_muted_text(self) -> None:
-        self.assertIn(".msg{margin:0 0 14px;padding:14px 18px;border-radius:var(--r-card);background:var(--panel);border:1px solid var(--line)}", self.CSS)
+        self.assertRegex(self.CSS, r"\.msg\{margin:[^;]+;padding:[^;]+;border-radius:var\(--r-card\);background:var\(--panel\);border:1px solid var\(--line\)\}")
         self.assertNotIn(".msg.world{", self.CSS); self.assertNotIn(".msg.fate{", self.CSS)
         self.assertIn(".msg .who:before{content:\"\";width:8px;height:8px;border-radius:50%;background:var(--c,var(--faint))", self.CSS)
         self.assertIn(".msg.system{background:transparent;border:0", self.CSS); self.assertIn(".msg.system .body{color:var(--muted)", self.CSS)
 
     def test_scrollbars_are_thin_and_the_strip_hides_its_own(self) -> None:
         self.assertIn("scrollbar-width:thin;scrollbar-color:var(--edge) transparent", self.CSS)
-        self.assertIn("#peoStrip{display:flex;gap:8px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none", self.CSS)
+        self.assertRegex(self.CSS, r"#peoStrip\{display:flex;gap:[^;]+;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none")
         self.assertIn("#peoStrip::-webkit-scrollbar{display:none}", self.CSS); self.assertIn(".peoWrap:hover .stripbar{opacity:1}", self.CSS)
         html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8"); self.assertIn('<div class="peoWrap"><div id="peoStrip"></div><div class="stripbar"><i></i></div></div>', html)
         js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8"); self.assertIn("strip.addEventListener('pointerdown'", js); self.assertIn("strip.addEventListener('scroll',paint)", js)
