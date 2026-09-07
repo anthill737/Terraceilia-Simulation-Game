@@ -422,7 +422,7 @@ class Run:
         # not the day's story: only what touched this person (happened where they are, named them, or was done by someone they are tied to)
         new = [(e, touched_text(e, me, my_place, ties)) for e in g.transcript[seen:]]; new = [(e, v) for e, v in new if v]
         parts = [PLAYER_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP, known to everyone (the only places and things that exist):\n" + map_text(w.map) + "\n",
-                 f"Day {w.day}, {season_of(w.day)}, {w.weather}. Everyone who lives in the valley: " + ", ".join(c["name"] for c in w.living() if c["name"] != me) + ".\n",
+                 f"Day {w.day}, {season_of(w.day)}, {w.weather}. Everyone who lives in the valley: " + ", ".join(w.titled(c["name"]) for c in w.living() if c["name"] != me) + ".\n",
                  w.sheet(me), "\n" + (w.duty_brief(me) if w.phase == "morning" else "YOUR DUTIES: " + (", ".join(DUTIES[k]["label"] for k in w.characters[me].get("duties", [])) or "none") + ".") + "\n", "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
         u = self.day_urges.get(me) or []
         if u: parts.append("YOUR URGES TODAY, which are your nature and not a suggestion; act on at least one of them, in words or in your ACTION, and do not apologize for it:\n" + "\n".join(f"- {x}" for x in u) + "\n")
@@ -435,12 +435,13 @@ class Run:
     def _world_prompt(self, actions: list[dict], rolls: dict[str, int], events: list[str] | None = None, settled: list[dict] | None = None) -> str:
         g = self.g; w = g.world
         from engine import trait_text
-        sheets = "\n".join(f"- {c['name']} ({c['trade']}, at {c['location']}): STR {c['str']} SPD {c['spd']} HP {c['hp']}/{c['hp_max']} gold {c['gold']} skills {c['skills'] or 'none'}; standing {c['standing']}; nature: {trait_text(c.get('traits', {}))[:160]}" + (f"; today's urges: {' / '.join(self.day_urges.get(c['name'], []))[:200]}" if self.day_urges.get(c['name']) else "")
+        sheets = "\n".join(f"- {w.titled(c['name'])} ({c['trade']}, at {c['location']}; wants {(c.get('goal') or {}).get('text', c['want'])}, {w.want_progress(c['name'])[0]}% there): STR {c['str']} SPD {c['spd']} HP {c['hp']}/{c['hp_max']} gold {c['gold']} skills {c['skills'] or 'none'}; standing {c['standing']}; nature: {trait_text(c.get('traits', {}))[:160]}" + (f"; today's urges: {' / '.join(self.day_urges.get(c['name'], []))[:200]}" if self.day_urges.get(c['name']) else "")
                            for c in w.living())
         acts = "\n".join(f"- {a['who']} (roll d6 = {rolls.get(a['who'], 0)}): {a['text']}" for a in actions) or "- nobody acted"
         talk = [e for e in g.transcript if e.get("day", 0) == w.day and e["kind"] in ("speech", "convener")]
         talk_s = "\n".join(f"- {e['speaker']}: {e['text'][:300]}" for e in talk[-40:])
         morning_s = next((e["text"].split("\n\nUNDONE:")[0] for e in reversed(g.transcript) if e["kind"] == "morning" and e.get("day") == w.day), "")
+        reached_s = ("\nWANTS REACHED. Announce each in its own line, by name, as a thing the valley now knows; their standing has already risen:\n" + "\n".join(f"- {x['text']}" for x in w.reached) + "\n") if w.reached else ""
         settled_s = ("\nSETTLED BY THE ENGINE TODAY. These are done; the people involved have already been moved, marked, or sent away. Narrate each exactly as written, in your own plain words, and do not reverse or soften any of them:\n"
                      + "\n".join(f"- {s['text']}" for s in settled) + "\n") if settled else ""
         return "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", f"It is day {w.day}.",
@@ -455,7 +456,7 @@ class Run:
             "\nOPEN SITUATIONS. Every one of these is still true today; keep it alive in your narration and in what happens, until you resolve it explicitly (a body buried, a deserter caught, a merchant leaves, a fire put out). Nothing here may simply vanish:\n" + w.threads_text() + "\n"
             + ("\nFIRES BURNING NOW: " + ", ".join(f"{p} (day {d + 1} of burning)" for p, d in w.fires.items()) + ". People there are hurt each day it burns and things there are ruined; it spreads. Say what the people do about it.\n" if w.fires else ""),
             ("\nEVENTS OF THE DAY. These have already happened; the engine has applied their wounds, losses, and ruins. Narrate each one vividly, make the people at that place witness it, and let it change what happens next. They are not optional and you may not soften them:\n" + "\n".join(f"- {e}" for e in events) + "\n") if events else "",
-            settled_s,
+            settled_s, reached_s,
             "\nWhat was said today (including whispers you are allowed to hear):\n" + (talk_s or "- nothing"),
             "\nThe afternoon's actions to resolve, with the die the engine rolled for each (1 is a disaster, 6 a triumph, scaled by the character's stats):\n" + acts,
             "\nWrite one line per person who acted, and nothing else: their name, a colon, then what came of their action in at most two sentences. A death goes in that person's line, by name and cause. No opening line, no weather, no closing line, no line for anyone who did not act. Everything else goes in the block, not the narration. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
@@ -499,10 +500,11 @@ class Run:
     def _create_world(self) -> None:
         g = self.g; w = g.world
         names = [c["name"] for c in w.characters.values()]
-        stats = "\n".join(f"- {c['name']}: STR {c['str']} SPD {c['spd']} HP {c['hp_max']} gold {c['gold']}, currently at {c['location']}" for c in w.characters.values())
+        w.seed_wants(self.rng)
+        stats = "\n".join(f"- {c['name']}: STR {c['str']} SPD {c['spd']} HP {c['hp_max']} gold {c['gold']}, currently at {c['location']}; wants, in plain terms, {c['goal']['text']}" for c in w.characters.values())
         prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", "The engine has rolled these people. Give each a life. Homes must be places on the map.",
             stats, "\nWrite a short opening narration (the valley waking, the early frost, the rider's news) and then a fenced ```json block, exactly this shape:",
-            '```json\n{"people":[{"name":"Name","trade":"miller","home":"The mill","personality":"one line","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything"}],'
+            '```json\n{"people":[{"name":"Name","trade":"miller","home":"The mill","personality":"one line","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything, in their own terms, built around the plain want the engine rolled for them"}],'
             '"relations":[{"a":"Name","b":"OtherName","type":"spouse","feeling":3,"trust":2,"mutual":true,"why":"married twelve years; he drinks, she keeps the ledger"}]}\n```',
             "One entry per name, every name, names exact. Make them different from each other: some rich, some poor, some liked, some feared, some with dangerous secrets that touch other people in this list. "
             "Then give the valley a web of ties in \"relations\": at least eight, each with a \"why\" (one line of history: how they met, what happened, what is owed), using types spouse, lover, kin, friend, rival, enemy, creditor, debtor, master, servant; feeling and trust run from -5 (hate, would knife them) to 5 (love, trust with their life). "
@@ -680,7 +682,8 @@ class Run:
             w.phase = "evening"; moves = w.evening_places(self.rng); self.version += 1
         inn = next((p for p, d in w.map.items() if d.get("kind") == "inn"), None)
         at_inn = [c["name"] for c in w.living() if inn and c["location"] == inn]
-        self._record("The valley", f"Evening. " + (f"At {inn}: {', '.join(at_inn)}. " if at_inn else "") + "Everyone else is at home.", "evening")
+        with self.lock: got = w.check_wants(self.rng)
+        self._record("The valley", f"Evening. " + (f"At {inn}: {', '.join(at_inn)}. " if at_inn else "") + "Everyone else is at home." + ("".join(" " + x["text"] for x in got)), "evening")
         seats = [i for i in self._able_seats() if self._touched(i)]
 
         def on_reply(i: int, text: str | None) -> None:
@@ -696,7 +699,7 @@ class Run:
     def _world_phase(self) -> None:
         g = self.g; w = g.world
         actions = list(w.pending); rolls = {a["who"]: self.rng.randint(1, 6) for a in actions}
-        told_fate = list(w.fate)
+        told_fate = list(w.fate); told_reached = list(w.reached)
         elog: list[str] = []; w.spread_fires(self.rng, elog); events = w.draw_events(g.drama, self.rng, elog)
         settled = w.resolve_social_actions(actions, self.rng, elog)      # driven out, refused, work taken, gone: decided here, not by the World
         settled += w.resolve_duty_actions(actions, elog)                # a duty refused, handed over, or taken up
@@ -714,7 +717,7 @@ class Run:
         if res is None:
             self._record("Engine", "The World gave no usable result; the afternoon passes unchanged.", "system"); w.pending = []; g.save(); return
         log: list[str] = []
-        w.pending = []; w.fate = [f for f in w.fate if f not in told_fate]; w.apply(res, log); self.version += 1
+        w.pending = []; w.fate = [f for f in w.fate if f not in told_fate]; w.reached = [x for x in w.reached if x not in told_reached]; w.apply(res, log); w.check_wants(self.rng); self.version += 1
         text = cap_outcomes(strip_dashes(strip_json(out or ""))) or "The day passes."
         if settled: text = "\n".join(f"SETTLED: {s['text']}" for s in settled) + "\n\n" + text
         if events: text = "\n".join(f"EVENT: {e}" for e in events) + "\n\n" + text
