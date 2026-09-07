@@ -669,7 +669,9 @@ class Run:
             me = g.seats[i]["name"]; self._record(me, text, "speech")
             a = action_line(text)
             if a and i not in acted:
-                with self.lock: acted.add(i); w.pending.append({"who": me, "text": a, "turn": g.turn}); self.version += 1
+                with self.lock:
+                    acted.add(i); w.pending.append({"who": me, "text": a, "turn": g.turn})
+                    w.set_activity(me, "acting", a[:48], [{"place": w.characters[me]["location"], "what": a[:48], "dur": 8}]); self.version += 1
 
         instr = ("It is afternoon and the work is done or skipped. If something touched you today or you have a want to act on, act on it now: speak if you must, then one ACTION line. "
                  "If nothing touched you and you have nothing to do, reply exactly PASS.")
