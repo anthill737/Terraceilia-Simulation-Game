@@ -237,6 +237,9 @@ Every request carries the token as `?token=` or a cookie.
 - Codex refuses folders it has not been told to trust. The engine marks the run folder as trusted
   in `~/.codex/config.toml` and keeps a backup of the file beside it.
 - Prompts are code. `backend/prompts.py` is short and worth reading before changing anything.
+- A test runs a whole year to its end, and the end of a year is one of the things Telegram is told
+  about. Set `TERRACEILIA_NO_TELEGRAM=1` for anything that is not a real game; the test suite sets it
+  for itself. Without it, running the tests messages whoever set up the bot.
 
 ## License
 
