@@ -35,15 +35,15 @@ function renderSetup(s){$('title').value=s.title;$('world_text').value=s.world_t
 // ---------- the valley panel
 const FEEL=['hates','despises','dislikes','is cold toward','is cool toward','is indifferent to','is warm toward','likes','is fond of','cares deeply for','loves'];
 function relChips(s,name){const rs=(s.relations||{})[name]||{};const items=Object.entries(rs).filter(([b,r])=>r.type!=='none'||r.feeling||r.trust).sort((x,y)=>(Math.abs(y[1].feeling)+Math.abs(y[1].trust))-(Math.abs(x[1].feeling)+Math.abs(x[1].trust)));
- if(!items.length)return '';const chip=([b,r])=>{const hue=r.feeling>0?'var(--moss)':r.feeling<0?'var(--rust)':'var(--faint)';return `<span class="rel" data-a="${esc(name)}" data-b="${esc(b)}" title="${esc(name)} ${FEEL[r.feeling+5]} ${esc(b)}. Click for why." style="--h:${hue}"><b>${esc(b)}</b> ${r.type!=='none'?esc(r.type)+' \u00b7 ':''}<i>${r.feeling>=0?'+':''}${r.feeling}</i><i class="t">${r.trust>=0?'+':''}${r.trust}</i></span>`};return '<div class="rels">'+items.slice(0,6).map(chip).join('')+(items.length>6?`<details class="more" data-k="r:${esc(name)}"><summary>${items.length-6} more</summary>${items.slice(6).map(chip).join('')}</details>`:'')+'</div>'}
+ if(!items.length)return '';const chip=([b,r])=>{const hue=r.feeling>0?'var(--moss)':r.feeling<0?'var(--rust)':'var(--faint)';return `<span class="rel" data-a="${esc(name)}" data-b="${esc(b)}" title="${esc(name)} ${FEEL[r.feeling+5]} ${esc(b)}. Click for why." style="--h:${hue}"><span>${esc(b)}</span> ${r.type!=='none'?esc(r.type)+' \u00b7 ':''}<i>${r.feeling>=0?'+':''}${r.feeling}</i><i class="t">${r.trust>=0?'+':''}${r.trust}</i></span>`};return '<div class="rels">'+items.slice(0,6).map(chip).join('')+(items.length>6?`<details class="more" data-k="r:${esc(name)}"><summary>${items.length-6} more</summary>${items.slice(6).map(chip).join('')}</details>`:'')+'</div>'}
 function renderValley(s){if(!s.created){$('valley').innerHTML='<div class="empty">The valley appears here once the World has rolled it.</div>';return}
  const wasOpen=new Set([...$('valley').querySelectorAll('details[open]')].map(d=>d.dataset.k));const scroll=$('valley').scrollTop;
  const L=s.ledger||{};const R=s.day_report||{};const ch=R.change||{};
- const store=k=>`<span class="stk ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'low':''}">${k} <b>${L[k]??0}</b>${ch[k]?`<i>${ch[k]>0?'+':''}${ch[k]}</i>`:''}</span>`;
+ const store=k=>`<span class="stk ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'low':''}">${k} <span>${L[k]??0}</span>${ch[k]?`<i>${ch[k]>0?'+':''}${ch[k]}</i>`:''}</span>`;
  const sick=(s.characters||[]).filter(c=>c.alive&&!c.gone&&c.sick).length;
- let h=`<div class="ledger"><b>Day ${s.day}</b> &middot; ${esc(R.season||'')} &middot; ${esc(s.weather||'')}<div class="stores">${STORES.map(store).join('')}</div>road ${L.road_safe?'safe':'unsafe'} after dark &middot; ${sick} sick &middot; ${Object.keys(s.bodies||{}).length} unburied<br>Built: ${esc((L.built||[]).join(', ')||'nothing yet')}${s.pending.length?`<br><span class="note">${s.pending.length} action(s) waiting for the World</span>`:''}</div>`;
+ let h=`<div class="ledger"><span>Day ${s.day}</span> &middot; ${esc(R.season||'')} &middot; ${esc(s.weather||'')}<div class="stores">${STORES.map(store).join('')}</div>road ${L.road_safe?'safe':'unsafe'} after dark &middot; ${sick} sick &middot; ${Object.keys(s.bodies||{}).length} unburied<br>Built: ${esc((L.built||[]).join(', ')||'nothing yet')}${s.pending.length?`<br><span class="note">${s.pending.length} action(s) waiting for the World</span>`:''}</div>`;
  const byPlace={};s.characters.forEach(c=>{(byPlace[c.alive&&!c.gone?c.location:'Gone']=byPlace[c.alive&&!c.gone?c.location:'Gone']||[]).push(c)});
- const th=(s.threads||[]).filter(t=>t.status==='open');if(th.length)h+=`<div class="ledger"><b>Open situations</b> (${th.length})${th.map(t=>`<div class="thr">#${t.id} \u00b7 day ${t.day}${t.place?' \u00b7 '+esc(t.place):''}: ${esc(t.text)}</div>`).join('')}</div>`;
+ const th=(s.threads||[]).filter(t=>t.status==='open');if(th.length)h+=`<div class="ledger"><span>Open situations</span> (${th.length})${th.map(t=>`<div class="thr">#${t.id} \u00b7 day ${t.day}${t.place?' \u00b7 '+esc(t.place):''}: ${esc(t.text)}</div>`).join('')}</div>`;
  h+=Object.entries(byPlace).map(([pl,cs])=>`<div class="place">${esc(pl)}</div>`+cs.map(c=>`<div class="card ${c.alive?'':'dead'}" style="--c:${esc(seatColor(c.name)||'var(--faint)')}"><span class="nm">${esc(c.name)}</span> <span class="st">${esc(c.trade)} &middot; ${esc(c.location)} &middot; ${esc(c.standing)}${c.gone?' &middot; gone':''}${c.alive?'':' &middot; dead: '+esc(c.cause_of_death)}</span>
   <div class="bar"><i style="width:${Math.round(100*c.hp/c.hp_max)}%"></i></div>HP ${c.hp}/${c.hp_max} &middot; STR ${c.str} SPD ${c.spd} &middot; gold ${c.gold} &middot; ${Object.keys(c.skills).length?Object.entries(c.skills).map(([k,v])=>k+' '+v).join(', '):'no skills'}
   ${relChips(s,c.name)}
@@ -119,12 +119,12 @@ function renderColony(s){const R=s.day_report||{};const L=s.ledger||{};const ch=
   <p class="small">${sick.length?`Sick and cannot work: ${sick.map(esc).join(', ')}. `:''}${bodies.length?`Unburied: ${bodies.map(([n,p])=>esc(n)+' at '+esc(p)).join(', ')}. `:''}${Object.keys(s.fires||{}).length?`Burning: ${Object.keys(s.fires).map(esc).join(', ')}. `:''}${(R.hungry||[]).length?`Hungry: ${R.hungry.map(esc).join(', ')}. `:''}${(R.freezing||[]).length?`Freezing: ${R.freezing.map(esc).join(', ')}. `:''}</p>`;
  const duties=Object.entries(defs).map(([k,d])=>{const r=roster[k]||{};const x=st[k]||{};const hs=(s.characters||[]).filter(c=>c.alive&&!c.gone&&(c.duties||[]).includes(k)).map(c=>c.name);
   const un=!hs.length;const done=x.done_day===s.day;const sickSet=new Set(sick);const who=(hs.length?hs.map(h=>esc(h)+(sickSet.has(h)?' (sick)':'')).join(', '):'')+(r.dumped_on&&!hs.includes(r.dumped_on)?`${hs.length?', ':''}<span class="poor">dumped on ${esc(r.dumped_on)}</span>`:'')||'nobody';
-  return `<div class="colduty ${un?'un':''} ${done?'done':''}"><span class="cdn"><b>${esc(d.label)}</b><i>${esc(r.place||'')}</i></span><span class="cdw ${un?'poor':''}">${who}</span><span class="cds">${done?'done':x.undone_days?`undone ${x.undone_days} day${x.undone_days>1?'s':''}`:''}</span></div>`}).join('');
+  return `<div class="colduty ${un?'un':''} ${done?'done':''}"><span class="cdn"><span>${esc(d.label)}</span><i>${esc(r.place||'')}</i></span><span class="cdw ${un?'poor':''}">${who}</span><span class="cds">${done?'done':x.undone_days?`undone ${x.undone_days} day${x.undone_days>1?'s':''}`:''}</span></div>`}).join('');
  const ledger=STORES.map(k=>`<div class="srow"><span class="lbl">${k}</span><span class="val ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'poor':''}">${L[k]??0}${ch[k]?`<i class="chg ${ch[k]>0?'up':'down'}">${ch[k]>0?'+':''}${ch[k]}</i>`:'<i class="chg"></i>'}</span></div>`).join('')
   +`<div class="srow"><span class="lbl">road after dark</span><span class="val ${L.road_safe?'good':'poor'}">${L.road_safe?'safe':'unsafe'}</span></div><div class="srow"><span class="lbl">built</span><span class="val">${esc((L.built||[]).join(', ')||'nothing')}</span></div>`;
  const pc=(R.places||{});const places=Object.entries(s.upkeep||{}).map(([p,u])=>{const d=pc[p]||{};const cell=(k,v,bad)=>`<span class="${bad?'poor':''}">${k} ${v}${d[k]?`<i class="chg ${d[k]>0?'up':'down'}">${d[k]>0?'+':''}${d[k]}</i>`:''}</span>`;
   const roofed=!['forest','fields','water','road','cave','ruin'].includes(((s.map||{})[p]||{}).kind);
-  return `<div class="colplace"><b>${esc(p)}</b>${roofed?cell('roof',u.roof,u.roof<4):'<span class="note">no roof</span>'}${cell('warmth',u.warmth,u.warmth<=2)}${cell('filth',u.filth,u.filth>=6)}</div>`}).join('');
+  return `<div class="colplace"><span>${esc(p)}</span>${roofed?cell('roof',u.roof,u.roof<4):'<span class="note">no roof</span>'}${cell('warmth',u.warmth,u.warmth<=2)}${cell('filth',u.filth,u.filth>=6)}</div>`}).join('');
  const m=(s.transcript||[]).slice().reverse().find(e=>e.kind==='morning'&&e.day===s.day);
  const morning=m?`<div class="card2"><div class="ch">This morning</div><div class="colmorn">${rich(m.text)}</div></div>`:'';
  const html=head+'|'+duties+'|'+ledger+'|'+places+'|'+morning;if(html===colHtml)return;colHtml=html;
@@ -203,9 +203,9 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
  if(pick.value!==peoSel)pick.value=peoSel}
 
 function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)return;
- const seat=(s.seats||[]).find(x=>x.name===c.name)||{};
- const tt=((s.titles||{})[c.name]||[]);
- $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'var(--faint)')}">${esc(c.name)}</b>${tt.length?`<span class="ttl">${esc(tt.join(', '))}</span>`:''}<span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return g.text?`<span class="wants">wants <b>${esc(g.text)}</b> · ${wp[0]}%</span>`:''})()}`;
+ const tt=((s.titles||{})[c.name]||[]);const title=tt[0]||'';const trade=(c.trade||'').trim();
+ const showTrade=trade&&!(title&&title.replace(/^the /,'').toLowerCase()===trade.replace(/^the /,'').toLowerCase());
+ $('peoHead').innerHTML=`<span class="nm">${esc(c.name)}</span>${title?`, <i class="ttl">${esc(title)}</i>`:''}${showTrade?`, ${esc(/^the /i.test(trade)?trade:'the '+trade)}`:''} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead, '+esc(c.cause_of_death||'unknown')}`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
  const html=(peoTab==='bio'?paneBio(s,c):peoTab==='body'?paneBody(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):peoTab==='duties'?paneDuties(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<p class="small">${esc(peoNote)}</p>`);
@@ -232,7 +232,7 @@ function paneBio(s,c){const places=s.places||[];const f=(id,label,inner)=>`<div 
   ${f('b_fear','Fear',`<textarea id="b_fear" rows="3">${esc(c.fear)}</textarea>`)}
   ${f('b_want','What they want more than anything',`<textarea id="b_want" rows="3">${esc(c.want)}</textarea>`)}
  </div>
- <div class="row wrap"><span class="small" title="The engine measures this want and tells them how close they are">In plain terms: <b>${esc(g.text||'nothing measured')}</b> · ${wp[0]}%</span><span class="wbar" title="${esc(wp[1])}"><i style="width:${wp[0]}%"></i></span><button type="button" class="btn" id="b_reroll" title="Roll a new measured want for them">New want</button>${(c.items||[]).length?`<span class="small" title="Things they made or found">Keeps: ${c.items.map(esc).join(', ')}</span>`:''}</div>
+ <div class="row wrap"><span class="small" title="The engine measures this want and tells them how close they are">In plain terms: <span>${esc(g.text||'nothing measured')}</span> · ${wp[0]}%</span><span class="wbar" title="${esc(wp[1])}"><i style="width:${wp[0]}%"></i></span><button type="button" class="btn" id="b_reroll" title="Roll a new measured want for them">New want</button>${(c.items||[]).length?`<span class="small" title="Things they made or found">Keeps: ${c.items.map(esc).join(', ')}</span>`:''}</div>
  <div class="row end"><span class="small">A changed life or model starts them fresh on their next turn.</span><button class="primary" id="b_save">Save</button></div>`}
 
 // ---- Body. Condition and wounds, the four needs as equal bars, then the numbers as one aligned list. What a word means is in its tooltip.
@@ -276,10 +276,10 @@ function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
  return `<div class="tieHead"><span class="small">How ${esc(c.name)} feels about everyone else. Both run from -5 to 5. Click a step to set it.</span>
    <label class="small" style="margin-left:auto">Sort <select id="t_sort">${[['strongest','strongest first'],['name','by name'],['type','by kind of tie']].map(([v,l])=>`<option value="${v}" ${v===tieSort?'selected':''}>${l}</option>`).join('')}</select></label></div>`
   +rows.map(({o,r})=>`<div class="tie ${tieSel===o.name?'sel':''}" data-b="${esc(o.name)}">
-   <b style="color:${esc(seatColor(o.name)||'var(--ink)')}">${esc(o.name)}</b>
+   <span class="tn" style="color:${esc(seatColor(o.name)||'var(--ink)')}">${esc(o.name)}</span>
    <div class="cell"><select class="tt">${REL.map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select></div>
-   <div class="cell"><div class="tlab">feeling <b>${r.feeling>=0?'+':''}${r.feeling}</b></div>${seg(-5,5,r.feeling)}</div>
-   <div class="cell"><div class="tlab">trust <b>${r.trust>=0?'+':''}${r.trust}</b></div>${seg(-5,5,r.trust)}</div>
+   <div class="cell"><div class="tlab">feeling <span>${r.feeling>=0?'+':''}${r.feeling}</span></div>${seg(-5,5,r.feeling)}</div>
+   <div class="cell"><div class="tlab">trust <span>${r.trust>=0?'+':''}${r.trust}</span></div>${seg(-5,5,r.trust)}</div>
    <label class="mut" title="also set the same the other way"><input type="checkbox" class="tm"> both ways</label>
    <button class="btn twhy">Why</button></div>`).join('')}
 
@@ -294,7 +294,7 @@ function paneDuties(s,c){const defs=s.duty_defs||{};const mine=new Set(c.duties|
   ${dumped.size?`<div class="hsit">Dumped on them today: ${[...dumped].map(k=>esc((defs[k]||{}).label||k)).join(', ')}</div>`:''}
   <div class="dutylist">${Object.entries(defs).map(([k,d])=>{const hs=holdersOf(k);const un=!hs.length;const st=((s.duty_state||{})[k])||{};
    return `<label class="duty ${mine.has(k)?'on':''} ${un?'un':''}"><input type="checkbox" class="dk" data-k="${k}" ${mine.has(k)?'checked':''}>
-    <span class="dl"><b>${esc(d.label)}</b> <i>${esc(d.verb)} · ${esc(d.skill)}${(c.skills||{})[d.skill]?' '+(c.skills||{})[d.skill]:''}</i></span>
+    <span class="dl"><span>${esc(d.label)}</span> <i>${esc(d.verb)} · ${esc(d.skill)}${(c.skills||{})[d.skill]?' '+(c.skills||{})[d.skill]:''}</i></span>
     <span class="dm">makes ${esc(made(d))}${uses(d)?' · uses '+esc(uses(d)):''}</span>
     <span class="dh ${un?'poor':''}">${un?'nobody holds it'+(st.undone_days?', undone '+st.undone_days+' day(s)':''):hs.map(esc).join(', ')}</span>
     <span class="db">${esc(d.breaks)}</span></label>`}).join('')}</div>`}
@@ -372,7 +372,7 @@ $('peoStrip').addEventListener('wheel',e=>{      // a wheel or a two finger swip
  strip.addEventListener('scroll',paint);window.addEventListener('resize',paint);new MutationObserver(paint).observe(strip,{childList:true})})();
 $('peoPick').onchange=()=>{peoSel=$('peoPick').value;peoNote='';peoPaneHtml='';if(S)renderPeople(S)};
 
-// ---------- World: the region. The valley, the season calendar, the weather, the lands around, and every situation in order.
+// ---------- World: the region. The valley, the season calendar, the weather, and every situation in order.
 let worldReady=false,regionHtml='';
 function renderWorld(s){if(!worldReady){$('g_drama').oninput=()=>{$('g_dramaNote').textContent=$('g_drama').value+' \u00b7 '+DRAMA[+$('g_drama').value]};
   $('g_map_source').onchange=()=>mapInfo(S);$('g_save').onclick=saveWorld;
@@ -396,18 +396,17 @@ function gMapModelVal(){const v=pickVal($('g_mp'),$('g_mm'),$('g_mc')),w=pickVal
 async function saveWorld(){const started=!!(S&&(S.created||(S.seats&&S.seats.length>1)));const d={title:$('g_title').value,world_text:$('g_world').value,max_days:+$('g_days').value,max_minutes:+($('g_mins').value||0),drama:+$('g_drama').value,world_model:pickVal($('g_wp'),$('g_wm'),$('g_wc'))};
  if(!started){d.map_source=$('g_map_source').value;d.map_model=gMapModelVal()}
  const r=await api('/edit/game',d);$('g_state').textContent='Saved '+new Date().toLocaleTimeString();render(r);mapInfo(S)}
-function renderRegion(s){const box=$('g_region');if(!box)return;const R=s.day_report||{};const cal=s.calendar||{};const days=s.season_days||[];const th=(s.threads||[]).slice();
- const seasonRow=([name,rules])=>{const i=days.findIndex(([top,n])=>n===name);const from=i<=0?1:days[i-1][0]+1;const to=days[i]&&days[i][0]<1e8?days[i][0]:'';
-  return `<div class="srow ${R.season===name?'now':''}"><span class="lbl">${esc(name)}<span class="small"> ${to?`days ${from} to ${to}`:`from day ${from}`}</span></span><span class="val small">${['fields','fish','game','forage','wood'].map(k=>`${k} ${esc((rules[k]||{}).word||'')}`).join(' \u00b7 ')}</span></div>`};
+function renderRegion(s){const box=$('g_region');if(!box)return;const R=s.day_report||{};const th=(s.threads||[]).slice();
+ const KIND={town:'a town',castle:'a castle',village:'a village',inn:'an inn',chapel:'a chapel',mill:'a mill',forest:'a forest',fields:'fields',water:'water',ruin:'a ruin',market:'a market',farm:'a farm',tower:'a tower',cave:'a cave',road:'a road'};
+ const places=Object.entries(s.map||{}).map(([n,d])=>`${esc(n)}, ${KIND[d.kind]||'a place'}`).join('; ');
  const open=th.filter(t=>t.status==='open').sort((a,b)=>a.day-b.day),done=th.filter(t=>t.status!=='open').sort((a,b)=>(b.resolved_day??0)-(a.resolved_day??0));
  const sit=t=>{const age=(s.day??0)-t.day;const left=t.expires!=null?t.expires-(s.day??0):null;
   return `<div class="sit ${t.status}"><span class="sitn">#${t.id}</span><span class="sitt">${esc(t.text)}${t.place?` <span class="small">at ${esc(t.place)}</span>`:''}</span>
    <span class="small">${t.status==='open'?`open ${age} day${age===1?'':'s'}${left!=null?`, ${left<=0?'ends today':`${left} day${left===1?'':'s'} left`}`:''}`:`ended day ${t.resolved_day??'?'}: ${esc(t.note||'resolved')}`}</span>
    ${t.status==='open'?`<span class="row"><input class="rnote" placeholder="how it ended"><button class="btn rdone" data-id="${t.id}">Resolve</button></span>`:''}</div>`};
- const st=s.map_style||{};const html=`<div class="card2"><div class="ch">${esc(s.map_name||s.title||'The valley')}</div><p>${Object.keys(s.map||{}).length} places, ${esc((st.water||{}).type||'no')} water, ${esc(st.sky||'day')} sky${s.map_generated?', drawn from the description':', the built-in valley'}. ${Object.keys(s.map||{}).map(esc).join(', ')}.</p></div>
-  <div class="card2"><div class="ch">The season calendar</div><div class="list">${Object.entries(cal).map(seasonRow).join('')}</div></div>
+ const html=`<div class="card2"><div class="ch">${esc(s.title||'The valley')}</div><p>${esc(s.world_text||'')}</p><p class="small">${places}.</p></div>
+  <div class="card2"><div class="ch">The season calendar</div>${(s.calendar_rows||[]).map(r=>`<p>${esc(r)}</p>`).join('')}</div>
   <div class="card2"><div class="ch">Weather</div><p>${esc(s.sentence||'')}</p><p class="small">Tomorrow: ${(s.tomorrow||[]).map(([n,p])=>`${esc(n)} ${p}%`).join(', ')}.</p></div>
-  <div class="card2"><div class="ch">The lands around</div><div class="list">${(s.region||[]).map(a=>`<div class="srow area"><span class="lbl">${esc(a.name)}</span><span class="val col"><span title="what it offers">${esc(a.offers)}</span><span class="small" title="what it threatens">${esc(a.threatens)}</span></span></div>`).join('')}</div></div>
   <div class="card2"><div class="ch">Situations</div>${open.length?open.map(sit).join(''):'<p class="small">Nothing is open.</p>'}${done.length?`<div class="ch">Ended</div>`+done.slice(0,40).map(sit).join(''):''}</div>`;
  if(html===regionHtml||typing(box))return;regionHtml=html;box.innerHTML=html;
  box.querySelectorAll('.rdone').forEach(b=>b.onclick=async()=>{b.disabled=true;const note=b.closest('.sit').querySelector('.rnote').value;render(await api('/god/resolve',{id:+b.dataset.id,note}))})}
@@ -436,7 +435,7 @@ function renderConn(s){const root=$('connList');if(typing(root))return;const c=s
  root.innerHTML=Object.entries(c).map(([k,p])=>{const st=p.state==='connected'?'ok':(p.state==='checking'||p.state==='signed_in')?'unk':'bad';
   const job=p.job;const showKey=p.key_env&&p.state!=='connected';
   return `<div class="conn" data-p="${esc(k)}">
-   <div class="hd"><span><b>${esc(k)}</b>${used.has(k)?' <span class="note">\u00b7 this game uses it</span>':''}${p.version?` <span class="note">\u00b7 ${esc(p.version)}</span>`:''}</span>
+   <div class="hd"><span><span>${esc(k)}</span>${used.has(k)?' <span class="note">\u00b7 this game uses it</span>':''}${p.version?` <span class="note">\u00b7 ${esc(p.version)}</span>`:''}</span>
     <span class="st ${st}">${esc(CONN_LABEL[p.state]||p.state)}</span></div>
    <div class="note" style="margin-top:4px">${esc(p.detail||'')}</div>
    <div class="row" style="margin-top:8px">

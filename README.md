@@ -208,7 +208,8 @@ You are not a player, but you are not powerless.
   changed mid-game, under World.
 - **Resolve a situation.** The World sheet's situations timeline lists everything open, with its age
   and days left and a Resolve control, then everything ended and what ended it. The same sheet holds
-  the season calendar, today's weather and tomorrow's chances, and the lands around the valley.
+  the valley as the player described it with what each place is, the season calendar as plain
+  rows, and today's weather with tomorrow's chances.
 
 Gameplay sits in plain buttons across the header: the primary control, then Colony, People, World
 and Fate. Colony shows today's duties with who holds each and the unfilled ones in red, the
