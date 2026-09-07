@@ -80,7 +80,7 @@ function render(s){const first=!S||S.id!==s.id;if(first){T=[];lastTurn=-1}mergeT
   $('makingHead').textContent=drawing?'The map is being drawn from your description':'The World is making the valley';
   $('makingNote').textContent=drawing?'The ground, the water, the sky, the places and the names all come from what you wrote. Then the World rolls the people. Watch the World\u2019s terminal.':'Rolling every life, secret, and grudge. This takes a minute or two. Watch the World\u2019s terminal.'}
  $('chronEmpty').style.display=s.transcript.length?'none':'block';
- const msgHtml=e=>`<div class="msg ${e.kind}${/^\s*WHISPER\s+@/im.test(e.text)?' whisper':''}${e.kind==='convener'&&/@[A-Za-z]/.test(e.text)?' private':''}" style="${e.color?'--c:'+esc(e.color):''}"><div class="hd"><span class="who">${esc(e.speaker)}</span><span class="meta">day ${e.day??0}${e.place?' \u00b7 '+esc(e.place):''} \u00b7 ${e.time}</span></div><div class="body">${rich(e.text)}</div></div>`;
+ const msgHtml=e=>`<div class="msg ${e.kind}${/^\s*WHISPER\s+@/im.test(e.text)?' whisper':''}${e.kind==='convener'&&/@[A-Za-z]/.test(e.text)?' private':''}" style="${e.color?'--c:'+esc(e.color):''}"><div class="hd"><span class="who">${esc(e.speaker)}</span><span class="meta">Day ${e.day??0}, turn ${e.turn}${e.place?' \u00b7 '+esc(e.place):''}</span></div><div class="body">${rich(e.text)}</div></div>`;
  const have=$('msgs').children.length;
  if(first||have>s.transcript.length){$('msgs').innerHTML=s.transcript.map(msgHtml).join('');chronBottom()}
  else if(have<s.transcript.length){const atB=$('chron').scrollHeight-$('chron').scrollTop-$('chron').clientHeight<120;$('msgs').insertAdjacentHTML('beforeend',s.transcript.slice(have).map(msgHtml).join(''));if(atB)chronBottom()}
@@ -158,10 +158,14 @@ function renderPeople(s){const pane=$('peoPane');
  if(!busy)peoRenderPane(s)}
 
 function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
- const rows=s.characters.filter(c=>!q||`${c.name} ${c.trade||''} ${c.location}`.toLowerCase().includes(q));
- const html=rows.map(c=>`<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
-  <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${esc(c.location)}</span>
-  <span class="chp"><i style="width:${Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))))}%"></i></span></button>`).join('')
+ const rows=s.characters.filter(c=>!q||`${c.name} ${c.trade||''} ${c.location}`.toLowerCase().includes(q))
+  .sort((a,b)=>(a.alive?0:1)-(b.alive?0:1));      // the dead go to the end, still there, still dimmed
+ const html=rows.map(c=>{const pct=Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))));
+  const band=(!c.alive||pct<30)?'low':pct<60?'mid':'';
+  return `<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
+   <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${esc(c.location)}</span>
+   <span class="chp ${band}"><i style="width:${c.alive?pct:0}%"></i></span>
+   <span class="chhp">${c.alive?`hp ${c.hp}/${c.hp_max}`:'dead'}</span></button>`}).join('')
   ||'<div class="empty">Nobody matches that.</div>';
  if(html!==peoStripHtml){$('peoStrip').innerHTML=html;peoStripHtml=html;
   $('peoStrip').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{if(peoSel!==b.dataset.n){peoSel=b.dataset.n;peoNote='';peoPaneHtml=''}renderPeople(S)})}
@@ -285,7 +289,7 @@ function paneLog(s,c){const rx=rxName(c.name);
  let out='',day=null;
  for(const {e,text} of rows.slice(-250).reverse()){
   if(e.day!==day){day=e.day;out+=`<div class="logday">Day ${day}</div>`}
-  out+=`<div class="logrow ${esc(e.kind)}" style="${e.speaker===c.name?'--c:'+esc(seatColor(c.name)||'#888'):''}"><div class="lm">${esc(e.speaker)} \u00b7 ${esc(e.time)}${e.place?' \u00b7 '+esc(e.place):''}</div>${rich(text)}</div>`}
+  out+=`<div class="logrow ${esc(e.kind)}" style="${e.speaker===c.name?'--c:'+esc(seatColor(c.name)||'#888'):''}"><div class="lm">${esc(e.speaker)} \u00b7 Day ${e.day??0}, turn ${e.turn}${e.place?' \u00b7 '+esc(e.place):''}</div>${rich(text)}</div>`}
  return out}
 
 // ---- handlers for whichever tab is showing
@@ -323,6 +327,12 @@ function peoWire(s,c){const pane=$('peoPane');
 
 document.querySelectorAll('.ptabs button').forEach(b=>b.onclick=()=>{peoTab=b.dataset.p;peoNote='';peoPaneHtml='';if(S)renderPeople(S)});
 $('peoFilter').oninput=()=>{peoFilter=$('peoFilter').value;peoStripHtml='';if(S)peoRenderStrip(S)};
+$('peoStrip').addEventListener('wheel',e=>{      // a wheel or a two finger swipe moves the row sideways
+ const strip=$('peoStrip');
+ if(strip.scrollWidth<=strip.clientWidth+1)return;
+ const d=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+ if(!d)return;
+ e.preventDefault();strip.scrollLeft+=d},{passive:false});
 $('peoPick').onchange=()=>{peoSel=$('peoPick').value;peoNote='';peoPaneHtml='';if(S)renderPeople(S)};
 
 // ---------- World
