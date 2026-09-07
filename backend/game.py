@@ -449,7 +449,7 @@ class Run:
             ("\nEVENTS OF THE DAY. These have already happened; the engine has applied their wounds, losses, and ruins. Narrate each one vividly, make the people at that place witness it, and let it change what happens next. They are not optional and you may not soften them:\n" + "\n".join(f"- {e}" for e in events) + "\n") if events else "",
             "\nWhat was said today (including whispers you are allowed to hear):\n" + (talk_s or "- nothing"),
             "\nActions to resolve, with the die the engine rolled for each (1 is a disaster, 6 a triumph, scaled by the character's stats):\n" + acts,
-            "\nWrite the day: two to five short paragraphs of narration covering every action's outcome, the thing the world did that nobody chose, and any death by name and cause. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
+            "\nWrite the day in at most two sentences. State what happened and stop: the outcome that mattered most, and any death by name and cause. No flourish and no scene setting. Everything else goes in the block, not the narration. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
             '```json\n{"results":[{"who":"Name","hp":-2,"gold":3,"location":"The mill","skill":"axe","standing":"respected","note":"why"}],'
             '"events":["one line per world event"],"ledger":{"grain_weeks":1,"roofs_broken":-1,"road_safe":false,"sick":0,"built":["a granary"]},'
             '"dead":[{"who":"Name","cause":"how"}],"banished":["Name"],'
