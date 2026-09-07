@@ -1,6 +1,6 @@
 """The world: the fixed map, the people, the numbers. Only this module writes them."""
 from __future__ import annotations
-import datetime as dt, json, math, random, re
+import datetime as dt, json, math, random, re, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -380,6 +380,7 @@ class World:
         self.roster: dict = d.get("roster", {})                    # today's assignment: who does what where, and the emergencies
         self.morning: dict = d.get("morning", {})                  # what the morning left undone, and who complained
         self.reached: list[dict] = d.get("reached", [])            # wants reached and not yet announced by the World
+        self.activities: dict[str, dict] = d.get("activities", {})   # name -> what they are doing now, for the map to play
         self.phase: str = d.get("phase", "morning")                # morning, afternoon, evening
         self.bodies: dict[str, str] = d.get("bodies", {})          # the unburied dead: name -> where they lie
         self.day_report: dict = d.get("day_report", {})            # what dawn found: season, weather, changes, the low and the broken and the sick
@@ -411,7 +412,7 @@ class World:
                 "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
                 "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style,
                 "weather": self.weather, "upkeep": self.upkeep, "bodies": self.bodies, "day_report": self.day_report,
-                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase, "reached": self.reached}
+                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase, "reached": self.reached, "activities": self.activities}
 
     # ---- which map this game plays on
     def install_map(self, v: dict) -> None:
@@ -1104,6 +1105,8 @@ class World:
             pool.sort(key=lambda c: (self.distance(c["location"], e["place"]), rng.random()))
             for c in pool[:2]:
                 c["emergency"] = e; note_log(c, self.day, f"Emergency: {e['text']}. You are nearest; it pulls you off whatever else you meant to do.")
+                self.set_activity(c["name"], "emergency", e["text"][:40], [{"place": e["place"], "what": e["text"][:40], "dur": 0}], immediate=True)
+                if e["place"] in self.map: c["location"] = e["place"]        # pulled at once, not when they get round to it
             e["pulled"] = [c["name"] for c in pool[:2]]
         self.roster = {"day": self.day, "duties": roster, "emergencies": emergencies}
         return self.roster
@@ -1327,7 +1330,38 @@ class World:
             return {"kind": "attack", "place": e["place"], "ok": ok, "text": f"{name} went to {e['place']} against {e['text']} and " + ("drove it off." if ok else "was beaten back and hurt.")}
         return None
 
+    # ---- what each person is doing right now, for the map to walk them through
+    # An activity is a state, a label, and the stops it takes them through, each with a place and how long the work there
+    # shows for. The frontend plays it from `started`: walks the path to each stop, fills a bar for its seconds, and walks on.
+    def set_activity(self, name: str, state: str, what: str, stops: list[dict] | None = None, immediate: bool = False) -> dict:
+        c = self.characters[name]
+        a = {"state": state, "what": what[:60], "from": c["location"], "stops": stops or [], "started": time.time(), "immediate": immediate, "day": self.day, "phase": self.phase}
+        self.activities[name] = a; c["activity"] = what[:60]; return a
+
+    def work_label(self, r: dict) -> str:
+        """The words under the name while the work shows: "mending the roof at The mill", "tending Alder"."""
+        d = DUTIES[r["duty"]]; made = r.get("made", {})
+        if "tended" in made: return f"tending {', '.join(made['tended'])}"
+        if "buried" in made: return f"burying {made['buried']}"
+        if "taught" in made: return f"teaching {made['taught'].split(' in ')[0]}"
+        if "roof" in made: return f"mending the roof at {r['place']}"
+        if "warmth" in made: return f"feeding the hearth at {r['place']}"
+        if "filth" in made: return f"clearing the filth at {r['place']}"
+        return d["verb"]
+
     def resolve_morning(self, name: str, action: str | None, rng: random.Random) -> list[dict]:
+        out = self._resolve_morning(name, action, rng); c = self.characters[name]
+        stops = [{"place": r["place"], "what": self.work_label(r), "dur": 6} for r in out if r.get("kind") == "work" and r.get("place")]
+        for r in out:
+            if r.get("kind") in ("fire", "injury", "attack") and r.get("place"): stops.insert(0, {"place": r["place"], "what": r["kind"] if r["kind"] != "fire" else "fighting the fire", "dur": 5})
+        if stops:
+            self.set_activity(name, "working", stops[0]["what"], stops)
+            if c["alive"] and not c["gone"]: c["location"] = stops[-1]["place"]
+        elif out and out[0].get("kind") == "sick": self.set_activity(name, "resting", "resting", [{"place": c.get("home") if c.get("home") in self.map else c["location"], "what": "resting", "dur": 0}])
+        elif any(r.get("kind") in ("skip", "refuse") for r in out): self.set_activity(name, "idle", "idle")
+        return out
+
+    def _resolve_morning(self, name: str, action: str | None, rng: random.Random) -> list[dict]:
         """One person's morning, settled: the emergency first if one pulled them, then WORK on their duties (or the one named),
         or REFUSE (the duties go unclaimed and standing drops), or a skip, which costs the same as a refusal for the day."""
         c = self.characters[name]; out: list[dict] = []
@@ -1390,7 +1424,7 @@ class World:
             pull = (int(tr.get("drink", 3)) >= 4) or (int(tr.get("tongue", 3)) >= 4 and rng.random() < .5) or (int(tr.get("desire", 3)) >= 4 and rng.random() < .4)
             dest = inn if (inn and pull and not c.get("sick")) else home
             if dest and dest != c["location"]: c["location"] = dest; moves[c["name"]] = dest
-            c["activity"] = "at the inn" if dest == inn and inn != home else "at home"
+            self.set_activity(c["name"], "evening", "at the inn" if dest == inn and inn != home else "at home", [{"place": dest or c["location"], "what": "at the inn" if dest == inn and inn != home else "at home", "dur": 0}])
         return moves
 
     def duties_text(self) -> str:
@@ -1492,7 +1526,11 @@ class World:
 
     def end_day(self) -> None:
         """Evening is over. Whatever was dumped or pulled today is cleared, and tomorrow begins at dawn."""
-        for c in self.characters.values(): c["dumped"] = []; c["emergency"] = None; c["activity"] = ""
+        for c in self.characters.values():
+            c["dumped"] = []; c["emergency"] = None; c["activity"] = ""
+            if c["alive"] and not c["gone"]:
+                home = c.get("home") if c.get("home") in self.map else c["location"]
+                self.set_activity(c["name"], "resting", "resting", [{"place": home, "what": "resting", "dur": 0}]); c["location"] = home
         self.day += 1; self.phase = "morning"
 
 

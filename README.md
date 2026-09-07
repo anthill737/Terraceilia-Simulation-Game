@@ -173,6 +173,11 @@ You are not a player, but you are not powerless.
 - **Speak as fate.** The composer under the chronicle sends a message to everyone, or to one person
   alone with `@Name`.
 - **Move people.** Drag a person on the map to another place.
+- **Watch them work.** The map walks each person along the paths to wherever their work or their
+  action takes them, with a line under the name saying what they are doing and a thin bar that fills
+  as the work resolves. Skippers show idle, the sick rest at home, emergencies move people at once.
+  It is driven by the engine's own record of what each person is doing, so a page opened halfway
+  through shows the right stage, on a phone as much as on a desktop.
 - **Wreck and restore.** Click a place to see what is there. Destroy a fixture, restore one, or set
   the place on fire and put it out again.
 - **Strike someone down.** Smite a person and they are dead.
