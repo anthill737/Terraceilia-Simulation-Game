@@ -274,6 +274,18 @@ header .sheetbtn{font-size:13px;padding:0 11px}
 .tie .mut{display:flex;gap:5px;align-items:center;color:var(--ink-dim);font-size:11.5px;white-space:nowrap}
 .tie .mut input{width:auto;height:auto}
 
+/* colony */
+.colday{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;font-size:14px}.colday b{font:600 18px Georgia,serif;color:var(--ink)}.colseason{color:var(--gold)}.colweather{color:var(--ink-dim)}
+.colduty{display:grid;grid-template-columns:1.1fr 1.3fr auto;gap:8px;align-items:baseline;padding:5px 0;border-top:1px solid var(--edge2);font-size:12.5px}
+.colduty:first-child{border-top:0}.colduty .cdn b{color:var(--ink)}.colduty .cdn i{display:block;font-style:normal;font-size:11px;color:var(--ink-faint)}
+.colduty .cdw{color:var(--ink-dim)}.colduty .cdw.poor,.colduty.un .cdw{color:#e06a55;font-weight:600}.colduty .cds{font-size:11px;color:var(--ink-faint);white-space:nowrap}.colduty.done .cds{color:#9dbb74}
+.chg{font-style:normal;font-size:11px;margin-left:6px;min-width:24px;display:inline-block;text-align:right;color:var(--ink-faint)}.chg.up{color:#9dbb74}.chg.down{color:#d0785f}
+.colplace{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;padding:4px 0;border-top:1px solid var(--edge2);color:var(--ink-dim)}.colplace b{color:var(--ink);flex:1 1 120px}.colplace .poor{color:#d0785f}
+.colmorn{font-size:13px;line-height:1.55;color:var(--ink)}.colmorn p{margin:0 0 .5em}
+.chip .chact{display:block;font-size:10.5px;color:var(--gold);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-style:italic}
+#peoHead .wants{flex-basis:100%;font-size:12px;color:var(--ink-dim)}#peoHead .wants b{color:var(--ink);font-weight:600}
+.daypart{margin:18px 0 10px;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--faint);display:flex;align-items:center;gap:10px}.daypart:after{content:"";flex:1;border-top:1px solid var(--line)}
+
 /* duties */
 .dutylist{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .duty{display:grid;grid-template-columns:auto 1fr;grid-template-areas:"box name" "box made" "box who" "box breaks";gap:2px 10px;align-items:start;padding:9px 11px;border:1px solid var(--edge2);border-radius:5px;background:var(--tab2);cursor:pointer;font-size:12.5px}
