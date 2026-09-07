@@ -22,6 +22,9 @@ function fillSel(sel,opts,val){const h=opts.map(o=>`<option ${o===val?'selected'
 function modelUI(pfx,val){const p=$(pfx+'_p'),m=$(pfx+'_m'),c=$(pfx+'_c');fillSel(p,Object.keys(providers),val.provider);const ms=(providers[val.provider]||{models:[]}).models.concat(['Custom...']);const known=ms.includes(val.model);fillSel(m,ms,known?val.model:'Custom...');c.style.display=known?'none':'';if(!known)c.value=val.model}
 function modelVal(pfx){const m=$(pfx+'_m').value;return {provider:$(pfx+'_p').value,model:m==='Custom...'?($(pfx+'_c').value.trim()||''):m}}
 const DRAMA=['nothing','a whisper','quiet','calm','ordinary','lively','eventful','hard','harsh','brutal','chaos'];
+const STORES=['grain','meat','fish','wood','meals','tools','herbs'];
+const NEEDW={food:['starving','hungry','fed'],warmth:['freezing','cold','warm'],rest:['exhausted','tired','rested']};
+const needWord=(k,v)=>NEEDW[k][v<=0?0:v<=4?1:2];
 
 // ---------- setup screen (a game that has not started)
 function renderSetup(s){$('title').value=s.title;$('world_text').value=s.world_text;$('players').value=s.players;$('max_days').value=s.max_days;$('max_minutes').value=s.max_minutes||'';$('repo').value=s.repo;$('drama').value=s.drama??6;$('dramaNote').textContent=($('drama').value)+' \u00b7 '+DRAMA[+$('drama').value];
@@ -34,8 +37,10 @@ function relChips(s,name){const rs=(s.relations||{})[name]||{};const items=Objec
  if(!items.length)return '';const chip=([b,r])=>{const hue=r.feeling>0?'var(--accent)':r.feeling<0?'var(--danger)':'var(--faint)';return `<span class="rel" data-a="${esc(name)}" data-b="${esc(b)}" title="${esc(name)} ${FEEL[r.feeling+5]} ${esc(b)}. Click for why." style="--h:${hue}"><b>${esc(b)}</b> ${r.type!=='none'?esc(r.type)+' \u00b7 ':''}<i>${r.feeling>=0?'+':''}${r.feeling}</i><i class="t">${r.trust>=0?'+':''}${r.trust}</i></span>`};return '<div class="rels">'+items.slice(0,6).map(chip).join('')+(items.length>6?`<details class="more" data-k="r:${esc(name)}"><summary>${items.length-6} more</summary>${items.slice(6).map(chip).join('')}</details>`:'')+'</div>'}
 function renderValley(s){if(!s.created){$('valley').innerHTML='<div class="empty">The valley appears here once the World has rolled it.</div>';return}
  const wasOpen=new Set([...$('valley').querySelectorAll('details[open]')].map(d=>d.dataset.k));const scroll=$('valley').scrollTop;
- const L=s.ledger;const pct=Math.min(100,Math.round(100*L.grain_weeks/L.grain_needed));
- let h=`<div class="ledger"><b>Day ${s.day}</b> &middot; grain for <b>${L.grain_weeks}</b> of ${L.grain_needed} weeks<div class="bar" style="--c:var(--accent)"><i style="width:${pct}%"></i></div>${L.roofs_broken} roofs broken &middot; road ${L.road_safe?'safe':'unsafe'} after dark &middot; ${L.sick} sick<br>Built: ${esc(L.built.join(', ')||'nothing yet')}${s.pending.length?`<br><span class="note">${s.pending.length} action(s) waiting for the World</span>`:''}</div>`;
+ const L=s.ledger||{};const R=s.day_report||{};const ch=R.change||{};
+ const store=k=>`<span class="stk ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'low':''}">${k} <b>${L[k]??0}</b>${ch[k]?`<i>${ch[k]>0?'+':''}${ch[k]}</i>`:''}</span>`;
+ const sick=(s.characters||[]).filter(c=>c.alive&&!c.gone&&c.sick).length;
+ let h=`<div class="ledger"><b>Day ${s.day}</b> &middot; ${esc(R.season||'')} &middot; ${esc(s.weather||'')}<div class="stores">${STORES.map(store).join('')}</div>road ${L.road_safe?'safe':'unsafe'} after dark &middot; ${sick} sick &middot; ${Object.keys(s.bodies||{}).length} unburied<br>Built: ${esc((L.built||[]).join(', ')||'nothing yet')}${s.pending.length?`<br><span class="note">${s.pending.length} action(s) waiting for the World</span>`:''}</div>`;
  const byPlace={};s.characters.forEach(c=>{(byPlace[c.alive&&!c.gone?c.location:'Gone']=byPlace[c.alive&&!c.gone?c.location:'Gone']||[]).push(c)});
  const th=(s.threads||[]).filter(t=>t.status==='open');if(th.length)h+=`<div class="ledger"><b>Open situations</b> (${th.length})${th.map(t=>`<div class="thr">#${t.id} \u00b7 day ${t.day}${t.place?' \u00b7 '+esc(t.place):''}: ${esc(t.text)}</div>`).join('')}</div>`;
  h+=Object.entries(byPlace).map(([pl,cs])=>`<div class="place">${esc(pl)}</div>`+cs.map(c=>`<div class="card ${c.alive?'':'dead'}" style="--c:${esc(seatColor(c.name)||'#888')}"><span class="nm">${esc(c.name)}</span> <span class="st">${esc(c.trade)} &middot; ${esc(c.location)} &middot; ${esc(c.standing)}${c.gone?' &middot; gone':''}${c.alive?'':' &middot; dead: '+esc(c.cause_of_death)}</span>
@@ -214,10 +219,12 @@ function paneHealth(s,c){
    <div class="gbar ${tone}"><i style="width:${c.alive?pct:0}%"></i>${[25,50,75].map(t=>`<b style="left:${t}%"></b>`).join('')}</div>
    <div class="ghp">${c.alive?c.hp:0} of ${c.hp_max} health</div>
    ${row('Wounds',c.alive?WOUNDS(pct):'past helping',tone)}
+   ${row('Sick',`<select class="vin wide" id="h_sick"><option value="0" ${c.sick?'':'selected'}>no</option><option value="1" ${c.sick?'selected':''}>yes, cannot work</option></select>`,c.sick?'poor':'good')}
+   ${['food','warmth','rest'].map(k=>{const v=(c.needs||{})[k]??0;return row(k[0].toUpperCase()+k.slice(1),`<span class="${v<=0?'poor':v<=4?'fair':'good'}">${needWord(k,v)}</span><input class="vin" type="number" id="h_${k}" min="0" max="10" value="${v}">`)}).join('')}
    ${row('Health now',`<input class="vin" type="number" id="h_hp" min="0" value="${c.hp}">`)}
    ${row('Health at most',`<input class="vin" type="number" id="h_hpm" min="1" value="${c.hp_max}">`)}
    <div class="row" style="margin-top:10px"><button class="primary" id="h_save">Save</button></div>
-   <div class="foot">Terraceilia keeps one wound level for a person, not separate limbs and organs. Everything above is read from it.</div></div>
+   <div class="foot">One wound level, three needs on a scale of 0 to 10, and whether they are sick. A need at zero takes health each morning; the sick cannot work until someone tends them.</div></div>
   <div class="card2"><div class="ch">Where they stand</div>
    ${row('Living',c.alive?'yes':'no, '+esc(c.cause_of_death||'unknown'),c.alive?'good':'poor')}
    ${row('Gone from the valley',c.gone?'yes':'no',c.gone?'poor':'')}
@@ -225,7 +232,7 @@ function paneHealth(s,c){
    ${row('Fire where they are',burning?'burning now':'no',burning?'poor':'good')}
    ${row('Ruined there',ruined.length?esc(ruined.join(', ')):'nothing',ruined.length?'poor':'')}
    ${row('The road after dark',(s.ledger||{}).road_safe?'safe':'unsafe',(s.ledger||{}).road_safe?'good':'poor')}
-   ${row('Sick in the valley',(s.ledger||{}).sick??0,((s.ledger||{}).sick||0)>0?'poor':'good')}
+   ${(()=>{const u=((s.upkeep||{})[c.location])||{};return row('Roof, warmth, filth there',`${u.roof??0} / ${u.warmth??0} / ${u.filth??0}`,(u.filth||0)>=6||(u.warmth||0)<=2?'poor':'')})()}
    <div class="ch" style="margin-top:16px">What is happening to them</div>
    ${mine.length?mine.map(t=>`<div class="hsit">#${t.id} · day ${t.day}${t.place?' · '+esc(t.place):''}<div>${esc(t.text)}</div></div>`).join('')
     :'<div class="foot" style="margin-top:6px">Nothing unresolved touches them.</div>'}</div></div>`}
@@ -281,7 +288,7 @@ function paneLog(s,c){const rx=rxName(c.name);
  const rows=[];
  for(const e of (s.transcript||[])){
   if(e.speaker===c.name){rows.push({e,text:e.text});continue}
-  if(!['world','system','fate','epilogue','convener'].includes(e.kind))continue;
+  if(!['world','system','fate','epilogue','convener','dawn'].includes(e.kind))continue;
   const b=body(e.text);if(!rx.test(b))continue;
   const hits=b.split(/(?<=[.!?])\s+/).filter(x=>rx.test(x));
   rows.push({e,text:hits.length?hits.join(' '):b.slice(0,240)})}
@@ -311,7 +318,7 @@ function peoWire(s,c){const pane=$('peoPane');
    pane.querySelectorAll('.skillrow').forEach(r=>{const k=r.querySelector('.sk').value.trim();if(k)skills[k]=+r.querySelector('.sv').value||0});
    await peoApply({str:+$('s_str').value,spd:+$('s_spd').value,gold:+$('s_gold').value,standing:$('s_stand').value,skills})}}
  else if(peoTab==='health'){
-  $('h_save').onclick=()=>peoApply({hp:+$('h_hp').value,hp_max:+$('h_hpm').value})}
+  $('h_save').onclick=()=>peoApply({hp:+$('h_hp').value,hp_max:+$('h_hpm').value,sick:$('h_sick').value==='1',needs:{food:+$('h_food').value,warmth:+$('h_warmth').value,rest:+$('h_rest').value}})}
  else if(peoTab==='disp'){
   pane.querySelectorAll('.dial').forEach(d=>d.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>peoApply({traits:{[d.dataset.k]:+b.dataset.i}})))}
  else if(peoTab==='ties'){

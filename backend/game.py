@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,
-                    whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text)
+                    whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 TURN_TIMEOUT = 1800
@@ -97,8 +97,7 @@ class Game:
         return "\n".join(md)
 
     def ledger_line(self) -> str:
-        L = self.world.ledger
-        return f"grain {L['grain_weeks']}/{L['grain_needed']} weeks, {L['roofs_broken']} roofs broken, road {'safe' if L['road_safe'] else 'unsafe'}, {L['sick']} sick, built: {', '.join(L['built']) or 'nothing'}"
+        return self.world.ledger_text()
 
     @classmethod
     def load(cls, gid: str) -> "Game | None":
@@ -293,6 +292,7 @@ class Run:
                                       "color": PALETTE[i % len(PALETTE)]} for i, n in enumerate(names)]
             w.characters = {}
             for i, n in enumerate(names): w.characters[n] = roll_character(n, i + 1, srng, places)
+            w.ledger = starting_ledger(len(names), len(w.map)); w.seed_places()
             self._sync_terms(); self.version += 1
         for i in range(len(g.seats)): g.seat_dir(i)
         self.one_codex(); g.save()
@@ -422,7 +422,7 @@ class Run:
         # not the day's story: only what touched this person (happened where they are, named them, or was done by someone they are tied to)
         new = [(e, touched_text(e, me, my_place, ties)) for e in g.transcript[seen:]]; new = [(e, v) for e, v in new if v]
         parts = [PLAYER_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP, known to everyone (the only places and things that exist):\n" + map_text(w.map) + "\n",
-                 f"Day {w.day}. Everyone who lives in the valley: " + ", ".join(c["name"] for c in w.living() if c["name"] != me) + ".\n",
+                 f"Day {w.day}, {season_of(w.day)}, {w.weather}. Everyone who lives in the valley: " + ", ".join(c["name"] for c in w.living() if c["name"] != me) + ".\n",
                  w.sheet(me), "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
         u = self.day_urges.get(me) or []
         if u: parts.append("YOUR URGES TODAY, which are your nature and not a suggestion; act on at least one of them, in words or in your ACTION, and do not apologize for it:\n" + "\n".join(f"- {x}" for x in u) + "\n")
@@ -440,13 +440,13 @@ class Run:
         acts = "\n".join(f"- {a['who']} (roll d6 = {rolls.get(a['who'], 0)}): {a['text']}" for a in actions) or "- nobody acted"
         talk = [e for e in g.transcript if e.get("day", 0) == w.day and e["kind"] in ("speech", "convener")]
         talk_s = "\n".join(f"- {e['speaker']}: {e['text'][:300]}" for e in talk[-40:])
-        L = w.ledger
         settled_s = ("\nSETTLED BY THE ENGINE TODAY. These are done; the people involved have already been moved, marked, or sent away. Narrate each exactly as written, in your own plain words, and do not reverse or soften any of them:\n"
                      + "\n".join(f"- {s['text']}" for s in settled) + "\n") if settled else ""
         return "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", f"It is day {w.day}.",
             "\nThe people, as the engine knows them:\n" + sheets,
             "\nTheir notable ties (a -> b: type, feeling -5..5, trust -5..5; everyone also has milder opinions of everyone else, which you may assume are ordinary):\n" + "\n".join(f"- {a} -> {b}: {r['type']}, feeling {r['feeling']:+d}, trust {r['trust']:+d}" for a, rs in w.relations.items() for b, r in rs.items() if a in w.characters and b in w.characters and (r['type'] != 'none' or abs(r['feeling']) + abs(r['trust']) >= 4)),
-            f"\nThe prosperity ledger: grain {L['grain_weeks']} of {L['grain_needed']} weeks needed, {L['roofs_broken']} roofs broken, road {'safe' if L['road_safe'] else 'unsafe'} after dark, {L['sick']} sick, built: {', '.join(L['built']) or 'nothing'}.",
+            "\nTHIS MORNING, as the engine found the valley (season, weather, what is low, broken, sick, or burning):\n" + w.dawn_text(),
+            f"\nThe stores: {w.ledger_text()}.\nThe places (roof, warmth, filth, each 0 to 10):\n" + w.places_text(),
             ("\nACTS OF FATE since yesterday, which you must narrate as things that simply happened:\n" + "\n".join(f"- {f}" for f in w.fate) + "\n") if w.fate else "",
             "\nOPEN SITUATIONS. Every one of these is still true today; keep it alive in your narration and in what happens, until you resolve it explicitly (a body buried, a deserter caught, a merchant leaves, a fire put out). Nothing here may simply vanish:\n" + w.threads_text() + "\n"
             + ("\nFIRES BURNING NOW: " + ", ".join(f"{p} (day {d + 1} of burning)" for p, d in w.fires.items()) + ". People there are hurt each day it burns and things there are ruined; it spreads. Say what the people do about it.\n" if w.fires else ""),
@@ -456,11 +456,11 @@ class Run:
             "\nActions to resolve, with the die the engine rolled for each (1 is a disaster, 6 a triumph, scaled by the character's stats):\n" + acts,
             "\nWrite one line per person who acted, and nothing else: their name, a colon, then what came of their action in at most two sentences. A death goes in that person's line, by name and cause. No opening line, no weather, no closing line, no line for anyone who did not act. Everything else goes in the block, not the narration. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
             '```json\n{"results":[{"who":"Name","hp":-2,"gold":3,"location":"The mill","skill":"axe","standing":-1,"note":"why"}],'
-            '"events":["one line per world event"],"ledger":{"grain_weeks":1,"roofs_broken":-1,"road_safe":false,"sick":0,"built":["a granary"]},'
+            '"events":["one line per world event"],"ledger":{"grain":1,"meat":0,"fish":0,"wood":-1,"meals":0,"tools":0,"herbs":0,"road_safe":false,"built":["a granary"]},'
             '"dead":[{"who":"Name","cause":"how"}],'
             '"relations":[{"a":"Name","b":"Other","feeling":-2,"trust":-3,"type":"enemy","mutual":false,"why":"what happened today that changed it, one line"}],'
             '"threads":[{"id":3,"status":"resolved","note":"how it ended"}],"fires_out":["The mill"]}\n```',
-            "Rules for the block: hp and gold and ledger numbers are deltas (change), not totals. standing is a delta too, -2 to 2, moved only by what that person did today and how the people around them took it. Relation feeling and trust are deltas, -3..3 per day, and every meaningful interaction today must move at least one tie, and every relation entry needs a \"why\" naming the thing that happened today: a favor, an insult, a lie found out, a night together, a blow struck. Set type when a tie changes kind (a lover becomes a spouse, a friend becomes an enemy). Only include keys you are changing. Names must match exactly. Do not invent characters. Nobody leaves the valley through this block. Deaths must also be in narration."])
+            "Rules for the block: hp and gold and ledger numbers are deltas (change), not totals; ledger deltas are clamped to -3..3 per store and nothing grows without someone's work. standing is a delta too, -2 to 2, moved only by what that person did today and how the people around them took it. Relation feeling and trust are deltas, -3..3 per day, and every meaningful interaction today must move at least one tie, and every relation entry needs a \"why\" naming the thing that happened today: a favor, an insult, a lie found out, a night together, a blow struck. Set type when a tie changes kind (a lover becomes a spouse, a friend becomes an enemy). Only include keys you are changing. Names must match exactly. Do not invent characters. Nobody leaves the valley through this block. Deaths must also be in narration."])
 
     # ---- the day loop
     def _run(self) -> None:
@@ -520,6 +520,13 @@ class Run:
         w.created = True; w.day = 1
         self._record("World", (strip_dashes(strip_json(out or "The valley wakes.")) + "\n\n" + w.standings_table()), "world")
 
+    def _dawn(self) -> None:
+        """The valley wears a little: weather, spoilage, hunger, cold, sickness, and the dead by morning. Before anyone speaks."""
+        g = self.g; w = g.world
+        with self.lock: rep = w.dawn(self.rng); self.version += 1
+        self._record("The valley", "\n".join(rep["lines"]), "dawn")
+        g.save()
+
     def _player_phase(self) -> None:
         """Every living character gets one prompt; anyone named or whispered to gets one reaction. Then the day resolves."""
         g = self.g; w = g.world
@@ -527,6 +534,7 @@ class Run:
             if not self.prime_codex(f"priming for day {w.day}"): self._codex_refused()
             while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
             if self.stop_flag.is_set(): return
+        if (w.day_report or {}).get("day") != w.day: self._dawn()
         alive = [i for i, seat in enumerate(g.seats) if i > 0 and seat["name"] in w.characters and w.characters[seat["name"]]["alive"] and not w.characters[seat["name"]]["gone"]]
         self.day_urges = {g.seats[i]["name"]: urges(w.characters[g.seats[i]["name"]], w, self.rng) for i in alive}
         acted: set[int] = set(); reacted: set[int] = set(); queue = list(alive); threads: dict[int, threading.Thread] = {}
