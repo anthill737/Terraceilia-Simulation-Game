@@ -1611,50 +1611,230 @@ class World:
                 + f"Your pastime, what you do with a free afternoon: {PASTIMES[c['pastime']]['label'] if c.get('pastime') in PASTIMES else 'not settled yet'}.\n"
                 + f"YOUR PEOPLE, and how you truly feel about them (act on this):\n{self.relations_text(name)}")
 
-    def apply(self, res: dict, log: list[str]) -> None:
-        """Validate and apply a World result block. Anything impossible is clamped and logged.
-        Nobody is sent away by this block: driving out and leaving are actions the engine settles itself."""
-        for r in res.get("results", []) or []:
-            c = self.characters.get(str(r.get("who", "")))
-            if not c or not c["alive"]: log.append(f"ignored result for unknown or dead '{r.get('who')}'"); continue
-            try:
-                if "hp" in r: c["hp"] = max(0, min(c["hp_max"], c["hp"] + int(r["hp"])))
-                if "gold" in r: c["gold"] = max(0, c["gold"] + int(r["gold"]))
-            except (TypeError, ValueError): log.append(f"bad number in result for {c['name']}")
-            if r.get("location"):
-                dest = place_key(str(r["location"]), self.map)
-                if not dest: log.append(f"{c['name']}: '{r['location']}' is not a place on the map, stayed at {c['location']}")
-                elif dest != c["location"] and dest not in self.map[c["location"]]["adj"]: log.append(f"{c['name']}: {dest} is not one path from {c['location']}, stayed put")
-                else: c["location"] = dest
-            if r.get("skill"): k = str(r["skill"]).strip().lower()[:30]; c["skills"][k] = min(9, c["skills"].get(k, 0) + 1)
-            if "standing" in r:
-                try: bump_standing(c, max(-2, min(2, int(r["standing"]))))
-                except (TypeError, ValueError): log.append(f"standing for {c['name']} must be a number, -2 to 2")
-        for d in res.get("dead", []) or []:
-            c = self.characters.get(str(d.get("who", "")))
-            if c and c["alive"]: self.kill(c, str(d.get("cause", "unknown"))[:120])
+    # ---- free actions: a verb from a fixed list, a target, and a resolution by stats, ties and dice. Nothing else moves state.
+    VERBS = ("travel", "talk", "give", "take", "steal", "hit", "drive out", "help", "tend", "court", "pray", "trade", "search", "wait")
+    VERB_RX = [
+        ("hit", r"\b(hit|hits|strike|strikes|punch|punches|beat|beats|fight|fights|attack|attacks|stab|stabs|knife|knifes|kill|kills|thrash|thrashes|cut|cuts|club|clubs|throttle|throttles|smash)\b"),
+        ("steal", r"\b(steal|steals|pinch|pinches|rob|robs|pick\w* .{0,12}pocket|lift|lifts|filch|filches|snatch|snatches|swipe|swipes|pilfer|pilfers|nick|nicks)\b"),
+        ("court", r"\b(court|courts|woo|woos|kiss|kisses|seduce|seduces|flirt|flirts|bed|beds|lie with|lies with|sleep with|sleeps with|propose|proposes|charm|charms|make love|hold .{0,10}hand)\b"),
+        ("tend", r"\b(tend|tends|nurse|nurses|treat|treats|bandage|bandages|dress .{0,12}wound|heal|heals|look after|looks after|sit with|sits with|bring .{0,12}(broth|herbs|medicine))\b"),
+        ("give", r"\b(give|gives|hand|hands|offer|offers|share|shares|lend|lends|pay|pays|feed|feeds|bring .{0,20} (a|some|the) )\b"),
+        ("take", r"\b(take|takes|grab|grabs|help myself|helps himself|helps herself|helps themselves|fetch|fetches|draw|draws)\b"),
+        ("travel", r"\b(go|goes|walk|walks|travel|travels|head|heads|ride|rides|run|runs|set out|sets out|make my way|makes .{0,6} way|cross|crosses|climb|climbs|visit|visits|return|returns|leave for|leaves for|come to|comes to)\b"),
+        ("search", r"\b(search|searches|look for|looks for|dig|digs|hunt for|hunts for|rummage|rummages|scour|scours|comb|combs|inspect|inspects|examine|examines|poke around|explore|explores|check .{0,12}(box|chest|loft|cellar|grave))\b"),
+        ("trade", r"\b(trade|trades|sell|sells|buy|buys|barter|barters|haggle|haggles|bargain|bargains|purchase|purchases)\b"),
+        ("pray", r"\b(pray|prays|prayer|prayers|confess|confesses|kneel|kneels|worship|worships|light a candle|lights a candle|give thanks)\b"),
+        ("help", r"\b(help|helps|assist|assists|carry .{0,12} for|carries .{0,12} for|fetch .{0,12} for|mend .{0,12} for|mends .{0,12} for|stand with|stands with|look out for|looks out for|protect|protects)\b"),
+        ("wait", r"\b(wait|waits|rest|rests|sleep|sleeps|stay|stays|do nothing|does nothing|keep to myself|keeps to|sit|sits|watch|watches|linger|lingers|idle|idles|nap|naps)\b"),
+    ]
+    ITEM_WORDS = {"grain": "grain", "sack": "grain", "meat": "meat", "fish": "fish", "wood": "wood", "firewood": "wood", "meal": "meals", "meals": "meals", "bread": "meals", "food": "meals",
+                  "stew": "meals", "tool": "tools", "tools": "tools", "herb": "herbs", "herbs": "herbs"}
+
+    def named_place(self, text: str, actor: str) -> str | None:
+        """A map place named in the text, the longest match first; a bare kind word ("the inn", "the chapel") finds the place of that kind."""
+        t = " ".join((text or "").lower().split()); best = None
+        for pl in self.map:
+            n = pl.lower(); short = n[4:] if n.startswith("the ") else n
+            for cand in (n, short):
+                if len(cand) >= 3 and re.search(r"(?<![\w])" + re.escape(cand) + r"(?![\w])", t) and (best is None or len(cand) > best[1]): best = (pl, len(cand))
+        if best: return best[0]
+        for pl, d in self.map.items():
+            k = d.get("kind")
+            if k and k not in ("other", "water", "fields") and re.search(r"\bthe " + re.escape(k) + r"\b", t): return pl
+        if re.search(r"\bhome\b", t):
+            c = self.characters.get(actor) or {}
+            if c.get("home") in self.map: return c["home"]
+        return None
+
+    def parse_verb(self, actor: str, text: str) -> dict:
+        """The one verb an action line maps to, with its target. Anything that maps to nothing is talk, and talk changes nothing."""
+        t = " ".join((text or "").lower().split())
+        names = [c["name"] for c in self.living() if c["name"] != actor]
+        target = next((n for n in sorted(names, key=len, reverse=True) if re.search(r"(?<![\w@])@?" + re.escape(n.lower()) + r"(?:'s)?\b", t)), None)
+        place = self.named_place(t, actor)
+        item = next((self.ITEM_WORDS[m] for m in re.findall(r"\b(grain|sack|meat|fish|wood|firewood|meals?|bread|food|stew|tools?|herbs?)\b", t)), None)
+        words = {"one": 1, "a": 1, "an": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "all my": 99}
+        m = re.search(r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|all my)\s*(gold|coins?|pieces?)\b", t)
+        n = (int(m.group(1)) if m.group(1).isdigit() else words.get(m.group(1), 1)) if m else (1 if re.search(r"\b(gold|coin|coins)\b", t) else None)
+        si = self.social_intent(actor, text)
+        if si and si[0] == "drive_out": return {"verb": "drive out", "target": si[1], "place": place, "item": item, "n": n}
+        for verb, rx in self.VERB_RX:
+            if not re.search(rx, t): continue
+            if verb in ("hit", "steal", "court", "tend", "help") and not target: continue
+            if verb == "give" and not target: continue
+            if verb == "travel" and not place: continue
+            if verb == "take" and not item: continue
+            if verb == "trade" and target and not item and re.search(r"\b(talk|ask|tell)\b", t): continue
+            return {"verb": verb, "target": target, "place": place, "item": item, "n": n}
+        if place and target is None and re.search(r"\b(to|toward|towards|into|up to|down to|over to|off to|for)\b", t): return {"verb": "travel", "target": None, "place": place, "item": item, "n": n}
+        return {"verb": "talk", "target": target, "place": place, "item": item, "n": n}
+
+    def resolve_verb(self, actor: str, pv: dict, rng: random.Random) -> dict:
+        """One free action, written to state here. Returns {who, kind, target, ok, changed, text}."""
+        c = self.characters[actor]; v = pv["verb"]; tn = pv.get("target"); t = self.characters.get(tn or ""); here = c["location"]
+        out = {"who": actor, "kind": v, "target": tn, "ok": False, "changed": False, "text": ""}
+        tr = lambda x, k: int((x or {}).get("traits", {}).get(k, 3))  # noqa: E731
+        same = bool(t) and t["alive"] and not t["gone"] and t["location"] == here
+        if v == "talk":
+            out["text"] = f"{actor} talked, and nothing came of it but words."; return out
+        if v == "wait":
+            c["needs"]["rest"] = min(10, c["needs"].get("rest", 5) + 1); out.update(ok=True, changed=True, text=f"{actor} waited at {here} and rested a little."); return out
+        if v == "travel":
+            dest = pv.get("place")
+            if not dest or dest == here: out.update(ok=True, text=f"{actor} stayed at {here}."); return out
+            path = self._path(here, dest)
+            step = path[1] if len(path) > 1 else None
+            if not step: out["text"] = f"{actor} looked for a way to {dest} and found none."; return out
+            c["location"] = step; self.set_activity(actor, "acting", f"walking to {step}", [{"place": step, "what": f"walking to {step}", "dur": 3}])
+            out.update(ok=True, changed=True, text=f"{actor} walked to {step}." if step == dest else f"{actor} set out for {dest} and got as far as {step}; it is more than a day's walk."); return out
+        if v == "pray":
+            chapel = here if (self.map.get(here) or {}).get("kind") == "chapel" else None
+            c["needs"]["spirit"] = min(10, c["needs"].get("spirit", 6) + (2 if chapel else 1))
+            out.update(ok=True, changed=True, text=f"{actor} prayed at {here}" + (" and came away steadier." if chapel else ", quietly, and felt a little better.")); return out
+        if v == "search":
+            roll = rng.randint(1, 6) + (1 if tr(c, "cunning") >= 4 else 0)
+            if roll >= 6: c["gold"] += 2; out.update(ok=True, changed=True, text=f"{actor} searched {here} and turned up 2 gold."); return out
+            if roll == 5: it = rng.choice(["an old key", "a rusted knife", "a bone button", "a scrap of a letter"]); c.setdefault("items", []).append(it); del c["items"][:-12]; out.update(ok=True, changed=True, text=f"{actor} searched {here} and found {it}."); return out
+            out["text"] = f"{actor} searched {here} and found nothing."; return out
+        if v == "trade":
+            kind = (self.map.get(here) or {}).get("kind"); L = self.ledger
+            if kind not in ("market", "town", "inn"): out["text"] = f"{actor} looked to trade at {here} and found nobody to trade with."; return out
+            if c["gold"] >= 1: c["gold"] -= 1; L["meals"] += 2; out.update(ok=True, changed=True, text=f"{actor} spent 1 gold at {here} and brought back 2 meals for the stores."); return out
+            if L["grain"] >= 2: L["grain"] -= 2; L["tools"] += 1; out.update(ok=True, changed=True, text=f"{actor} traded 2 grain at {here} for 1 tools."); return out
+            out["text"] = f"{actor} had nothing to trade with at {here}."; return out
+        if v == "take":
+            item = pv.get("item"); L = self.ledger
+            if not item or L.get(item, 0) <= 0: out["text"] = f"{actor} went to take {item or 'something'} from the stores and there was none."; return out
+            L[item] -= 1; witnesses = [x["name"] for x in self.at(here) if x["name"] != actor]
+            if item in ("meals", "grain", "fish", "meat"): c["needs"]["food"] = min(10, c["needs"].get("food", 5) + 3)
+            elif item == "wood":
+                home = c.get("home") if c.get("home") in self.map else here; self.upkeep[home]["warmth"] = min(10, self.upkeep[home]["warmth"] + 2)
+            else: c.setdefault("items", []).append(item); del c["items"][:-12]
+            for wn in witnesses: self.set_rel(wn, actor, feeling=-1, delta=True, why=f"took {item} from the stores for themselves")
+            out.update(ok=True, changed=True, text=f"{actor} took 1 {item} from the stores for themselves" + (f"; {', '.join(witnesses)} saw it." if witnesses else ".")); return out
+        # everything below needs a living target standing in the same place
+        if not t or not t["alive"] or t["gone"]: out["text"] = f"{actor} went looking for {tn or 'someone'} and there was no such person to be found."; return out
+        if not same: out["text"] = f"{actor} looked for {tn} at {here}, but {tn} was at {t['location']}."; return out
+        if v == "drive out":
+            r = self.resolve_social(actor, "drive_out", tn, rng); out.update(ok=r["ok"], changed=True, text=r["text"]); return out
+        if v == "give":
+            n = pv.get("n"); item = pv.get("item")
+            if item and item != "meals" and c.get("items"):
+                it = c["items"].pop(); t.setdefault("items", []).append(it); self.set_rel(tn, actor, feeling=1, trust=1, delta=True, why=f"gave them {it}")
+                out.update(ok=True, changed=True, text=f"{actor} gave {tn} {it}."); return out
+            if item and self.ledger["meals"] > 0 and (n is None):
+                self.ledger["meals"] -= 1; t["needs"]["food"] = min(10, t["needs"].get("food", 5) + 4); t["needs"]["spirit"] = min(10, t["needs"].get("spirit", 6) + 1)
+                self.set_rel(tn, actor, feeling=1, trust=1, delta=True, why="fed them"); out.update(ok=True, changed=True, text=f"{actor} gave {tn} a meal from the stores."); return out
+            n = min(int(c["gold"]), max(1, int(n or 1)))
+            if n <= 0: out["text"] = f"{actor} offered {tn} gold and had none to give."; return out
+            c["gold"] -= n; t["gold"] += n; self.set_rel(tn, actor, feeling=1, trust=1, delta=True, why=f"gave them {n} gold")
+            if n >= 3: bump_standing(c, 1)
+            out.update(ok=True, changed=True, text=f"{actor} gave {tn} {n} gold."); return out
+        if v == "steal":
+            a = rng.randint(1, 6) + tr(c, "cunning"); d = rng.randint(1, 6) + tr(t, "cunning"); witnesses = [x["name"] for x in self.at(here) if x["name"] not in (actor, tn)]
+            if a > d and t["gold"] > 0:
+                n = min(int(t["gold"]), rng.randint(1, 3)); t["gold"] -= n; c["gold"] += n
+                out.update(ok=True, changed=True, text=f"{actor} stole {n} gold from {tn} and was not seen."); return out
+            bump_standing(c, -2); self.set_rel(tn, actor, feeling=-3, trust=-3, delta=True, why="caught stealing from them")
+            for wn in witnesses: self.set_rel(wn, actor, feeling=-1, trust=-1, delta=True, why=f"seen stealing from {tn}")
+            out.update(changed=True, text=f"{actor} tried to steal from {tn} and was caught" + (f"; {', '.join(witnesses)} saw it." if witnesses else ".")); return out
+        if v == "hit":
+            ra, rt = rng.randint(1, 6), rng.randint(1, 6); a = ra + int(c["str"]) // 2; d = rt + int(t["str"]) // 2
+            self.set_rel(tn, actor, feeling=-3, trust=-2, delta=True, why="struck them"); self.set_rel(actor, tn, feeling=-2, delta=True, why="came to blows"); bump_standing(c, -1)
+            if a >= d:
+                dmg = 4 if (int(c["str"]) >= 7 and ra >= 5) else 2; t["hp"] = max(0, t["hp"] - dmg)
+                if t["hp"] <= 0: self.kill(t, f"killed by {actor} in a fight at {here}"); out.update(ok=True, changed=True, text=f"{actor} struck {tn} down at {here}. {tn} is dead."); return out
+                out.update(ok=True, changed=True, text=f"{actor} beat {tn} at {here}; {tn} is hurt."); return out
+            dmg = 4 if (int(t["str"]) >= 7 and rt >= 5) else 2; c["hp"] = max(0, c["hp"] - dmg)
+            if c["hp"] <= 0: self.kill(c, f"killed by {tn}, who fought back, at {here}"); out.update(changed=True, text=f"{actor} went for {tn} and {tn} killed {actor} at {here}."); return out
+            out.update(changed=True, text=f"{actor} went for {tn} and came off worse; {actor} is hurt."); return out
+        if v == "help":
+            n = t.setdefault("needs", fresh_needs()); k = min(("food", "warmth", "rest"), key=lambda x: n.get(x, 5)); n[k] = min(10, n.get(k, 5) + 2)
+            self.set_rel(tn, actor, feeling=2, trust=1, delta=True, why="helped them"); c["needs"]["spirit"] = min(10, c["needs"].get("spirit", 6) + 1)
+            out.update(ok=True, changed=True, text=f"{actor} helped {tn} at {here}; {tn} is better {need_word(k, 10).replace('in good spirits', 'off')} for it."); return out
+        if v == "tend":
+            did = []
+            if t.get("sick"):
+                t["tended_day"] = self.day; did.append("tended their sickness")
+                if self.ledger["herbs"] > 0: self.ledger["herbs"] -= 1; did.append("used herbs")
+            if t["hp"] < t["hp_max"]: t["hp"] = min(t["hp_max"], t["hp"] + 1); did.append("dressed their wounds")
+            if not did: out["text"] = f"{actor} went to tend {tn}, who needed no tending."; return out
+            self.set_rel(tn, actor, feeling=2, trust=2, delta=True, why="tended them"); out.update(ok=True, changed=True, text=f"{actor} {' and '.join(did)} for {tn}."); return out
+        if v == "court":
+            r = self.rel(tn, actor); roll = rng.randint(1, 6) + tr(c, "desire") + (1 if tr(c, "tongue") >= 4 else 0); need = 4 + (5 - tr(t, "desire")) + max(0, -r["feeling"])
+            spouse = next((b for b, rr in self.relations.get(tn, {}).items() if rr["type"] == "spouse" and b in self.characters), None)
+            if roll >= need:
+                self.set_rel(tn, actor, feeling=2, trust=1, delta=True, why="was courted, and liked it"); self.set_rel(actor, tn, feeling=1, delta=True, why="courted them")
+                became = self.rel(tn, actor)["feeling"] >= 4 and rng.random() < .5
+                if became: self.set_rel(tn, actor, typ="lover", why="took them as a lover"); self.set_rel(actor, tn, typ="lover", why="took them as a lover")
+                if spouse and spouse != actor: self.set_rel(spouse, actor, feeling=-2, trust=-2, delta=True, why=f"courted {tn}, their spouse")
+                out.update(ok=True, changed=True, text=f"{actor} courted {tn} at {here} and {tn} warmed to it" + (f"; they are lovers now." if became else ".") + (f" {spouse} heard of it." if spouse and spouse != actor else "")); return out
+            self.set_rel(tn, actor, feeling=-1, delta=True, why="courted them and was refused")
+            if spouse and spouse != actor: self.set_rel(spouse, actor, feeling=-2, trust=-2, delta=True, why=f"courted {tn}, their spouse")
+            out.update(changed=True, text=f"{actor} courted {tn} at {here} and was refused." + (f" {spouse} heard of it." if spouse and spouse != actor else "")); return out
+        out["text"] = f"{actor} talked, and nothing came of it but words."; return out
+
+    def _path(self, a: str, b: str) -> list[str]:
+        if a == b or a not in self.map or b not in self.map: return [a]
+        prev = {a: None}; q = [a]
+        while q:
+            nq = []
+            for p in q:
+                for n in self.map[p]["adj"]:
+                    if n in prev: continue
+                    prev[n] = p
+                    if n == b:
+                        out = [b]; cur = b
+                        while prev[cur]: cur = prev[cur]; out.insert(0, cur)
+                        return out
+                    nq.append(n)
+            q = nq
+        return [a]
+
+    def resolve_afternoon(self, actions: list[dict], rng: random.Random, log: list[str]) -> list[dict]:
+        """Every afternoon action, settled here and only here: the social acts, the duty acts, then a verb for each of the rest."""
+        out = self.resolve_social_actions(actions, rng, log) + self.resolve_duty_actions(actions, log)
+        for a in list(actions):
+            if a["who"] not in self.characters or not self.able(self.characters[a["who"]]): continue
+            pv = self.parse_verb(a["who"], a["text"]); r = self.resolve_verb(a["who"], pv, rng); r["action"] = a["text"]
+            out.append(r); log.append(f"{pv['verb']}: {r['text'][:80]}")
+        actions[:] = []
+        return out
+
+    # ---- the World's words are checked against what happened: any name, number, item, or place not in the outcomes is dropped
+    STORE_RX = re.compile(r"\b(grain|sacks?|meat|fish|wood|firewood|meals?|bread|tools?|herbs?|gold|coins?)\b", re.I)
+
+    def _mentions(self, text: str) -> dict:
+        t = text or ""
+        names = {c["name"] for c in self.characters.values() if re.search(r"(?<![\w@])" + re.escape(c["name"]) + r"(?![\w])", t)}
+        places = {p for p in self.map if re.search(r"(?<![\w])" + re.escape(p) + r"(?![\w])", t, re.I)}
+        # a capitalised word in the middle of a sentence that is nobody and nowhere the game knows is a name the World made up
+        known = set(" ".join(list(self.characters) + list(self.map) + [self.map_name]).lower().split())
+        body = re.sub(r"^\s*[A-Za-z][\w' -]{0,40}:\s*", "", t)          # the "Name:" head is not a sentence
+        for m in re.finditer(r"\b([A-Z][a-z]{2,})\b", body):
+            wd = m.group(1); before = body[:m.start()].rstrip()
+            if not before or before[-1] in ".!?:;" or before.endswith(("(", '"', "'")): continue      # sentence start, not a name
+            if wd.lower() in known or wd in ("The", "Nobody", "Everyone", "Somebody", "Nothing", "Meanwhile", "Then", "God"): continue
+            names.add(wd)
+        numbers = set(re.findall(r"\d+", t))
+        items = {m.lower().rstrip("s") for m in self.STORE_RX.findall(t)}
         for c in self.characters.values():
-            if c["alive"] and c["hp"] <= 0: self.kill(c, c["cause_of_death"] or "wounds")
-        if res.get("sent_away") or res.get("gone"): log.append("the block named people to send away and was ignored: nobody is sent away but by another person's own act")
-        for th in res.get("threads", []) or []:
-            if isinstance(th, dict) and th.get("status") == "resolved":
-                try: self.resolve_thread(int(th.get("id", 0)), str(th.get("note", "")))
-                except (TypeError, ValueError): pass
-        for fp in res.get("fires_out", []) or []:
-            if self.extinguish(str(fp)): log.append(f"fire put out at {fp}")
-        for rr in res.get("relations", []) or []:
-            if not isinstance(rr, dict): continue
-            a, b = str(rr.get("a", "")), str(rr.get("b", "")); why = str(rr.get("why", "") or "")
-            self.set_rel(a, b, rr.get("type"), rr.get("feeling"), rr.get("trust"), delta=True, why=why)
-            if rr.get("mutual"): self.set_rel(b, a, rr.get("type"), rr.get("feeling"), rr.get("trust"), delta=True, why=why)
-        L = res.get("ledger", {}) or {}; g = self.ledger
-        for k in STORES:
-            if k in L:
-                try: g[k] = max(0, g[k] + max(-3, min(3, int(L[k]))))
-                except (TypeError, ValueError): log.append(f"bad number in ledger for {k}")
-        if "road_safe" in L: g["road_safe"] = bool(L["road_safe"])
-        for b in L.get("built", []) or []:
-            if str(b).strip() and str(b).strip() not in g["built"]: g["built"].append(str(b).strip()[:60])
+            for it in c.get("items", []):
+                if it.lower() in t.lower(): items.add(it.lower())
+        return {"names": names, "places": places, "numbers": numbers, "items": items}
+
+    def check_narration(self, text: str, outcomes: list[dict]) -> tuple[str, list[str]]:
+        """Keep only the lines whose every name, number, item and place appears in the outcome list. Returns (kept, dropped notes)."""
+        allowed = self._mentions("\n".join(o.get("text", "") for o in outcomes)); kept = []; dropped = []
+        for ln in (text or "").split("\n"):
+            if not ln.strip(): kept.append(ln); continue
+            m = self._mentions(ln); bad = []
+            for k in ("names", "places", "numbers", "items"):
+                extra = m[k] - allowed[k]
+                if extra: bad.append(f"{k[:-1]} {', '.join(sorted(extra))}")
+            if bad: dropped.append(f"dropped \"{ln.strip()[:70]}\": {'; '.join(bad)} not in any outcome")
+            else: kept.append(ln)
+        return "\n".join(kept).strip(), dropped
 
     def end_day(self) -> None:
         """Evening is over. Whatever was dumped or pulled today is cleared, and tomorrow begins at dawn."""

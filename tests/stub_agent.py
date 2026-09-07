@@ -67,12 +67,10 @@ def answer(text: str) -> str:
                    "secret": "owes the miller", "fear": "the mere at night", "want": "a dry roof"} for i, n in enumerate(names)]
         rels = [{"a": names[0], "b": names[1], "type": "rival", "feeling": -2, "trust": -1, "mutual": True, "why": "the same eel run"}] if len(names) > 1 else []
         return "The fen wakes under a low sky.\n" + fenced({"people": people, "relations": rels})
-    if "actions to resolve" in text:                      # a day's resolution: the first person walks one path
-        adj = {m.group(1): [a.strip() for a in m.group(2).split(",")] for m in re.finditer(r"^- (.+?): .*? Paths lead to: (.+?)\.$", text, re.M)}
-        ppl = re.findall(r"^- (.+?) \(.*?, at (.+?)\): STR", text, re.M)
-        results = []
-        if ppl and adj.get(ppl[0][1]): results.append({"who": ppl[0][0], "location": adj[ppl[0][1]][0], "note": "walked"})
-        return "The day passes in mud and argument.\n" + fenced({"results": results, "events": [], "ledger": {"grain": 0}})
+    if "outcomes, settled by the engine" in text:         # the afternoon: tell each outcome back, plus one invented line the engine must drop
+        lines = re.findall(r"^- (.+)$", text, re.M)
+        told = [f"{ln.split(' ')[0]}: {ln}" if ln and ln[0].isupper() else ln for ln in lines]
+        return "\n".join(told) + "\nSomebody: A stranger named Ozymandias rode in with 40 gold and burned The Nonesuch to the ground."
     if "The year is over" in text:
         return "The chronicle ends here, in the fen."
     if "It is morning" in text: return "ACTION: WORK"

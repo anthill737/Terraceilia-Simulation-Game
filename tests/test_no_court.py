@@ -12,7 +12,8 @@ sys.path.insert(0, str(ROOT / "backend"))
 import engine  # noqa: E402
 
 # the words that meant a body decided something; none of them may appear anywhere the game reads or shows
-OLD_WORDS = re.compile(r"\b(court|courts|vote|votes|voting|tally|tallies|council|councils|banish\w*)\b", re.I)
+# "court" the institution is banned; "court" the verb, to woo someone, is one of the fourteen verbs the engine reads
+OLD_WORDS = re.compile(r"\b(the court|lord's court|court day|courts? (?:sits?|sat|of law)|courthouse|vote|votes|voting|tally|tallies|council|councils|banish\w*)\b", re.I)
 SCAN = [ROOT / "backend", ROOT / "frontend", ROOT / "data", ROOT / "tests", ROOT / "README.md"]
 SUFFIXES = {".py", ".js", ".html", ".css", ".json", ".md"}
 
@@ -51,11 +52,10 @@ class World3(unittest.TestCase):
         self.assertFalse(hasattr(self.w, "court_every"))
         self.assertNotIn("court_every", self.w.to_dict())
 
-    def test_a_result_block_cannot_send_anyone_away(self) -> None:
-        log: list[str] = []
-        self.w.apply({OLD_KEY: ["Bett"], "sent_away": ["Bett"], "gone": ["Bett"], "results": []}, log)
-        self.assertFalse(self.w.characters["Bett"]["gone"], "the World's block must not be able to send anyone away")
-        self.assertIn("Bett", self.w.living()[1]["name"] if len(self.w.living()) > 1 else "", "Bett must still be living")
+    def test_the_world_has_no_block_to_send_anyone_away_with(self) -> None:
+        self.assertFalse(hasattr(self.w, "apply"), "the World proposes nothing; there is no block to apply")
+        import prompts
+        self.assertNotIn("json", prompts.WORLD_RULES.lower()); self.assertIn("You decide nothing", prompts.WORLD_RULES)
 
     def test_villagers_and_world_are_not_told_to_decide_together(self) -> None:
         import prompts

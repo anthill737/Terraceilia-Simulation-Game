@@ -85,12 +85,12 @@ class UnfilledDutiesReachTheWorld(unittest.TestCase):
             g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
             r = game.Run(g)
             w.end_morning({"mill"}, random.Random(1)); w.day = 2; w.assign_day(random.Random(2)); w.end_morning({"mill"}, random.Random(2))
-            prompt = r._world_prompt([], {}, [], [])
-            self.assertIn("UNDONE TODAY, by name", prompt)
-            for k in ("hunt", "fish", "wood"): self.assertIn(DUTIES[k]["label"].capitalize() + " went undone", prompt)
-            self.assertIn("days running", prompt); self.assertRegex(prompt, r"P\d complains that the .+ has gone undone 2 days running")
-            self.assertIn("THE DUTIES, who holds each", prompt)
-            self.assertNotIn("The mill went undone", prompt, "a duty that was done is not reported undone")
+            # the undone duties and the complaint are engine outcomes in the chronicle and the villagers' prompts; the World is told nothing of state
+            self.assertIn("days running", w.undone_text()); self.assertRegex(w.undone_text(), r"P\d complains that the .+ has gone undone 2 days running")
+            for k in ("hunt", "fish", "wood"): self.assertIn(DUTIES[k]["label"].capitalize() + " went undone", w.undone_text())
+            self.assertNotIn("The mill went undone", w.undone_text(), "a duty that was done is not reported undone")
+            prompt = r._world_prompt([{"kind": "undone", "who": "", "text": w.undone_text()}])
+            self.assertIn("went undone", prompt); self.assertNotIn("THE DUTIES, who holds each", prompt)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

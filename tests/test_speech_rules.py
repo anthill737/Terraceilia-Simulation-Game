@@ -30,7 +30,7 @@ class SpeechRuleTests(unittest.TestCase):
     def test_the_world_is_given_a_length(self) -> None:
         t = " ".join(prompts.WORLD_RULES.lower().split())
         self.assertIn("at most two sentences per outcome", t)
-        self.assertIn("one outcome per person who acted, and nothing else", t)
+        self.assertIn("one outcome per line, in the order given", t)
         self.assertIn("no flourish", t)
 
     def test_villagers_react_and_do_not_recount_the_day(self) -> None:
