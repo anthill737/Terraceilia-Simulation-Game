@@ -8,6 +8,7 @@
  <span class="title" id="hdrTitle"></span>
  <span class="pill" id="status"><span class="dot"></span><span id="statusText">Not started</span></span>
  <button id="primary" class="primary">Start</button>
+ <button class="btn sheetbtn" data-sheet="colony">Colony</button>
  <button class="btn sheetbtn" data-sheet="people">People</button>
  <button class="btn sheetbtn" data-sheet="world">World</button>
  <button class="btn sheetbtn" data-sheet="situations">Situations</button>
@@ -83,6 +84,12 @@
 <div class="sheetwrap" id="sheet-situations"><div class="panel"><h1>Situations <button class="icon sheetclose" aria-label="Close">&#10005;</button></h1>
  <div class="note" style="margin-bottom:10px">Everything the valley has not finished with. The World keeps each one alive until it is resolved, here or in its own narration.</div>
  <div id="sitList"></div></div></div>
+
+<div class="sheetwrap" id="sheet-colony"><div class="panel wide char"><h1>Colony <button class="icon sheetclose" aria-label="Close">&#10005;</button></h1>
+ <div id="colHead"></div>
+ <div class="hgrid" style="margin-top:12px"><div class="card2"><div class="ch">Today's duties</div><div id="colDuties"></div></div>
+  <div class="card2"><div class="ch">The ledger</div><div id="colLedger"></div><div class="ch" style="margin-top:16px">The places</div><div id="colPlaces"></div></div></div>
+ <div id="colMorning"></div></div></div>
 
 <div class="sheetwrap" id="sheet-fate"><div class="panel"><h1>Fate <button class="icon sheetclose" aria-label="Close">&#10005;</button></h1>
  <div class="note" style="margin-bottom:10px">Your hand in the valley. Every act here is recorded and the World must narrate it on the next day.</div>

@@ -189,8 +189,12 @@ You are not a player, but you are not powerless.
 - **Resolve a situation.** Situations lists everything the valley has not finished with, what is
   burning, and who or what is standing in each place, with a Resolve button for each one.
 
-Gameplay sits in plain buttons across the header: the primary control, then People, World, Situations
-and Fate. Everything else is behind the gear: Connections, the three exports, Display, Stop this year,
+Gameplay sits in plain buttons across the header: the primary control, then Colony, People, World,
+Situations and Fate. Colony shows today's duties with who holds each and the unfilled ones in red, the
+ledger with today's change per line, every place's roof, warmth and filth, the season and the weather,
+and this morning's work. People carries a Duties tab and the want line under every name, and each card
+in the strip says what that person is doing now. The chronicle is grouped by morning, afternoon and
+evening. Everything else is behind the gear: Connections, the three exports, Display, Stop this year,
 and Quit. On a phone the tabs are Map, Chronicle, Valley, People, and More.
 
 ## Telegram
