@@ -82,6 +82,34 @@ class TouchedTests(unittest.TestCase):
         away = {"kind": "speech", "speaker": "Cuthbert", "place": "The inn", "text": "Another cup.\nACTION: I drink."}
         self.assertTrue(touched_text(here, "Aldous", "The mill", ties)); self.assertIsNone(touched_text(away, "Aldous", "The mill", ties))
 
+    def test_an_at_name_line_is_carried_privately_anywhere(self) -> None:
+        w = self.w; ties = w.ties_of("Aldous")
+        e = {"kind": "speech", "speaker": "Bett", "place": "The mill", "text": "Cold, isn't it.\n@Cuthbert the roof is yours.\nACTION: I wait."}
+        self.assertEqual(touched_text(e, "Cuthbert", "The inn", ties), "@Cuthbert the roof is yours.", "the @ line reaches him at the inn and nothing else does")
+        self.assertEqual(touched_text(e, "Aldous", "The mill", ties), "Cold, isn't it.\nACTION: I wait.", "the people at the mill hear the rest, not the private line")
+        self.assertIsNone(touched_text(e, "Dimity", "The castle", ties))
+        self.assertEqual(w.heard_by("Bett", e["text"]), ["Aldous", "Cuthbert"]); self.assertEqual(w.heard_by("Dimity", "Anyone?"), [])
+        self.assertEqual(w.not_here("Bett", "Dimity, come down from there."), ["Dimity"]); self.assertEqual(w.not_here("Bett", "@Dimity come down."), [])
+        self.assertEqual(w.not_here("Bett", "Dimity owes me two coins."), [], "talking about someone is not addressing them")
+        self.assertEqual(w.not_here("Bett", "Aldous, pass the sack."), [], "Aldous is here")
+
+    def test_the_prompt_states_the_audience_and_the_chronicle_says_who_heard(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="terra-aud-")); engine.GAMES = tmp; game.GAMES = tmp
+        try:
+            g = game.Game(engine.now_id()); g.world = self.w; w = g.world; w.created = True; w.day = 2
+            g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
+            r = game.Run(g)
+            p = r._player_prompt(1, "speak")
+            self.assertIn("You are at The mill with Bett. Only they hear what you say. To reach someone elsewhere, write @Name and it is carried to them privately, or travel.", p)
+            self.assertIn("You are at The castle alone. Nobody hears what you say here. To reach someone elsewhere, write @Name and it is carried to them privately, or travel.", r._player_prompt(4, "speak"))
+            r._record("Bett", "Dimity, come down.\nACTION: I wait.", "speech"); e = g.transcript[-1]
+            self.assertEqual(e["heard"], ["Aldous"]); self.assertTrue(e["text"].endswith("Dimity is not here."), e["text"])
+            r._record("Dimity", "Nobody up here but the wind.", "speech"); self.assertEqual(g.transcript[-1]["heard"], [])
+            r._record("Dimity", "@Cuthbert bring ale up.", "speech"); self.assertEqual(g.transcript[-1]["heard"], ["Cuthbert"])
+            self.assertIsNone(g.transcript[-1].get("note")); self.assertIsNone(r._record("World", "The day ends.", "world")); self.assertIsNone(g.transcript[-1]["heard"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_the_villager_prompt_carries_no_day_summary(self) -> None:
         tmp = Path(tempfile.mkdtemp(prefix="terra-speech-")); engine.GAMES = tmp; game.GAMES = tmp
         try:

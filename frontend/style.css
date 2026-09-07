@@ -69,7 +69,7 @@ input[type=range]{height:auto;padding:0;accent-color:var(--accent)}
 .msg .hd{display:flex;gap:var(--u);align-items:baseline;margin-bottom:calc(var(--u) / 2);font-size:var(--fs-b)}
 .msg .who{font-weight:400;color:var(--ink);display:inline-flex;align-items:center;gap:var(--u)}
 .msg .who:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c,var(--faint));flex:0 0 8px}
-.msg .meta{color:var(--faint);font-size:var(--fs-s)}
+.msg .meta{color:var(--faint);font-size:var(--fs-s)}.msg .heard{color:var(--muted);font-size:var(--fs-s);margin-top:calc(var(--u) / 2)}
 .msg .body{white-space:pre-wrap;font-size:var(--fs-h);line-height:1.65}.msg .body p{margin:0 0 .75em}.msg .body p:last-child{margin:0}
 .msg.system{background:transparent;border:0;padding:calc(var(--u) / 4) calc(var(--u) * 2);margin:0 0 var(--u)}.msg.system .hd{margin-bottom:calc(var(--u) / 4)}.msg.system .who{color:var(--muted)}.msg.system .who:before{display:none}
 .msg.system .body{color:var(--muted);font-size:var(--fs-b);line-height:1.5}
@@ -227,7 +227,7 @@ table.st{border-collapse:collapse;font-size:var(--fs-b);margin-top:var(--u)}tabl
 /* one row shape for duties, the ledger and the places: four columns, one line, one fixed height */
 .crow{display:grid;grid-template-columns:1.2fr 1fr 1.2fr auto;gap:var(--u);align-items:center;height:calc(var(--u) * 4);box-sizing:border-box;border-top:1px solid var(--line);font-size:var(--fs-b)}
 .crow:first-child{border-top:0}.crow>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.crow .cdn{color:var(--ink)}.crow .cdp{color:var(--muted)}.crow .cds{color:var(--rust);text-align:right}
+.crow .cdn{color:var(--ink)}.crow .cdp{color:var(--muted)}.crow .cds{color:var(--rust);text-align:right}.crow .cds.quiet{color:var(--muted)}
 .colduty .cdw{color:var(--moss)}.colduty .cdw.poor,.colduty.un .cdw,.colduty .cdw .poor{color:var(--rust);font-weight:400}
 .chg{font-size:var(--fs-s);color:var(--faint)}.chg.up{color:var(--moss)}.chg.down{color:var(--rust)}
 .colmorn{font-size:var(--fs-b);line-height:1.55;color:var(--ink)}.colmorn p{margin:0 0 .5em}
