@@ -170,7 +170,7 @@ table.st{border-collapse:collapse;font-size:var(--fs-b);margin-top:var(--u)}tabl
 #peoHead .nm{font:var(--fs-h) Georgia,"Times New Roman",serif;color:var(--ink)}
 #peoHead .ttl{font-style:italic;color:var(--accent)}
 .wantline{display:flex;flex-wrap:wrap;gap:calc(var(--u) / 2) var(--u);align-items:center;margin-top:calc(var(--u) / 2);font-size:var(--fs-s);color:var(--muted)}.wantline b{color:var(--ink)}
-.wbar{flex:1 1 80px;height:6px;background:var(--sunk);border-radius:3px;overflow:hidden;min-width:60px}.wbar i{display:block;height:100%;background:var(--accent)}
+
 .ptabs{display:flex;border-bottom:1px solid var(--line);margin-bottom:calc(var(--u) * 2);flex-wrap:wrap}.ptabs button{height:36px;padding:0 calc(var(--u) * 2);font-size:var(--fs-b);letter-spacing:.3px}
 #peoPane{min-height:240px;font-size:var(--fs-b);line-height:1.6;max-width:900px;margin:0 auto}
 .card2{background:var(--sunk);border:1px solid var(--line);border-radius:5px;padding:calc(var(--u) * 1.5) calc(var(--u) * 2);margin-bottom:var(--u)}.card2 p{margin:0 0 var(--u)}.card2 p:last-child{margin-bottom:0}
@@ -224,11 +224,12 @@ table.st{border-collapse:collapse;font-size:var(--fs-b);margin-top:var(--u)}tabl
 .logrow .lm{color:var(--faint);font-size:var(--fs-s);margin-bottom:calc(var(--u) / 2)}.logrow p{margin:0 0 .5em}.logrow p:last-child{margin:0}
 .logrow.system .lm,.logrow.system{color:var(--muted)}
 .colday{display:flex;gap:calc(var(--u) * 1.5);align-items:baseline;flex-wrap:wrap;font-size:var(--fs-b)}.colday b{font:400 var(--fs-h) Georgia,serif;color:var(--ink)}.colseason{color:var(--accent)}.colweather{color:var(--muted)}
-.colduty{display:grid;grid-template-columns:1.1fr 1.3fr auto;gap:var(--u);align-items:baseline;padding:calc(var(--u) / 2) 0;border-top:1px solid var(--line);font-size:var(--fs-b)}
-.colduty:first-child{border-top:0}.colduty .cdn b{color:var(--ink)}.colduty .cdn i{display:block;font-style:normal;font-size:var(--fs-s);color:var(--faint)}
-.colduty .cdw{color:var(--moss)}.colduty .cdw.poor,.colduty.un .cdw,.colduty .cdw .poor{color:var(--rust);font-weight:400}.colduty .cds{font-size:var(--fs-s);color:var(--faint);white-space:nowrap}
-.chg{font-style:normal;font-size:var(--fs-s);margin-left:calc(var(--u) / 2);min-width:24px;display:inline-block;text-align:right;color:var(--faint)}.chg.up{color:var(--moss)}.chg.down{color:var(--rust)}
-.colplace{display:flex;gap:var(--u);flex-wrap:wrap;font-size:var(--fs-s);padding:calc(var(--u) / 2) 0;border-top:1px solid var(--line);color:var(--muted)}.colplace b{color:var(--ink);flex:1 1 120px}
+/* one row shape for duties, the ledger and the places: four columns, one line, one fixed height */
+.crow{display:grid;grid-template-columns:1.2fr 1fr 1.2fr auto;gap:var(--u);align-items:center;height:calc(var(--u) * 4);box-sizing:border-box;border-top:1px solid var(--line);font-size:var(--fs-b)}
+.crow:first-child{border-top:0}.crow>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.crow .cdn{color:var(--ink)}.crow .cdp{color:var(--muted)}.crow .cds{color:var(--rust);text-align:right}
+.colduty .cdw{color:var(--moss)}.colduty .cdw.poor,.colduty.un .cdw,.colduty .cdw .poor{color:var(--rust);font-weight:400}
+.chg{font-size:var(--fs-s);color:var(--faint)}.chg.up{color:var(--moss)}.chg.down{color:var(--rust)}
 .colmorn{font-size:var(--fs-b);line-height:1.55;color:var(--ink)}.colmorn p{margin:0 0 .5em}
 
 /* ---------- phone ---------- */

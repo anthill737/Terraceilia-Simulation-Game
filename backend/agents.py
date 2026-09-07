@@ -19,16 +19,16 @@ PROVIDERS = {
     },
     "Codex (latest)": {
         "exe": "npx", "speech": "stdout", "pkg": "@openai/codex", "isolated": True,
-        "cmd": 'npx -y @openai/codex@latest exec --skip-git-repo-check --model {model} --dangerously-bypass-approvals-and-sandbox "{ask}"',
-        "ro_cmd": 'npx -y @openai/codex@latest exec --skip-git-repo-check --model {model} --sandbox read-only "{ask}"',
+        "cmd": 'npx -y @openai/codex@latest exec -c model_reasoning_effort=\"low\" --skip-git-repo-check --model {model} --dangerously-bypass-approvals-and-sandbox "{ask}"',
+        "ro_cmd": 'npx -y @openai/codex@latest exec -c model_reasoning_effort=\"low\" --skip-git-repo-check --model {model} --sandbox read-only "{ask}"',
         "resume": "",
         "models": ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.3-codex-spark"],
     },
     "Codex": {
         "exe": "codex", "speech": "stdout", "pkg": "@openai/codex",
-        "cmd": 'codex exec --skip-git-repo-check --model {model} --dangerously-bypass-approvals-and-sandbox "{ask}"',
+        "cmd": 'codex exec -c model_reasoning_effort=\"low\" --skip-git-repo-check --model {model} --dangerously-bypass-approvals-and-sandbox "{ask}"',
         "resume": "",
-        "ro_cmd": 'codex exec --skip-git-repo-check --model {model} --sandbox read-only "{ask}"',
+        "ro_cmd": 'codex exec -c model_reasoning_effort=\"low\" --skip-git-repo-check --model {model} --sandbox read-only "{ask}"',
         "models": ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.3-codex-spark"],
     },
     "OpenCode": {

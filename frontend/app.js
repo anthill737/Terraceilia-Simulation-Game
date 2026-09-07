@@ -119,12 +119,13 @@ function renderColony(s){const R=s.day_report||{};const L=s.ledger||{};const ch=
   <p class="small">${sick.length?`Sick and cannot work: ${sick.map(esc).join(', ')}. `:''}${bodies.length?`Unburied: ${bodies.map(([n,p])=>esc(n)+' at '+esc(p)).join(', ')}. `:''}${Object.keys(s.fires||{}).length?`Burning: ${Object.keys(s.fires).map(esc).join(', ')}. `:''}${(R.hungry||[]).length?`Hungry: ${R.hungry.map(esc).join(', ')}. `:''}${(R.freezing||[]).length?`Freezing: ${R.freezing.map(esc).join(', ')}. `:''}</p>`;
  const duties=Object.entries(defs).map(([k,d])=>{const r=roster[k]||{};const x=st[k]||{};const hs=(s.characters||[]).filter(c=>c.alive&&!c.gone&&(c.duties||[]).includes(k)).map(c=>c.name);
   const un=!hs.length;const done=x.done_day===s.day;const sickSet=new Set(sick);const who=(hs.length?hs.map(h=>esc(h)+(sickSet.has(h)?' (sick)':'')).join(', '):'')+(r.dumped_on&&!hs.includes(r.dumped_on)?`${hs.length?', ':''}<span class="poor">dumped on ${esc(r.dumped_on)}</span>`:'')||'nobody';
-  return `<div class="colduty ${un?'un':''} ${done?'done':''}"><span class="cdn"><span>${esc(d.label)}</span><i>${esc(r.place||'')}</i></span><span class="cdw ${un?'poor':''}">${who}</span><span class="cds">${done?'done':x.undone_days?`undone ${x.undone_days} day${x.undone_days>1?'s':''}`:''}</span></div>`}).join('');
- const ledger=STORES.map(k=>`<div class="srow"><span class="lbl">${k}</span><span class="val ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'poor':''}">${L[k]??0}${ch[k]?`<i class="chg ${ch[k]>0?'up':'down'}">${ch[k]>0?'+':''}${ch[k]}</i>`:'<i class="chg"></i>'}</span></div>`).join('')
-  +`<div class="srow"><span class="lbl">road after dark</span><span class="val ${L.road_safe?'good':'poor'}">${L.road_safe?'safe':'unsafe'}</span></div><div class="srow"><span class="lbl">built</span><span class="val">${esc((L.built||[]).join(', ')||'nothing')}</span></div>`;
- const pc=(R.places||{});const places=Object.entries(s.upkeep||{}).map(([p,u])=>{const d=pc[p]||{};const cell=(k,v,bad)=>`<span class="${bad?'poor':''}">${k} ${v}${d[k]?`<i class="chg ${d[k]>0?'up':'down'}">${d[k]>0?'+':''}${d[k]}</i>`:''}</span>`;
+  return `<div class="crow colduty ${un?'un':''} ${done?'done':''}"><span class="cdn">${esc(d.label)}</span><span class="cdp">${esc(r.place||'')}</span><span class="cdw ${un?'poor':''}">${who}</span><span class="cds">${done?'':x.undone_days?`undone ${x.undone_days} day${x.undone_days>1?'s':''}`:''}</span></div>`}).join('');
+ const chg=v=>v?`<span class="chg ${v>0?'up':'down'}">${v>0?'+':''}${v}</span>`:'<span></span>';
+ const ledger=STORES.map(k=>`<div class="crow"><span class="cdn">${k}</span><span class="cdp"></span><span class="cdw ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'poor':''}">${L[k]??0}</span>${chg(ch[k])}</div>`).join('')
+  +`<div class="crow"><span class="cdn">road after dark</span><span class="cdp"></span><span class="cdw ${L.road_safe?'good':'poor'}">${L.road_safe?'safe':'unsafe'}</span><span></span></div><div class="crow"><span class="cdn">built</span><span class="cdp"></span><span class="cdw">${esc((L.built||[]).join(', ')||'nothing')}</span><span></span></div>`;
+ const pc=(R.places||{});const places=Object.entries(s.upkeep||{}).map(([p,u])=>{const d=pc[p]||{};const cell=(k,v,bad)=>`<span class="cdw ${bad?'poor':''}">${k} ${v}${d[k]?` <span class="chg ${d[k]>0?'up':'down'}">${d[k]>0?'+':''}${d[k]}</span>`:''}</span>`;
   const roofed=!['forest','fields','water','road','cave','ruin'].includes(((s.map||{})[p]||{}).kind);
-  return `<div class="colplace"><span>${esc(p)}</span>${roofed?cell('roof',u.roof,u.roof<4):'<span class="note">no roof</span>'}${cell('warmth',u.warmth,u.warmth<=2)}${cell('filth',u.filth,u.filth>=6)}</div>`}).join('');
+  return `<div class="crow colplace"><span class="cdn">${esc(p)}</span>${roofed?cell('roof',u.roof,u.roof<4):'<span class="cdp">no roof</span>'}${cell('warmth',u.warmth,u.warmth<=2)}${cell('filth',u.filth,u.filth>=6)}</div>`}).join('');
  const m=(s.transcript||[]).slice().reverse().find(e=>e.kind==='morning'&&e.day===s.day);
  const morning=m?`<div class="card2"><div class="ch">This morning</div><div class="colmorn">${rich(m.text)}</div></div>`:'';
  const html=head+'|'+duties+'|'+ledger+'|'+places+'|'+morning;if(html===colHtml)return;colHtml=html;
@@ -205,7 +206,7 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
 function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)return;
  const tt=((s.titles||{})[c.name]||[]);const title=tt[0]||'';const trade=(c.trade||'').trim();
  const showTrade=trade&&!(title&&title.replace(/^the /,'').toLowerCase()===trade.replace(/^the /,'').toLowerCase());
- $('peoHead').innerHTML=`<span class="nm">${esc(c.name)}</span>${title?`, <i class="ttl">${esc(title)}</i>`:''}${showTrade?`, ${esc(/^the /i.test(trade)?trade:'the '+trade)}`:''} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead, '+esc(c.cause_of_death||'unknown')}`;
+ $('peoHead').innerHTML=`<span class="nm">${esc(c.name)}</span>${title?`, <i class="ttl">${esc(title)}</i>`:''}${showTrade?`, ${esc(/^the /i.test(trade)?trade:'the '+trade)}`:''} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead, '+esc(c.cause_of_death||'unknown')}${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return g.text?` \u00b7 wants ${esc(g.text)}, ${wp[0]}%`:''})()}`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
  const html=(peoTab==='bio'?paneBio(s,c):peoTab==='body'?paneBody(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):peoTab==='duties'?paneDuties(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<p class="small">${esc(peoNote)}</p>`);
@@ -217,7 +218,6 @@ async function peoApply(patch){peoNote='';const r=await api('/edit/character',{n
 
 // ---- Bio. One form, two columns, label above value, every control the same height. Save sits bottom right.
 function paneBio(s,c){const places=s.places||[];const f=(id,label,inner)=>`<div class="fld"><label for="${id}">${label}</label>${inner}</div>`;
- const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];
  return `<div class="form2">
   ${f('b_name','Name',`<input id="b_name" value="${esc(c.name)}">`)}
   ${f('b_trade','Trade',`<input id="b_trade" value="${esc(c.trade)}">`)}
@@ -232,8 +232,7 @@ function paneBio(s,c){const places=s.places||[];const f=(id,label,inner)=>`<div 
   ${f('b_fear','Fear',`<textarea id="b_fear" rows="3">${esc(c.fear)}</textarea>`)}
   ${f('b_want','What they want more than anything',`<textarea id="b_want" rows="3">${esc(c.want)}</textarea>`)}
  </div>
- <div class="row wrap"><span class="small" title="The engine measures this want and tells them how close they are">In plain terms: <span>${esc(g.text||'nothing measured')}</span> · ${wp[0]}%</span><span class="wbar" title="${esc(wp[1])}"><i style="width:${wp[0]}%"></i></span><button type="button" class="btn" id="b_reroll" title="Roll a new measured want for them">New want</button>${(c.items||[]).length?`<span class="small" title="Things they made or found">Keeps: ${c.items.map(esc).join(', ')}</span>`:''}</div>
- <div class="row end"><span class="small">A changed life or model starts them fresh on their next turn.</span><button class="primary" id="b_save">Save</button></div>`}
+ <div class="row end">${(c.items||[]).length?`<span class="small" title="Things they made or found">Keeps: ${c.items.map(esc).join(', ')}</span>`:''}<button type="button" class="btn" id="b_reroll" title="Roll a new measured want for them">New want</button><span class="small">A changed life or model starts them fresh on their next turn.</span><button class="primary" id="b_save">Save</button></div>`}
 
 // ---- Body. Condition and wounds, the four needs as equal bars, then the numbers as one aligned list. What a word means is in its tooltip.
 const CONDITION=p=>p>=100?['Unhurt','good']:p>=75?['Scratched','good']:p>=50?['Hurt','fair']:p>=25?['Badly hurt','poor']:p>0?['Dying','poor']:['Dead','poor'];
@@ -397,16 +396,14 @@ async function saveWorld(){const started=!!(S&&(S.created||(S.seats&&S.seats.len
  if(!started){d.world_text=$('g_world').value;d.map_source=$('g_map_source').value;d.map_model=gMapModelVal()}
  const r=await api('/edit/game',d);$('g_state').textContent='Saved '+new Date().toLocaleTimeString();render(r);mapInfo(S)}
 function renderRegion(s){const box=$('g_region');if(!box)return;const R=s.day_report||{};const th=(s.threads||[]).slice();
- const KIND={town:'a town',castle:'a castle',village:'a village',inn:'an inn',chapel:'a chapel',mill:'a mill',forest:'a forest',fields:'fields',water:'water',ruin:'a ruin',market:'a market',farm:'a farm',tower:'a tower',cave:'a cave',road:'a road'};
- const places=Object.entries(s.map||{}).map(([n,d])=>`${esc(n)}, ${KIND[d.kind]||'a place'}`).join('; ');
  const open=th.filter(t=>t.status==='open').sort((a,b)=>a.day-b.day),done=th.filter(t=>t.status!=='open').sort((a,b)=>(b.resolved_day??0)-(a.resolved_day??0));
  const sit=t=>{const age=(s.day??0)-t.day;const left=t.expires!=null?t.expires-(s.day??0):null;
   return `<div class="sit ${t.status}"><span class="sitn">#${t.id}</span><span class="sitt">${esc(t.text)}${t.place?` <span class="small">at ${esc(t.place)}</span>`:''}</span>
    <span class="small">${t.status==='open'?`open ${age} day${age===1?'':'s'}${left!=null?`, ${left<=0?'ends today':`${left} day${left===1?'':'s'} left`}`:''}`:`ended day ${t.resolved_day??'?'}: ${esc(t.note||'resolved')}`}</span>
    ${t.status==='open'?`<span class="row"><input class="rnote" placeholder="how it ended"><button class="btn rdone" data-id="${t.id}">Resolve</button></span>`:''}</div>`};
- const html=`<div class="card2"><div class="ch">${esc(s.title||'The valley')}</div><p>${esc(s.world_text||'')}</p><p class="small">${places}.</p></div>
+ const html=`<div class="card2"><div class="ch">${esc(s.title||'The valley')}</div><p>${esc(s.world_text||'')}</p></div>
   <div class="card2"><div class="ch">The season calendar</div>${(s.calendar_rows||[]).map(r=>`<p>${esc(r)}</p>`).join('')}</div>
-  <div class="card2"><div class="ch">Weather</div><p>${esc(s.sentence||'')}</p><p class="small">Tomorrow: ${(s.tomorrow||[]).map(([n,p])=>`${esc(n)} ${p}%`).join(', ')}.</p></div>
+  <div class="card2"><div class="ch">Weather</div><p>${esc(s.sentence||'')}</p></div>
   <div class="card2"><div class="ch">Situations</div>${open.length?open.map(sit).join(''):'<p class="small">Nothing is open.</p>'}${done.length?`<div class="ch">Ended</div>`+done.slice(0,40).map(sit).join(''):''}</div>`;
  if(html===regionHtml||typing(box))return;regionHtml=html;box.innerHTML=html;
  box.querySelectorAll('.rdone').forEach(b=>b.onclick=async()=>{b.disabled=true;const note=b.closest('.sit').querySelector('.rnote').value;render(await api('/god/resolve',{id:+b.dataset.id,note}))})}
