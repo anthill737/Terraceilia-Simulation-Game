@@ -34,7 +34,7 @@ function renderSetup(s){$('title').value=s.title;$('world_text').value=s.world_t
 // ---------- the valley panel
 const FEEL=['hates','despises','dislikes','is cold toward','is cool toward','is indifferent to','is warm toward','likes','is fond of','cares deeply for','loves'];
 function relChips(s,name){const rs=(s.relations||{})[name]||{};const items=Object.entries(rs).filter(([b,r])=>r.type!=='none'||r.feeling||r.trust).sort((x,y)=>(Math.abs(y[1].feeling)+Math.abs(y[1].trust))-(Math.abs(x[1].feeling)+Math.abs(x[1].trust)));
- if(!items.length)return '';const chip=([b,r])=>{const hue=r.feeling>0?'var(--accent)':r.feeling<0?'var(--danger)':'var(--faint)';return `<span class="rel" data-a="${esc(name)}" data-b="${esc(b)}" title="${esc(name)} ${FEEL[r.feeling+5]} ${esc(b)}. Click for why." style="--h:${hue}"><b>${esc(b)}</b> ${r.type!=='none'?esc(r.type)+' \u00b7 ':''}<i>${r.feeling>=0?'+':''}${r.feeling}</i><i class="t">${r.trust>=0?'+':''}${r.trust}</i></span>`};return '<div class="rels">'+items.slice(0,6).map(chip).join('')+(items.length>6?`<details class="more" data-k="r:${esc(name)}"><summary>${items.length-6} more</summary>${items.slice(6).map(chip).join('')}</details>`:'')+'</div>'}
+ if(!items.length)return '';const chip=([b,r])=>{const hue=r.feeling>0?'var(--moss)':r.feeling<0?'var(--rust)':'var(--faint)';return `<span class="rel" data-a="${esc(name)}" data-b="${esc(b)}" title="${esc(name)} ${FEEL[r.feeling+5]} ${esc(b)}. Click for why." style="--h:${hue}"><b>${esc(b)}</b> ${r.type!=='none'?esc(r.type)+' \u00b7 ':''}<i>${r.feeling>=0?'+':''}${r.feeling}</i><i class="t">${r.trust>=0?'+':''}${r.trust}</i></span>`};return '<div class="rels">'+items.slice(0,6).map(chip).join('')+(items.length>6?`<details class="more" data-k="r:${esc(name)}"><summary>${items.length-6} more</summary>${items.slice(6).map(chip).join('')}</details>`:'')+'</div>'}
 function renderValley(s){if(!s.created){$('valley').innerHTML='<div class="empty">The valley appears here once the World has rolled it.</div>';return}
  const wasOpen=new Set([...$('valley').querySelectorAll('details[open]')].map(d=>d.dataset.k));const scroll=$('valley').scrollTop;
  const L=s.ledger||{};const R=s.day_report||{};const ch=R.change||{};
@@ -43,14 +43,14 @@ function renderValley(s){if(!s.created){$('valley').innerHTML='<div class="empty
  let h=`<div class="ledger"><b>Day ${s.day}</b> &middot; ${esc(R.season||'')} &middot; ${esc(s.weather||'')}<div class="stores">${STORES.map(store).join('')}</div>road ${L.road_safe?'safe':'unsafe'} after dark &middot; ${sick} sick &middot; ${Object.keys(s.bodies||{}).length} unburied<br>Built: ${esc((L.built||[]).join(', ')||'nothing yet')}${s.pending.length?`<br><span class="note">${s.pending.length} action(s) waiting for the World</span>`:''}</div>`;
  const byPlace={};s.characters.forEach(c=>{(byPlace[c.alive&&!c.gone?c.location:'Gone']=byPlace[c.alive&&!c.gone?c.location:'Gone']||[]).push(c)});
  const th=(s.threads||[]).filter(t=>t.status==='open');if(th.length)h+=`<div class="ledger"><b>Open situations</b> (${th.length})${th.map(t=>`<div class="thr">#${t.id} \u00b7 day ${t.day}${t.place?' \u00b7 '+esc(t.place):''}: ${esc(t.text)}</div>`).join('')}</div>`;
- h+=Object.entries(byPlace).map(([pl,cs])=>`<div class="place">${esc(pl)}</div>`+cs.map(c=>`<div class="card ${c.alive?'':'dead'}" style="--c:${esc(seatColor(c.name)||'#888')}"><span class="nm">${esc(c.name)}</span> <span class="st">${esc(c.trade)} &middot; ${esc(c.location)} &middot; ${esc(c.standing)}${c.gone?' &middot; gone':''}${c.alive?'':' &middot; dead: '+esc(c.cause_of_death)}</span>
+ h+=Object.entries(byPlace).map(([pl,cs])=>`<div class="place">${esc(pl)}</div>`+cs.map(c=>`<div class="card ${c.alive?'':'dead'}" style="--c:${esc(seatColor(c.name)||'var(--faint)')}"><span class="nm">${esc(c.name)}</span> <span class="st">${esc(c.trade)} &middot; ${esc(c.location)} &middot; ${esc(c.standing)}${c.gone?' &middot; gone':''}${c.alive?'':' &middot; dead: '+esc(c.cause_of_death)}</span>
   <div class="bar"><i style="width:${Math.round(100*c.hp/c.hp_max)}%"></i></div>HP ${c.hp}/${c.hp_max} &middot; STR ${c.str} SPD ${c.spd} &middot; gold ${c.gold} &middot; ${Object.keys(c.skills).length?Object.entries(c.skills).map(([k,v])=>k+' '+v).join(', '):'no skills'}
   ${relChips(s,c.name)}
   <details data-k="p:${esc(c.name)}"><summary>${esc(c.personality)}</summary>${c.traits?'Disposition: '+Object.entries(c.traits).map(([k,v])=>k+' '+v).join(', ')+'<br>':''}Secret: ${esc(c.secret)}<br>Fear: ${esc(c.fear)}<br>Want: ${esc(c.want)}</details></div>`).join('')).join('');
  const html=h;if($('valley').dataset.html!==html){$('valley').innerHTML=html;$('valley').dataset.html=html;$('valley').querySelectorAll('details').forEach(d=>{if(wasOpen.has(d.dataset.k))d.open=true});$('valley').scrollTop=scroll;$('valley').querySelectorAll('.rel').forEach(ch=>ch.onclick=e=>{e.stopPropagation();showWhy(ch.dataset.a,ch.dataset.b)})}}
 function renderTerms(s){if(!s.terms.length){$('terms').innerHTML='<div class="empty">Terminals appear after Start.</div>';termKey='';return}if(!wantTerms())return;
  const key=s.id+':'+s.terms.length;if(termKey!==key){termKey=key;$('terms').innerHTML=s.terms.map((t,i)=>`<div class="term" id="t${i}"><div class="tb"><span class="nm"></span><span class="st"></span></div><pre></pre></div>`).join('')}
- s.terms.forEach((t,i)=>{const el=$('t'+i);if(!el)return;const seat=s.seats[i]||{};el.style.setProperty('--c',seat.color||'#888');el.classList.toggle('speaking',t.state==='speaking');
+ s.terms.forEach((t,i)=>{const el=$('t'+i);if(!el)return;const seat=s.seats[i]||{};el.style.setProperty('--c',seat.color||'var(--faint)');el.classList.toggle('speaking',t.state==='speaking');
   el.querySelector('.nm').innerHTML=`<b>${esc(seat.name)}</b> <span style="color:var(--faint)">${esc((seat.provider||'')+' \u00b7 '+(seat.model||''))}</span>`;el.querySelector('.st').textContent=t.state==='speaking'?'thinking':'';
   const pre=el.querySelector('pre');const atB=pre.scrollHeight-pre.scrollTop-pre.clientHeight<40;if(pre.dataset.count!=t.count&&t.lines.length){pre.textContent=t.lines.join('\n');pre.dataset.count=t.count;if(atB)pre.scrollTop=pre.scrollHeight}else if(!pre.textContent)pre.textContent='No live output yet.'})}
 function renderRail(s){const live=new Set(s.live||[]);$('railCount').textContent=s.games.length;
@@ -142,7 +142,7 @@ document.querySelectorAll('#gearMenu .list button').forEach(b=>b.onclick=async()
  else if(g==='display')sheet('display');
  else if(g&&g.startsWith('x-'))window.location='/export?what='+g.slice(2);
  else if(g==='stop'){if(!confirm('Stop this year here? You can continue it later.'))return;$('statusText').textContent='Stopping...';render(await api('/stop',{}))}
- else if(g==='quit'){if(!confirm('Quit Terraceilia? Every CLI it started is killed. Games are kept.'))return;try{await api('/shutdown',{})}catch(e){}document.body.innerHTML='<div style="padding:40px;color:#8B8B94">Terraceilia is closed.</div>'}});
+ else if(g==='quit'){if(!confirm('Quit Terraceilia? Every CLI it started is killed. Games are kept.'))return;try{await api('/shutdown',{})}catch(e){}document.body.innerHTML='<div style="padding:40px;color:var(--muted)">Terraceilia is closed.</div>'}});
 
 // ---------- People
 function modelPick(pfx,val,selP,selM,inpC){fillSel(selP,Object.keys(providers),val.provider);const ms=(providers[val.provider]||{models:[]}).models.concat(['Custom...']);const known=ms.includes(val.model);fillSel(selM,ms,known?val.model:'Custom...');inpC.style.display=known?'none':'';if(!known)inpC.value=val.model;
@@ -189,7 +189,7 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
   .sort((a,b)=>(a.alive?0:1)-(b.alive?0:1));      // the dead go to the end, still there, still dimmed
  const html=rows.map(c=>{const pct=Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))));
   const band=(!c.alive||pct<30)?'low':pct<60?'mid':'';
-  return `<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
+  return `<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'var(--faint)')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
    <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${(((s.titles||{})[c.name])||[]).length?esc(((s.titles||{})[c.name]).join(', '))+' · ':''}${esc(c.location)}${c.sick?' · sick':''}</span>
    <span class="chp ${band}"><i style="width:${c.alive?pct:0}%"></i></span>
    <span class="chhp">${c.alive?`hp ${c.hp}/${c.hp_max}`:'dead'}</span>${c.alive&&c.activity?`<span class="chact">${esc(c.activity)}</span>`:''}</button>`}).join('')
@@ -205,7 +205,7 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
 function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)return;
  const seat=(s.seats||[]).find(x=>x.name===c.name)||{};
  const tt=((s.titles||{})[c.name]||[]);
- $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b>${tt.length?`<span class="ttl">${esc(tt.join(', '))}</span>`:''}<span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return g.text?`<span class="wants">wants <b>${esc(g.text)}</b> · ${wp[0]}%</span>`:''})()}`;
+ $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'var(--faint)')}">${esc(c.name)}</b>${tt.length?`<span class="ttl">${esc(tt.join(', '))}</span>`:''}<span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return g.text?`<span class="wants">wants <b>${esc(g.text)}</b> · ${wp[0]}%</span>`:''})()}`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
  const html=(peoTab==='bio'?paneBio(s,c):peoTab==='health'?paneHealth(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):peoTab==='duties'?paneDuties(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<div class="note" style="margin-top:10px">${esc(peoNote)}</div>`);
@@ -300,7 +300,7 @@ function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
  return `<div class="tieHead"><span class="note">How ${esc(c.name)} feels about everyone else. Both run from -5 to 5. Click a step to set it.</span>
    <label class="note" style="margin-left:auto">Sort <select id="t_sort">${[['strongest','strongest first'],['name','by name'],['type','by kind of tie']].map(([v,l])=>`<option value="${v}" ${v===tieSort?'selected':''}>${l}</option>`).join('')}</select></label></div>`
   +rows.map(({o,r})=>`<div class="tie" data-b="${esc(o.name)}">
-   <b style="color:${esc(seatColor(o.name)||'var(--text)')}">${esc(o.name)}</b>
+   <b style="color:${esc(seatColor(o.name)||'var(--ink)')}">${esc(o.name)}</b>
    <div class="cell"><select class="tt">${REL.map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select></div>
    <div class="cell"><div class="tlab">feeling <b>${r.feeling>=0?'+':''}${r.feeling}</b></div>${seg(-5,5,r.feeling)}</div>
    <div class="cell"><div class="tlab">trust <b>${r.trust>=0?'+':''}${r.trust}</b></div>${seg(-5,5,r.trust)}</div>
@@ -337,7 +337,7 @@ function paneLog(s,c){const rx=rxName(c.name);
  let out='',day=null;
  for(const {e,text} of rows.slice(-250).reverse()){
   if(e.day!==day){day=e.day;out+=`<div class="logday">Day ${day}</div>`}
-  out+=`<div class="logrow ${esc(e.kind)}" style="${e.speaker===c.name?'--c:'+esc(seatColor(c.name)||'#888'):''}"><div class="lm">${esc(e.speaker)} \u00b7 Day ${e.day??0}, turn ${e.turn}${e.place?' \u00b7 '+esc(e.place):''}</div>${rich(text)}</div>`}
+  out+=`<div class="logrow ${esc(e.kind)}" style="${e.speaker===c.name?'--c:'+esc(seatColor(c.name)||'var(--faint)'):''}"><div class="lm">${esc(e.speaker)} \u00b7 Day ${e.day??0}, turn ${e.turn}${e.place?' \u00b7 '+esc(e.place):''}</div>${rich(text)}</div>`}
  return out}
 
 // ---- handlers for whichever tab is showing
@@ -385,6 +385,14 @@ $('peoStrip').addEventListener('wheel',e=>{      // a wheel or a two finger swip
  const d=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
  if(!d)return;
  e.preventDefault();strip.scrollLeft+=d},{passive:false});
+// drag to scroll the strip; a real drag swallows the click that would have picked a chip
+(()=>{const strip=$('peoStrip');let down=null,moved=false;
+ strip.addEventListener('pointerdown',e=>{if(e.button!==0)return;down={x:e.clientX,left:strip.scrollLeft};moved=false});
+ strip.addEventListener('pointermove',e=>{if(!down)return;const dx=e.clientX-down.x;if(!moved&&Math.abs(dx)<5)return;if(!moved){moved=true;strip.classList.add('dragging');try{strip.setPointerCapture(e.pointerId)}catch(x){}}strip.scrollLeft=down.left-dx});
+ const up=e=>{if(!down)return;down=null;if(moved){strip.classList.remove('dragging');const swallow=ev=>{ev.stopPropagation();ev.preventDefault();strip.removeEventListener('click',swallow,true)};strip.addEventListener('click',swallow,true);setTimeout(()=>strip.removeEventListener('click',swallow,true),0)}};
+ strip.addEventListener('pointerup',up);strip.addEventListener('pointercancel',up);strip.addEventListener('pointerleave',up);
+ const bar=document.querySelector('.stripbar');const paint=()=>{if(!bar)return;const w=strip.scrollWidth,c=strip.clientWidth;if(w<=c+1){bar.style.display='none';return}bar.style.display='';const i=bar.firstElementChild;const frac=c/w;i.style.width=(frac*100).toFixed(2)+'%';i.style.transform=`translateX(${(strip.scrollLeft/(w-c)*(1/frac-1)*100).toFixed(2)}%)`};
+ strip.addEventListener('scroll',paint);window.addEventListener('resize',paint);new MutationObserver(paint).observe(strip,{childList:true})})();
 $('peoPick').onchange=()=>{peoSel=$('peoPick').value;peoNote='';peoPaneHtml='';if(S)renderPeople(S)};
 
 // ---------- World
@@ -525,7 +533,7 @@ function renderMore(s){const started=s.created||s.transcript.length>0||s.status=
   if(m==='setup'){sheet('');showTab('setup');return}
   if(m==='x-chronicle'){window.location='/export?what=chronicle';return}
   if(m==='stop'){if(confirm('Stop this year here?'))render(await api('/stop',{}));return}
-  if(m==='quit'){if(confirm('Quit Terraceilia?')){try{await api('/shutdown',{})}catch(e){}document.body.innerHTML='<div style="padding:40px;color:#8B8B94">Terraceilia is closed.</div>'}return}
+  if(m==='quit'){if(confirm('Quit Terraceilia?')){try{await api('/shutdown',{})}catch(e){}document.body.innerHTML='<div style="padding:40px;color:var(--muted)">Terraceilia is closed.</div>'}return}
   sheet(m);if(m==='connections')api('/connect/refresh',{})})}
 
 // ---------- tabs

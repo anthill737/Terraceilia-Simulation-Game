@@ -260,7 +260,7 @@ const MapView=(()=>{
    const ang=Math.PI*0.12+(i/Math.max(1,(i>=n?n:n-1)||1))*Math.PI*0.76;const rad=n>1||i>=n?60:0;return {x:d.x+(rad?Math.cos(ang)*rad:0),y:d.y+70+(rad?Math.sin(ang)*rad*0.4:4)}};
   const gt=$('tokens');const live=new Set();const acts=s.activities||{};
   s.characters.forEach(c=>{if(!c.alive||c.gone)return;const pl=c.location;const d=s.map[pl];if(!d)return;live.add(c.name);const sl=slotOf(pl,c.name);const n=(byPlace[pl]||[]).length;
-    let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#888');t.querySelector('.ini').textContent=c.name[0];el('text',{y:28,'text-anchor':'middle',class:'lbl',filter:'url(#halo)'},t).textContent=c.name;tokens[c.name]=t;bind(t,c.name);t._x=sl.x;t._y=sl.y;t.setAttribute('transform',`translate(${sl.x},${sl.y})`)}
+    let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#7d7462');t.querySelector('.ini').textContent=c.name[0];el('text',{y:28,'text-anchor':'middle',class:'lbl',filter:'url(#halo)'},t).textContent=c.name;tokens[c.name]=t;bind(t,c.name);t._x=sl.x;t._y=sl.y;t.setAttribute('transform',`translate(${sl.x},${sl.y})`)}
     t.dataset.sx=sl.x;t.dataset.sy=sl.y;t._slotOf=p=>slotOf(p,c.name);
     const a=acts[c.name];const key=a?`${a.started}|${a.state}|${a.what}`:'';
     if(key!==t._key){t._key=key;t._act=a||null;t._tl=a&&a.stops&&a.stops.length?buildTimeline(s,a):null;if(t._tl&&t._tl.end<=0)t._tl=null}

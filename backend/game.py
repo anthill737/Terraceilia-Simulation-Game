@@ -15,7 +15,8 @@ TAIL = 400
 # moment race, and the losers are refused with 401; a losing write can leave auth.json unusable. So each day
 # one Codex call is made on its own first, and the file it leaves behind is kept as the copy to fall back on.
 CODEX_PROVIDERS = ("Codex", "Codex (latest)")
-CODEX_401 = re.compile(r"\b401\b|unauthorized|missing bearer", re.I)
+# What a dead sign in looks like on the wire: a 401, or Codex saying the refresh token is gone.
+CODEX_401 = re.compile(r"\b401\b|unauthorized|missing bearer|refresh token was revoked|could not be refreshed|invalid_grant|not logged in|login required", re.I)
 CODEX_AUTH = Path.home() / ".codex" / "auth.json"
 CODEX_BACKUP = Path.home() / ".codex" / "auth.json.terraceilia-backup"
 CODEX_PRIME = "Reply with exactly the single word: ready"
@@ -131,8 +132,9 @@ def list_games() -> list[dict]:
     return out
 
 
-PALETTE = ["#22D3EE", "#F59E0B", "#A78BFA", "#34D399", "#F472B6", "#60A5FA", "#FB7185", "#FACC15", "#2DD4BF", "#C084FC",
-           "#4ADE80", "#F97316", "#38BDF8", "#E879F9", "#A3E635", "#FB923C", "#818CF8", "#F43F5E", "#14B8A6", "#EAB308", "#94A3B8"]
+# Seat colours: the one dot each person carries. Warm and earthen, so nothing on the page is blue.
+PALETTE = ["#d0a92c", "#7f9a5c", "#b4553f", "#e2c377", "#a3b26a", "#c77a4a", "#8a5a7a", "#5f8a6a", "#d98b6a", "#9a8a3a",
+           "#b08a5a", "#6b7a4a", "#c95a5a", "#a0693a", "#8a7a4a", "#d8b58a", "#4f7a5a", "#b07a2a", "#9f5a4a", "#8fae66", "#c9a227"]
 
 
 # ---------------------------------------------------------------- the run (one game's engine)
@@ -149,7 +151,20 @@ class Run:
         self.map_generating = False
         self.blocked = ""                       # why the run is stuck, in words the convener can act on
         self.codex_lock = threading.Lock(); self._in_codex_recovery = False
-        self._sync_terms()
+        self.reprime = False; self.refused: set[int] = set()     # seats whose last call was refused with 401, to be asked again after the recovery
+        self._sync_terms(); self._migrate()
+
+    def _migrate(self) -> None:
+        """A game saved before some part of the colony existed gets that part seeded, once, as a new game would, and the chronicle says so."""
+        g = self.g; w = g.world
+        if not w.created: return
+        seeded = w.seed_missing(self.rng); carried = list(w.migrated); w.migrated = []
+        if not seeded and not carried: return
+        bits = []
+        if seeded: bits.append("seeded as for a new game: " + ", ".join(seeded))
+        if carried: bits.append("carried over from the old save: " + ", ".join(carried))
+        self._record("Engine", "This game was saved before the colony rules changed; " + "; ".join(bits) + ".", "system")
+        g.save()
 
     def _sync_terms(self) -> None:
         """One terminal per seat. Existing terminals keep their lines; extra ones go when the seats are rebuilt."""
@@ -224,7 +239,7 @@ class Run:
 
     # ---- setup: the map, then the people
     def world_seat(self) -> dict:
-        g = self.g; return {"name": "World", "provider": g.world_model["provider"], "model": g.world_model["model"], "color": "#FFFFFF"}
+        g = self.g; return {"name": "World", "provider": g.world_model["provider"], "model": g.world_model["model"], "color": "#d0a92c"}
 
     def map_model_used(self) -> dict:
         """The model that draws a generated map: the one chosen for it, else the World's."""
@@ -303,7 +318,8 @@ class Run:
             g = self.g
             if self.busy() or self.map_generating: return
             if g.status == "paused" and self.thread and self.thread.is_alive():
-                self.pause_flag.clear(); g.status = "running"; g.save(); return
+                if self.blocked: self.reprime = True          # the convener signed in again: prime before anyone speaks, and keep the new sign in as the copy
+                self.blocked = ""; self.pause_flag.clear(); g.status = "running"; self.version += 1; g.save(); return
             if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()     # the map and the people are made in the run, see _run
             if g.status in ("done", "stopped") and g.world.day > g.max_days: g.max_days = g.world.day + 5   # Continue: six more days
             self.stop_flag.clear(); self.pause_flag.clear(); self.blocked = ""
@@ -407,8 +423,9 @@ class Run:
             if new_sid and provider is None: g.cli_sessions[str(i)] = new_sid
         if speech is None and prov["speech"] != "claude_stream": speech = "".join(out).strip()
         if speech and prov["speech"] == "copilot": speech = clean_copilot(speech)
-        if (provider or seat["provider"]) in CODEX_PROVIDERS and not self._in_codex_recovery and CODEX_401.search("".join(out) + "\n".join(err_tail)):
-            threading.Thread(target=self._codex_refused, daemon=True).start()
+        if (provider or seat["provider"]) in CODEX_PROVIDERS and CODEX_401.search("".join(out) + "\n".join(err_tail)):
+            self.refused.add(i); speech = None
+            if not self._in_codex_recovery and provider is None: threading.Thread(target=self._codex_refused, daemon=True).start()
         if not speech:
             self._term(i, f"[ended without an answer: exit {rc}]" + ("\n" + "\n".join(err_tail) if err_tail else ""))
             g.cli_sessions.pop(str(i), None); return None
@@ -511,8 +528,7 @@ class Run:
         """The valley wears a little: weather, spoilage, hunger, cold, sickness, and the dead by morning. Before anyone speaks."""
         g = self.g; w = g.world
         with self.lock:
-            if not any(c.get("duties") for c in w.living()): w.seed_duties(self.rng)     # a game saved before duties existed
-            w.seed_pastimes(self.rng)                                                     # and anyone without a pastime yet
+            w.seed_missing(self.rng)                                                       # anyone or anything still unseeded
             rep = w.dawn(self.rng); roster = w.assign_day(self.rng); self.version += 1
         lines = list(rep["lines"])
         dumped = [f"{DUTIES[k]['label']} (dumped on {r['dumped_on']})" if r.get("dumped_on") else DUTIES[k]["label"] for k, r in roster["duties"].items() if r["unclaimed"]]
@@ -524,12 +540,24 @@ class Run:
         g.save()
 
     def _prime_day(self) -> bool:
-        """Codex is primed once a day, alone, before the seats run in parallel. True if the run must stop."""
+        """Codex is primed once a day, alone, before the seats run in parallel. A refusal pauses the run; after the pause,
+        whether the recovery lifted it or the convener signed in and pressed Resume, it primes again before going on. True if the run must stop."""
         g = self.g; w = g.world
-        if self.codex_provider() and not self.stop_flag.is_set():
-            if not self.prime_codex(f"priming for day {w.day}"): self._codex_refused()
+        while self.codex_provider() and not self.stop_flag.is_set():
+            self.reprime = False
+            if self.prime_codex(f"priming for day {w.day}"): break
+            self._codex_refused()
             while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
         return self.stop_flag.is_set()
+
+    def _wait_out_recovery(self) -> None:
+        """A seat was refused: the recovery thread is starting or running. Wait for it, and for any pause it leaves behind."""
+        for _ in range(40):
+            if self._in_codex_recovery or self.pause_flag.is_set() or self.stop_flag.is_set(): break
+            time.sleep(0.25)
+        while (self._in_codex_recovery or self.pause_flag.is_set()) and not self.stop_flag.is_set(): time.sleep(0.5)
+        if self.reprime and not self.stop_flag.is_set() and self.codex_provider():
+            self.reprime = False; self.prime_codex(f"priming again after the convener signed in")
 
     def _able_seats(self) -> list[int]:
         g = self.g; w = g.world
@@ -553,6 +581,9 @@ class Run:
             base = instruction(i) if callable(instruction) else instruction
             instr = ("Someone spoke to you or acted on you, above. Answer them in character, in one to three sentences, or reply exactly PASS. " + base) if react else base
             text = self._invoke(i, self._player_prompt(i, instr), f"day {w.day}, {label}")
+            if text is None and i in self.refused and not self.stop_flag.is_set():
+                self.refused.discard(i); self._wait_out_recovery()
+                if not self.stop_flag.is_set(): self._term(i, "(asked again after the sign in came back)"); text = self._invoke(i, self._player_prompt(i, instr), f"day {w.day}, {label}, again")
             g.last_seen[str(i)] = len(g.transcript)
             if not text:
                 self._record("Engine", f"{g.seats[i]['name']} gave no answer this turn (see its terminal).", "system"); return

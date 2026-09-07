@@ -1,10 +1,10 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Terraceilia</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2309090B'/%3E%3Cpath d='M4 24 L12 12 L18 20 L22 15 L28 24 Z' fill='%2334D399'/%3E%3Ccircle cx='24' cy='8' r='3' fill='%23FACC15'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231c1915'/%3E%3Cpath d='M4 24 L12 12 L18 20 L22 15 L28 24 Z' fill='%237f9a5c'/%3E%3Ccircle cx='24' cy='8' r='3' fill='%23d0a92c'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css"></head><body>
 
 <header>
  <button id="railBtn" class="icon" title="Games">&#9776;</button>
- <span class="brand"><svg viewBox="0 0 32 32" width="22" height="22"><path d="M4 24 L12 12 L18 20 L22 15 L28 24 Z" fill="currentColor"/><circle cx="24" cy="8" r="3" fill="#FACC15"/></svg>Terraceilia</span>
+ <span class="brand"><svg viewBox="0 0 32 32" width="22" height="22"><path d="M4 24 L12 12 L18 20 L22 15 L28 24 Z" fill="currentColor"/><circle cx="24" cy="8" r="3" fill="var(--accent)"/></svg>Terraceilia</span>
  <span class="title" id="hdrTitle"></span>
  <span class="pill" id="status"><span class="dot"></span><span id="statusText">Not started</span></span>
  <button id="primary" class="primary">Start</button>
@@ -51,7 +51,7 @@
 
  <section id="map"><div id="making"><div><div class="spin"></div><b id="makingHead">The World is making the valley</b><div class="note" style="margin-top:6px" id="makingNote">Rolling twenty lives, secrets, and grudges. This takes a minute or two. Watch the World's terminal on the right.</div></div></div><svg id="mapSvg" viewBox="0 0 1000 780" preserveAspectRatio="xMidYMid meet"></svg>
   <div id="mapHud"><span class="note">Drag a person to move them. Click a place to see what is there. Everything you do here becomes fate the World must narrate.</span><span class="note" id="godNote" style="margin-left:auto;display:none"></span></div>
-  <div id="placePanel"><h3><span id="ppName"></span><button class="icon" id="ppClose" aria-label="Close">&#10005;</button></h3><div id="ppDesc" class="note"></div><div id="ppFx"></div><div id="ppPres" class="note" style="margin-top:6px;color:#c9b28a"></div><div id="ppWho" class="note" style="margin-top:6px"></div><div class="row" style="margin-top:10px"><button id="ppFire" class="danger solid">Set fire</button></div></div></section>
+  <div id="placePanel"><h3><span id="ppName"></span><button class="icon" id="ppClose" aria-label="Close">&#10005;</button></h3><div id="ppDesc" class="note"></div><div id="ppFx"></div><div id="ppPres" class="note" style="margin-top:6px"></div><div id="ppWho" class="note" style="margin-top:6px"></div><div class="row" style="margin-top:10px"><button id="ppFire" class="danger solid">Set fire</button></div></div></section>
 
  <section id="chron"><div class="inner"><div class="empty" id="chronEmpty">The chronicle is empty. Press Start.</div><div id="msgs"></div><div class="typing" id="typing" style="display:none"></div></div></section>
  <div id="composer"><div class="inner"><div id="ac" role="listbox"></div><div class="tawrap"><div id="hl" aria-hidden="true"></div><textarea id="sayText" placeholder="Speak as fate to everyone, or @Name to speak to one person alone."></textarea></div><button id="sayBtn" class="primary">Send</button></div></div>
@@ -64,7 +64,7 @@
 <!-- ---------------------------------------------------------------- sheets, one at a time -->
 <div class="sheetwrap" id="sheet-people"><div class="panel wide char"><h1>People <button class="icon sheetclose" aria-label="Close">&#10005;</button></h1>
  <div class="peoTop"><input id="peoFilter" placeholder="Filter by name, trade or place" autocomplete="off"><select id="peoPick"></select></div>
- <div id="peoStrip"></div>
+ <div class="peoWrap"><div id="peoStrip"></div><div class="stripbar"><i></i></div></div>
  <div id="peoHead"></div>
  <div class="ptabs"><button data-p="bio" class="on">Bio</button><button data-p="health">Health</button><button data-p="stats">Stats</button><button data-p="disp">Disposition</button><button data-p="ties">Ties</button><button data-p="duties">Duties</button><button data-p="log">Log</button></div>
  <div id="peoPane"></div>
