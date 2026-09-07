@@ -7,7 +7,7 @@ from pathlib import Path
 import connect
 import telegram
 from agents import PROVIDERS, VERSIONS, refresh_versions
-from engine import ALL_NEEDS, DUTIES, GAMES, PASTIMES, SEASONS, STANDING_WORDS, World, now_id, standing_score_for, standing_word, need_word, season_row, season_sentence, weather_chances
+from engine import ALL_NEEDS, DUTIES, GAMES, PASTIMES, SEASONS, STANDING_WORDS, World, now_id, standing_score_for, standing_word, need_word, season_row, season_sentence
 
 DUTY_DEFS = {k: {x: d.get(x) for x in ("label", "verb", "skill", "produces", "consumes", "effect", "breaks")} for k, d in DUTIES.items()}
 PASTIME_DEFS = {k: {"label": d["label"], "verb": d["verb"]} for k, d in PASTIMES.items()}
@@ -78,7 +78,7 @@ class App:
                     "threads": list(w.threads), "fires": dict(w.fires),
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies),
                     "roster": w.roster, "duty_state": w.duties, "duty_defs": DUTY_DEFS, "pastime_defs": PASTIME_DEFS, "phase": w.phase, "morning": w.morning,
-                    "calendar_rows": [season_row(name) for _, name in SEASONS], "tomorrow": weather_chances(w.day + 1), "sentence": season_sentence(w.day, w.weather),
+                    "calendar_rows": [season_row(name) for _, name in SEASONS], "sentence": season_sentence(w.day, w.weather),
                     "titles": w.titles(), "want_progress": {c["name"]: w.want_progress(c["name"]) for c in w.characters.values()},
                     "activities": json.loads(json.dumps(w.activities)), "now": time.time(),
                     "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),

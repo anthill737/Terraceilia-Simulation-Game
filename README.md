@@ -208,8 +208,7 @@ You are not a player, but you are not powerless.
   changed mid-game, under World.
 - **Resolve a situation.** The World sheet's situations timeline lists everything open, with its age
   and days left and a Resolve control, then everything ended and what ended it. The same sheet holds
-  the valley as the player described it with what each place is, the season calendar as plain
-  rows, and today's weather with tomorrow's chances.
+  the valley as the player described it, the season calendar as plain rows, and today's weather.
 
 Gameplay sits in plain buttons across the header: the primary control, then Colony, People, World
 and Fate. Colony shows today's duties with who holds each and the unfilled ones in red, the
@@ -305,9 +304,14 @@ Every request carries the token as `?token=` or a cookie.
 - Nothing in Terraceilia reads or writes any CLI's credential file. Codex's sign in belongs to Codex; the two
   Codex installs share it, so one game uses only one of them, and Connections says so.
 - Start runs a preflight: every seat's chosen model answers one tiny request through the same launcher and
-  environment a turn uses, or the run stops and the reason is shown. A seat with no model chosen takes the
-  first model of its provider that answers; nothing is hardcoded. Connections shows Connected only after a
-  model has answered a real request, with the time, and the version of the binary that will actually run.
+  environment a turn uses. A sign in refusal stops Start and says so. A model refusal does not: the seat
+  moves to the first model of its provider that answered, the seat is saved, the chronicle says so, and the
+  run starts. Each seat is probed once at Start and again only after a model error, never more than once a
+  day, and a model refused with a 404 is never probed again in that game. A seat with no model chosen takes
+  the first model of its provider that answers. Codex villagers default to gpt-5.6-luna, every Codex launch
+  asks for low reasoning effort, and a save whose Codex seats sit on a retired model moves them to the
+  default with one chronicle line. Connections shows Connected only after a model has answered a real
+  request, with the time, and the version of the binary that will actually run.
 - Codex refuses folders it has not been told to trust. The engine marks the run folder as trusted
   in `~/.codex/config.toml` and keeps a backup of the file beside it.
 - A game saved before some part of the colony existed is brought up to date when it is opened: duties,

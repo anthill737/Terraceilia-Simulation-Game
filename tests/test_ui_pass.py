@@ -72,10 +72,10 @@ class Sheets(unittest.TestCase):
         self.assertLess(bio.index("<textarea"), bio.index('id="b_save"'))
 
     def test_the_world_sheet_is_the_region_and_the_map_is_locked_once_started(self) -> None:
-        self.assertIn('id="g_region"', HTML); self.assertIn("function renderRegion", JS); self.assertIn("The season calendar", JS); self.assertIn("Tomorrow:", JS)
-        top = JS[JS.index("function renderRegion"):JS.index("const html=`", JS.index("function renderRegion"))]
-        self.assertIn("s.world_text", JS[JS.index("function renderRegion"):]); self.assertIn("d.kind", top)
-        for tok in ("map_style", "st.water", "st.sky", "map_generated", "elevation", "feature"): self.assertNotIn(tok, JS[JS.index("function renderRegion"):JS.index("regionHtml=html")])
+        self.assertIn('id="g_region"', HTML); self.assertIn("function renderRegion", JS); self.assertIn("The season calendar", JS)
+        region = JS[JS.index("function renderRegion"):JS.index("regionHtml=html")]
+        self.assertIn("s.world_text", region); self.assertIn("s.sentence", region)
+        for tok in ("Tomorrow", "s.tomorrow", "d.kind", "KIND", "map_style", "st.water", "st.sky", "map_generated", "elevation", "feature"): self.assertNotIn(tok, region)
         self.assertIn("s.calendar_rows", JS); self.assertNotIn("seasonRow", JS)
         self.assertIn("$('g_mapBlock').style.display=started?'none':''", JS); self.assertIn("$('g_descBlock').style.display=started?'none':''", JS); self.assertIn('id="g_descBlock"', HTML)
         save = JS[JS.index("async function saveWorld"):JS.index("function renderRegion")]
@@ -89,8 +89,8 @@ class Sheets(unittest.TestCase):
             g.world.created = True; app.edit_game({"world_text": "changed after the start"}); self.assertNotEqual(g.world_text, "changed after the start", "the description is fixed once the world is made")
             g.world.created = False; app.edit_game({"world_text": "changed before the start"}); self.assertEqual(g.world_text, "changed before the start")
             snap = app.snapshot()
-            for k in ("calendar_rows", "tomorrow", "sentence"): self.assertIn(k, snap)
-            for k in ("region", "calendar", "season_days"): self.assertNotIn(k, snap)
+            for k in ("calendar_rows", "sentence"): self.assertIn(k, snap)
+            for k in ("region", "calendar", "season_days", "tomorrow"): self.assertNotIn(k, snap)
             self.assertEqual(snap["calendar_rows"][2], engine.season_row("deep winter"))
         finally:
             connect.start, server.refresh_versions = st, rv; shutil.rmtree(tmp, ignore_errors=True)
@@ -98,10 +98,25 @@ class Sheets(unittest.TestCase):
     def test_the_person_header_is_one_line(self) -> None:
         head = JS[JS.index("$('peoHead').innerHTML=`"):JS.index("`;", JS.index("$('peoHead').innerHTML=`"))]
         self.assertIn('<span class="nm">', head); self.assertIn('<i class="ttl">', head); self.assertIn("showTrade", head); self.assertIn("'the '+trade", head)
-        for tok in ("seat.provider", "seat.model", "wants", "class=\"note\"", "<b"): self.assertNotIn(tok, head)
+        for tok in ("seat.provider", "seat.model", "class=\"note\"", "<b"): self.assertNotIn(tok, head)
+        self.assertIn("wants ${esc(g.text)}, ${wp[0]}%", head, "the want shows in the header line only")
+        bio = JS[JS.index("function paneBio"):JS.index("// ---- Body")]
+        for tok in ("In plain terms", "wbar", "want_progress"): self.assertNotIn(tok, bio)
+        self.assertIn('id="b_reroll"', bio); self.assertNotIn(".wbar", CSS)
         self.assertIn("title.replace(/^the /,'').toLowerCase()===trade.replace(/^the /,'').toLowerCase()", JS, "the trade is dropped when it equals the title")
         self.assertIn("white-space:nowrap", CSS[CSS.index("#peoHead{"):CSS.index("}", CSS.index("#peoHead{"))])
         bio = JS[JS.index("function paneBio"):JS.index("// ---- Body")]; self.assertIn('id="b_prov"', bio); self.assertIn('id="b_model"', bio)
+
+    def test_colony_rows_are_one_line_with_four_columns(self) -> None:
+        col = JS[JS.index("function renderColony"):JS.index("document.querySelectorAll('.sheetclose')")]
+        self.assertIn('class="crow colduty', col); self.assertIn('class="crow colplace', col); self.assertEqual(col.count('<div class="crow">'), 3, "the ledger rows share the row shape")
+        duty = col[col.index('class="crow colduty'):col.index("</div>`", col.index('class="crow colduty'))]
+        self.assertEqual([m for m in re.findall(r'class="(cdn|cdp|cdw|cds)', duty)], ["cdn", "cdp", "cdw", "cds"], "duty name, place, holder, status")
+        self.assertIn("${done?'':x.undone_days?`undone ${x.undone_days} day", duty, "status is blank when done")
+        row = CSS[CSS.index(".crow{"):CSS.index("}", CSS.index(".crow{"))]
+        self.assertIn("display:grid", row); self.assertIn("height:calc(var(--u) * 4)", row); self.assertIn("grid-template-columns:1.2fr 1fr 1.2fr auto", row)
+        self.assertIn(".crow>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis", CSS); self.assertIn(".crow .cdp{color:var(--muted)}", CSS); self.assertIn(".crow .cds{color:var(--rust)", CSS)
+        self.assertNotIn(".colplace{", CSS); self.assertNotIn(".colduty{", CSS)
 
     def test_the_colony_header_is_the_sentence(self) -> None:
         self.assertIn('class="colsent"', JS); self.assertNotIn("nothing grows", JS); self.assertNotIn('class="colseason"', JS)

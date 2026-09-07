@@ -44,6 +44,8 @@ class Game:
         if self.status in ("running",): self.status = "paused"
         self.started_at = d.get("started_at", 0.0)
         self.cli_sessions = d.get("cli_sessions", {}); self.last_seen = d.get("last_seen", {})
+        self.bad_models: list[str] = list(d.get("bad_models", []))      # "provider|model" refused with a model error in this game; never probed again
+        self.probe_day: dict[str, int] = dict(d.get("probe_day", {}))   # seat index -> the day it was last probed; one probe per seat per day
         self.world = World(d.get("world"))
 
     def to_dict(self) -> dict:
@@ -52,7 +54,7 @@ class Game:
                 "map_source": self.map_source, "map_model": self.map_model,
                 "max_minutes": self.max_minutes, "drama": self.drama, "repo": self.repo, "seats": self.seats, "transcript": self.transcript,
                 "turn": self.turn, "status": self.status, "started_at": self.started_at, "cli_sessions": self.cli_sessions,
-                "last_seen": self.last_seen, "world": self.world.to_dict()}
+                "last_seen": self.last_seen, "bad_models": self.bad_models, "probe_day": self.probe_day, "world": self.world.to_dict()}
 
     def save(self, chronicle: bool = False) -> None:
         (self.dir / "game.json").write_text(json.dumps(self.to_dict()), encoding="utf-8")
@@ -152,9 +154,25 @@ class Run:
         self.last_error: dict[int, dict] = {}   # seat -> what the runner said the last time it failed: kind, message, cmd
         self._sync_terms(); self._migrate()
 
+    def _migrate_models(self) -> None:
+        """A save whose Codex seats sit on a retired model moves them to the default, once, with one chronicle line."""
+        g = self.g; moved: list[tuple[str, str]] = []
+        def retired(m: dict) -> bool:
+            return m.get("provider") in CODEX_PROVIDERS and bool(m.get("model")) and m["model"] not in PROVIDERS[m["provider"]]["models"]
+        for x in g.seats:
+            if retired(x): moved.append((x["name"], x["model"])); x["model"] = CODEX_DEFAULT; g.cli_sessions.pop(str(g.seats.index(x)), None)
+        changed = bool(moved)
+        for m in (g.model_a, g.model_b, g.world_model):
+            if retired(m): m["model"] = CODEX_DEFAULT; changed = True
+        if moved:
+            olds = sorted({m for _, m in moved}); names = [n for n, _ in moved]
+            self._record("Engine", f"{', '.join(olds)} {'is' if len(olds) == 1 else 'are'} no longer offered; {', '.join(names)} now play{'s' if len(names) == 1 else ''} on {CODEX_DEFAULT}.", "system")
+        if changed: g.save()
+
     def _migrate(self) -> None:
         """A game saved before some part of the colony existed gets that part seeded, once, as a new game would, and the chronicle says so."""
         g = self.g; w = g.world
+        self._migrate_models()
         if not w.created: return
         seeded = w.seed_missing(self.rng); carried = list(w.migrated); w.migrated = []
         if not seeded and not carried: return
@@ -231,7 +249,7 @@ class Run:
                 wait = runner.BACKOFF[waits]; waits += 1
                 self._term(i, f"[{prov_name} asked us to wait: {msg}; waiting {int(wait)} seconds]"); time.sleep(wait); continue
             if kind == "model" and not switched and provider is None:
-                switched = True; seat = g.seats[i]; better = connect.first_accessible(seat["provider"], exclude=seat["model"])
+                switched = True; seat = g.seats[i]; self.mark_bad(seat["provider"], err.get("model", "")); better = self.find_model(i, seat["provider"], exclude=seat["model"])
                 if better and better != seat["model"]:
                     old = seat["model"]
                     with self.lock: seat["model"] = better; g.cli_sessions.pop(str(i), None); self.version += 1; g.save()
@@ -245,45 +263,78 @@ class Run:
         self._record("Engine", f"{g.seats[i]['name']} is benched for this turn. {prov_name} said: {err.get('message', 'no answer')}", "system")
         return None
 
-    def probe_model(self, provider: str, model: str) -> tuple[bool, str]:
-        """One tiny request through the same launcher and environment a turn uses. Records the result for Connections."""
-        text = self._invoke(0, PROBE_PROMPT, f"probe {provider} {model}", provider=provider, model=model)
-        err = self.last_error.get(0) or {}
+    def probe_model(self, provider: str, model: str, i: int = 0) -> tuple[bool, str]:
+        """One tiny request through the same launcher and environment a turn uses. Records the result for Connections, and a
+        model error marks that model bad for the rest of this game."""
+        text = self._invoke(i if i < len(self.g.seats) else 0, PROBE_PROMPT, f"probe {provider} {model}", provider=provider, model=model)
+        err = self.last_error.get(i if i < len(self.g.seats) else 0) or {}
         ok = text is not None; msg = "" if ok else err.get("message", "no answer")
         connect.record_probe(provider, model, ok, msg)
+        if not ok and err.get("kind") == "model": self.mark_bad(provider, model)
         return ok, msg
 
+    def is_bad(self, provider: str, model: str) -> bool:
+        return bool(model) and f"{provider}|{model}" in self.g.bad_models
+
+    def mark_bad(self, provider: str, model: str) -> None:
+        """A model refused with a model error (404, no access) is never probed again in this game."""
+        if model and f"{provider}|{model}" not in self.g.bad_models: self.g.bad_models.append(f"{provider}|{model}")
+
+    def can_probe(self, i: int | str) -> bool:
+        """Seat i (or one of the three chosen models on a fresh game, keyed a, b, w) is probed once a day at most."""
+        return self.g.probe_day.get(str(i)) != self.g.world.day
+
+    def note_probed(self, i: int | str) -> None:
+        self.g.probe_day[str(i)] = self.g.world.day
+
+    def find_model(self, i: int | str, provider: str, exclude: str = "") -> str:
+        """The first of the provider's models that answered: from the probes already on record, else by probing the list once for
+        seat i, skipping models refused in this game. Empty when none answers or seat i has already been probed today."""
+        for m in PROVIDERS.get(provider, {}).get("models", []):
+            if m != exclude and not self.is_bad(provider, m) and connect.probes_of(provider).get(m, {}).get("ok"): return m
+        if not self.can_probe(i): return ""
+        self.note_probed(i); i = i if isinstance(i, int) else 0
+        for cand in PROVIDERS.get(provider, {}).get("models", []):
+            if self.stop_flag.is_set(): return ""
+            if cand == exclude or self.is_bad(provider, cand): continue
+            ok, _ = self.probe_model(provider, cand, i)
+            if ok: return cand
+        return ""
+
     def preflight(self) -> bool:
-        """Before anything is asked of anyone: every seat's chosen model answers one tiny request, or the run stops and says why.
-        A seat with no model chosen takes the first of its provider's models that answers."""
+        """Before anything is asked of anyone, every seat is probed once (and once at most per seat per day). A sign in refusal
+        stops Start and says so. A model refusal does not: the seat moves to the first model of its provider that answered, the
+        seat is saved, the chronicle says so, and the run starts. A seat with no model chosen takes the first that answers. On a
+        fresh game the three chosen models stand in for the seats not yet built."""
         g = self.g
         if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
         with self.lock: self.current = "preflight"; self.version += 1
-        wanted: list[tuple[str, str]] = []
-        for x in g.seats:
-            key = (x["provider"], x.get("model", ""))
-            if key not in wanted: wanted.append(key)
-        for m in (g.model_a, g.model_b, g.world_model):
-            if len(g.seats) <= 1 and (m["provider"], m.get("model", "")) not in wanted: wanted.append((m["provider"], m.get("model", "")))
-        resolved: dict[tuple[str, str], str] = {}
-        for prov, model in wanted:
+        targets: list[tuple[dict, int | str, str]] = [(x, i, x["name"]) for i, x in enumerate(g.seats)]
+        if len(g.seats) <= 1:
+            for m, key, who in ((g.model_a, "a", "the first villagers' model"), (g.model_b, "b", "the second villagers' model"), (g.world_model, "w", "the World's model")):
+                if not any(m is t[0] for t in targets): targets.append((m, key, who))
+        seen: dict[tuple[str, str], tuple[bool, str, str]] = {}      # (provider, model) -> (ok, message, kind) this preflight
+        for ref, i, who in targets:
             if self.stop_flag.is_set(): return False
-            if model:
-                ok, msg = self.probe_model(prov, model)
-                if not ok: self._stop_with(f"Preflight failed: {prov} {model} did not answer ({msg}). Nothing was started."); return False
-                resolved[(prov, model)] = model; continue
-            found = ""
-            for cand in PROVIDERS.get(prov, {}).get("models", []):
-                ok, msg = self.probe_model(prov, cand)
-                if ok: found = cand; break
-            if not found: self._stop_with(f"Preflight failed: no {prov} model answered the probe. Nothing was started."); return False
-            resolved[(prov, "")] = found
-        with self.lock:
-            for x in g.seats:
-                if not x.get("model"): x["model"] = resolved.get((x["provider"], ""), x.get("model", ""))
-            for m in (g.model_a, g.model_b, g.world_model):
-                if not m.get("model") and (m["provider"], "") in resolved: m["model"] = resolved[(m["provider"], "")]
-            self.current = None; self.version += 1; g.save()
+            prov, model = ref["provider"], ref.get("model", ""); msg = ""; si = i if isinstance(i, int) else 0
+            if model and not self.is_bad(prov, model):
+                if (prov, model) in seen: ok, msg, kind = seen[(prov, model)]
+                elif not self.can_probe(i): ok, msg, kind = True, "", ""      # probed today already; the record stands
+                else:
+                    self.note_probed(i); ok, msg = self.probe_model(prov, model, si); kind = "" if ok else (self.last_error.get(si if si < len(g.seats) else 0) or {}).get("kind", "other")
+                    seen[(prov, model)] = (ok, msg, kind)
+                if ok: continue
+                if kind == "auth": self._stop_with(f"Preflight failed: {prov} refused the probe for want of a sign in ({msg}). Open the gear, then Connections, and sign in. Nothing was started."); return False
+                if kind == "launcher": self._stop_with(f"A launcher bug stopped the run before it began: {msg}. Nothing was started."); return False
+                if kind != "model": self._stop_with(f"Preflight failed: {prov} {model} did not answer ({msg}). Nothing was started."); return False
+            better = self.find_model(i, prov, exclude=model)
+            if not better: self._stop_with(f"Preflight failed: no {prov} model answered the probe. Nothing was started."); return False
+            with self.lock:
+                ref["model"] = better
+                if isinstance(i, int): g.cli_sessions.pop(str(i), None)
+                g.save()
+            if model: self._record("Engine", f"{who[0].upper() + who[1:]}'s model {model} was refused at Start ({msg}); {who} now plays on {better}, the first {prov} model that answered.", "system")
+        with self.lock: self.current = None; self.version += 1; g.save()
         return True
 
     # ---- setup: the map, then the people

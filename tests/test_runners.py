@@ -201,13 +201,41 @@ class Preflight(Base):
         self.assertEqual(g.model_a["model"], "stub"); self.assertEqual(g.world_model["model"], "stub"); self.assertEqual(g.seats[0]["model"], "stub")
         self.assertEqual(connect.first_accessible("Stub"), "stub"); self.assertFalse(connect.probes_of("Stub")["bad"]["ok"])
 
-    def test_a_failed_preflight_blocks_start_with_the_reason(self) -> None:
-        g, r = self.make(model="bad")
+    def test_an_auth_failure_at_preflight_blocks_start_with_the_reason(self) -> None:
+        g, r = self.make(); self.fail_with("auth", 9)
         try:
             r.start(); self.wait(lambda: g.status in ("done", "stopped"), 60, "the stop")
-            self.assertEqual(g.status, "stopped"); self.assertIn("Preflight failed: Stub bad", r.blocked); self.assertIn("does not exist", r.blocked)
+            self.assertEqual(g.status, "stopped"); self.assertIn("Preflight failed: Stub refused the probe for want of a sign in", r.blocked)
             self.assertFalse(g.world.created, "nothing was started")
         finally: r.stop()
+
+    def test_a_model_failure_at_preflight_switches_the_seat_and_starts(self) -> None:
+        agents.PROVIDERS["Stub"] = stub_provider(["bad", "stub", "stub2"])
+        g, r = self.make(model="bad")
+        self.assertTrue(r.preflight(), "a model failure does not block Start")
+        self.assertEqual(g.model_a["model"], "stub"); self.assertEqual(g.model_b["model"], "stub"); self.assertEqual(g.seats[0]["model"], "stub")
+        self.assertEqual(g.bad_models, ["Stub|bad"], "a 404 is remembered for the game")
+        notes = self.notes(g); self.assertEqual(len(notes), 2, "one chronicle line per switched model: the first and the second villagers' model")
+        for n in notes: self.assertIn("model bad was refused at Start", n); self.assertIn("now plays on stub, the first Stub model that answered", n)
+        self.assertIn("The first villagers' model", notes[0]); self.assertIn("The second villagers' model", notes[1])
+        saved = game.Game(g.id, __import__("json").loads((g.dir / "game.json").read_text(encoding="utf-8")))
+        self.assertEqual(saved.model_a["model"], "stub"); self.assertEqual(saved.bad_models, ["Stub|bad"])
+
+    def test_a_seat_is_probed_once_a_day_and_a_bad_model_never_again(self) -> None:
+        agents.PROVIDERS["Stub"] = stub_provider(["bad", "stub", "stub2"])
+        g, r = self.make(model="bad"); g.seats = [r.world_seat(), {"name": "Bett", "provider": "Stub", "model": "bad", "color": "#7f9a5c"}]; g.save(); r._sync_terms()
+        probes: list[tuple[int, str]] = []; orig = r.probe_model
+        def counting(provider: str, model: str, i: int = 0) -> tuple[bool, str]:
+            probes.append((i, model)); return orig(provider, model, i)
+        r.probe_model = counting
+        self.assertTrue(r.preflight()); self.assertEqual(g.seats[1]["model"], "stub"); self.assertEqual(g.seats[0]["model"], "stub")
+        first = list(probes); self.assertEqual([m for _, m in first if m == "bad"], ["bad"], "the bad model was probed once for the day, by the first seat that needed it")
+        self.assertLessEqual(len([1 for i, _ in first if i == 1]), 1); probes.clear()
+        self.assertTrue(r.preflight()); self.assertEqual(probes, [], "a second Start the same day probes nobody")
+        g.world.day += 1; self.assertTrue(r.preflight())
+        self.assertNotIn("bad", [m for _, m in probes], "a model that failed with 404 is never probed again in this game")
+        self.assertEqual(sorted(i for i, _ in probes), sorted(set(i for i, _ in probes)), "one probe per seat per day")
+        n = len(probes); self.assertEqual(r.find_model(1, "Stub"), "stub"); self.assertEqual(len(probes), n, "find_model probes nothing when the record already has an answer")
 
     def test_connected_comes_only_from_a_probe(self) -> None:
         with connect._lock: connect._cache["Stub"] = (time.monotonic(), {"name": "Stub", "state": "connected", "detail": "Signed in", "installed": True, "exe": "x", "version": "1.0"})
@@ -228,6 +256,27 @@ class Preflight(Base):
 
 
 class CodexModels(unittest.TestCase):
+    def test_every_codex_launch_asks_for_low_reasoning_effort(self) -> None:
+        for p in ("Codex", "Codex (latest)"):
+            for k in ("cmd", "ro_cmd"):
+                self.assertIn('exec -c model_reasoning_effort="low" ', agents.PROVIDERS[p][k], f"{p} {k}")
+        self.assertNotIn("model_reasoning_effort", agents.PROVIDERS["Claude Code"]["cmd"])
+
+    def test_a_save_on_a_retired_codex_model_moves_to_luna_with_one_line(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="terra-mig-")); engine.GAMES = tmp; game.GAMES = tmp
+        try:
+            g = game.Game(engine.now_id()); g.model_b = {"provider": "Codex (latest)", "model": "gpt-5.6"}
+            g.seats = [{"name": "World", "provider": "Claude Code", "model": "claude-haiku-4-5", "color": "#d0a92c"}, {"name": "Bett", "provider": "Codex (latest)", "model": "gpt-5.5", "color": "#7f9a5c"},
+                       {"name": "Cuthbert", "provider": "Codex", "model": "gpt-5.4", "color": "#b4553f"}, {"name": "Dimity", "provider": "Codex", "model": "gpt-6-astra", "color": "#a79d84"}]
+            g.cli_sessions = {"1": "old-session"}; g.save(); r = game.Run(g)
+            self.assertEqual([x["model"] for x in g.seats], ["claude-haiku-4-5", "gpt-5.6-luna", "gpt-5.6-luna", "gpt-6-astra"]); self.assertEqual(g.model_b["model"], "gpt-5.6-luna")
+            self.assertNotIn("1", g.cli_sessions, "a moved seat starts a fresh session")
+            notes = [e["text"] for e in g.transcript if e["kind"] == "system"]; self.assertEqual(len(notes), 1)
+            self.assertIn("gpt-5.4, gpt-5.5 are no longer offered; Bett, Cuthbert now play on gpt-5.6-luna.", notes[0])
+            r2 = game.Run(game.Game(g.id, __import__("json").loads((g.dir / "game.json").read_text(encoding="utf-8"))))
+            self.assertEqual(len([e for e in r2.g.transcript if e["kind"] == "system"]), 1, "the line is written once")
+        finally: shutil.rmtree(tmp, ignore_errors=True)
+
     def test_the_codex_lists(self) -> None:
         for p in ("Codex", "Codex (latest)"):
             self.assertEqual(agents.PROVIDERS[p]["models"], ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.3-codex-spark"])
