@@ -41,12 +41,14 @@ class MorningTests(unittest.TestCase):
         self.assertEqual([r["kind"] for r in out], ["work"] * n); self.assertNotEqual(w.ledger, before, "work must move the ledger")
         self.assertEqual(c["duties"], c["duties"], "working keeps your duties"); self.assertTrue(all(r["text"] for r in out))
 
-    def test_a_free_action_in_the_morning_is_a_skip_that_costs_standing_and_the_duty(self) -> None:
+    def test_a_free_action_in_the_morning_skips_the_day_and_two_running_lose_the_duty(self) -> None:
         w = valley(); c = w.characters["P1"]; held = list(c["duties"]); s0 = c["standing_score"]
         out = w.resolve_morning("P1", "I go to the inn and drink", random.Random(1))
-        self.assertEqual(out[-1]["kind"], "skip"); self.assertEqual(c["duties"], []); self.assertLess(c["standing_score"], s0)
-        for k in held: self.assertEqual(w.duty_state(k)["unclaimed_day"], w.day, f"{k} should be unclaimed")
+        self.assertEqual(out[-1]["kind"], "skip"); self.assertFalse(out[-1]["lost"]); self.assertEqual(c["duties"], held, "one skip keeps the duty"); self.assertLess(c["standing_score"], s0)
         self.assertTrue(any("skipped" in x["text"] for x in c["log"]))
+        w.day += 1; out = w.resolve_morning("P1", "I go to the inn again", random.Random(2))
+        self.assertTrue(out[-1]["lost"]); self.assertEqual(c["duties"], [])
+        for k in held: self.assertEqual(w.duty_state(k)["unclaimed_day"], w.day, f"{k} should be unclaimed")
 
     def test_refuse_one_keeps_the_rest(self) -> None:
         w = valley(); c = w.characters["P0"]; c["duties"] = ["mill", "hunt"]

@@ -86,13 +86,15 @@ That takes a minute or two. Then day one begins.
 2. **Morning: duties.** Everyone able with work is given their duties with place, output, and what
    it costs the valley if skipped. Their `ACTION:` line must begin with `WORK` (all of it), `WORK`
    and one duty's name, or `REFUSE`; anything else counts as skipping. The engine resolves it: output
-   rolled from skill and dice, the ledger moved, the skill nudged up. Skipping or refusing drops
-   standing and the duty goes unclaimed. What nobody did lands its cost and goes to the World and
-   the chronicle by name; after two days a neighbour complains by name.
-3. **Afternoon: free actions.** Only the people something touched, or whose nature is pushing them,
-   are asked. Anyone named or whispered to at the same place gets a turn to answer. Driving someone
-   out, refusing to share, taking work, leaving, and every duty change are settled by the engine
-   before the World sees anything.
+   rolled from skill and dice, the ledger moved, the skill nudged up. Skipping costs standing and
+   that day's work; skip the same work two mornings running and the duty goes unclaimed. REFUSE gives
+   it up at once. What nobody did lands its cost and goes to the World and the chronicle by name;
+   after two days a neighbour complains by name.
+3. **Afternoon: free time.** Only the people something touched, or whose nature is pushing them,
+   are asked, and they may act. Everyone else spends the afternoon on their pastime, on the map, and
+   people whose pastimes put them in the same place are company and get a turn to talk. Anyone named
+   or whispered to at the same place gets a turn to answer. Driving someone out, refusing to share,
+   taking work, leaving, and every duty change are settled by the engine before the World sees anything.
 4. **The World resolves the afternoon.** It is given the morning's work, what went undone, the
    settled outcomes, the day's events, and the afternoon's actions with a die for each, and writes
    one outcome per person who acted, two sentences at most.
@@ -157,6 +159,17 @@ Fate can set them outright in the Duties tab under People. Every morning an uncl
 on the nearest able person with room for it, who is told so, and a fire, a bad injury, or an attack
 pulls whoever is nearest regardless of duty. Work is resolved by the engine: output rolled from skill
 and dice, the ledger moved, the skill nudged up.
+
+### Pastimes and spirit
+
+Everyone has a pastime, rolled from `data/pastimes.json` by their disposition: carving, fishing for
+fun, singing at the inn, dice, drinking, wandering the ridge, gossip, tending a garden, sparring,
+telling stories, praying, collecting things. Fate can change it under People. A free afternoon goes
+to it by default, on the map, with a label. Some have side effects: fishing for fun brings a little
+fish, carving makes a small thing the person keeps, sparring can nudge strength, drinking costs rest
+and warmth. Spirit is a need beside food, warmth and rest: it falls a little every day, more when the
+body suffers, and rises on the pastime, on time with someone liked, and on a good meal. Low spirit
+halves work output and makes refusing likelier; high spirit raises output.
 
 ### Wants and recognition
 

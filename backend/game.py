@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,
-                    whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES)
+                    whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES, PASTIMES)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 TURN_TIMEOUT = 1800
@@ -527,7 +527,7 @@ class Run:
             c["secret"] = sd(p.get("secret"), "nothing worth telling")[:200]; c["fear"] = sd(p.get("fear"), "the cold")[:200]
             c["want"] = sd(p.get("want"), "to see spring")[:200]
             if p.get("home") in w.map: c["location"] = p["home"]
-        w.seed_all_relations(self.rng); w.seed_duties(self.rng)
+        w.seed_all_relations(self.rng); w.seed_duties(self.rng); w.seed_pastimes(self.rng)
         for rr in data.get("relations", []) or []:
             if isinstance(rr, dict):
                 w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old tie"))
@@ -540,6 +540,7 @@ class Run:
         g = self.g; w = g.world
         with self.lock:
             if not any(c.get("duties") for c in w.living()): w.seed_duties(self.rng)     # a game saved before duties existed
+            w.seed_pastimes(self.rng)                                                     # and anyone without a pastime yet
             rep = w.dawn(self.rng); roster = w.assign_day(self.rng); self.version += 1
         lines = list(rep["lines"])
         dumped = [f"{DUTIES[k]['label']} (dumped on {r['dumped_on']})" if r.get("dumped_on") else DUTIES[k]["label"] for k, r in roster["duties"].items() if r["unclaimed"]]
@@ -569,7 +570,7 @@ class Run:
         seen = int(g.last_seen.get(str(i), 0)); ties = w.ties_of(me)
         return any(touched_text(e, me, c["location"], ties) for e in g.transcript[seen:])
 
-    def _round(self, seats: list[int], instruction: str, label: str, on_reply, reactions: bool = True) -> None:
+    def _round(self, seats: list[int], instruction, label: str, on_reply, reactions: bool = True) -> None:
         """One round of prompts to the given seats, in parallel. With reactions on, anyone named or whispered to at the same place
         gets a turn to answer, and the convener's @mentions wake people. on_reply(i, text) takes each answer that is not PASS."""
         g = self.g; w = g.world
@@ -577,7 +578,8 @@ class Run:
         name_to_i = {g.seats[i]["name"].lower(): i for i in self._able_seats()}
 
         def worker(i: int, react: bool) -> None:
-            instr = ("Someone spoke to you or acted on you, above. Answer them in character, in one to three sentences, or reply exactly PASS. " + instruction) if react else instruction
+            base = instruction(i) if callable(instruction) else instruction
+            instr = ("Someone spoke to you or acted on you, above. Answer them in character, in one to three sentences, or reply exactly PASS. " + base) if react else base
             text = self._invoke(i, self._player_prompt(i, instr), f"day {w.day}, {label}")
             g.last_seen[str(i)] = len(g.transcript)
             if not text:
@@ -673,9 +675,29 @@ class Run:
                     acted.add(i); w.pending.append({"who": me, "text": a, "turn": g.turn})
                     w.set_activity(me, "acting", a[:48], [{"place": w.characters[me]["location"], "what": a[:48], "dur": 8}]); self.version += 1
 
-        instr = ("It is afternoon and the work is done or skipped. If something touched you today or you have a want to act on, act on it now: speak if you must, then one ACTION line. "
-                 "If nothing touched you and you have nothing to do, reply exactly PASS.")
+        instr = ("It is afternoon, your free time. If something touched you today or you have a want to act on, act on it now: speak if you must, then one ACTION line. "
+                 "If nothing presses, reply exactly PASS and you will spend the afternoon on your pastime.")
         self._round(seats, instr, "afternoon", on_reply, reactions=True)
+        if self.stop_flag.is_set(): return
+        # everyone else spends the afternoon on their pastime, on the map; the same place makes company, and company talks
+        with self.lock:
+            done = [w.do_pastime(g.seats[i]["name"], self.rng) for i in self._able_seats() if i not in acted]
+            groups = w.pastime_groups(); self.version += 1
+        if done:
+            lines = [d["text"] for d in done]
+            for pl, ns in groups.items(): lines.append(f"At {pl}: {', '.join(ns)} together.")
+            self._record("The valley", "\n".join(lines), "afternoon"); g.save()
+        if groups:
+            name_seat = {g.seats[i]["name"]: i for i in self._able_seats()}
+            talkers = [name_seat[n] for ns in groups.values() for n in ns if n in name_seat]
+            def instr_for(i: int) -> str:
+                me = g.seats[i]["name"]; pl = w.characters[me]["location"]; others = [n for n in groups.get(pl, []) if n != me]
+                return (f"You are {PASTIMES[w.characters[me]['pastime']]['verb']} at {pl} with {', '.join(others)}. Say something to them if you have anything to say, in one to three sentences, or reply exactly PASS. No ACTION line.")
+            def on_talk(i: int, text: str | None) -> None:
+                if not text: return
+                said = self._speech_part(text)
+                if said: self._record(g.seats[i]["name"], said, "speech")
+            self._round(talkers, instr_for, "afternoon company", on_talk, reactions=True)
 
     def _evening_phase(self) -> None:
         """Dusk. Everyone goes home, or to the inn if it pulls them, and the people something touched talk where they are. No actions."""
