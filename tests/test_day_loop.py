@@ -85,8 +85,7 @@ class MorningTests(unittest.TestCase):
         self.assertEqual(w.characters["P1"]["location"], w.characters["P1"]["home"]); self.assertEqual(w.characters["P1"]["activity"], "at home")
 
     def test_the_day_ends_only_when_told(self) -> None:
-        w = valley(); w.apply({"results": []}, []); self.assertEqual(w.day, 1, "the World's block no longer ends the day")
-        w.characters["P0"]["dumped"] = ["mill"]; w.end_day(); self.assertEqual(w.day, 2); self.assertEqual(w.phase, "morning"); self.assertEqual(w.characters["P0"]["dumped"], [])
+        w = valley(); w.characters["P0"]["dumped"] = ["mill"]; w.end_day(); self.assertEqual(w.day, 2); self.assertEqual(w.phase, "morning"); self.assertEqual(w.characters["P0"]["dumped"], [])
 
 
 class LoopTests(unittest.TestCase):
@@ -117,8 +116,7 @@ class LoopTests(unittest.TestCase):
         self.assertTrue(any(c["name"] in morning["text"] for c in w.characters.values()), "the morning names who worked")
         self.assertTrue(all(e.get("phase") in ("morning", "afternoon", "evening") for e in g.transcript if e.get("day", 0) >= 1), "every entry carries its phase")
         prompts = " ".join(f.read_text(encoding="utf-8") for f in (g.dir / "seat0").glob("prompt_*"))
-        self.assertIn("UNDONE TODAY, by name", prompts, "the World is told what went undone")
-        self.assertIn("THIS MORNING'S WORK", prompts)
+        self.assertIn("outcomes, settled by the engine", prompts, "the World is given the outcomes")
         for t in r.terms: self.assertNotIn("[engine error", "\n".join(t["lines"]))
 
 

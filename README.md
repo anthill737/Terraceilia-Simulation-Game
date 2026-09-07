@@ -8,9 +8,10 @@ and a winter coming that the last one proved can kill. Each person is played by 
 secret. One more agent plays the World: referee, weather, fates, and chronicler. You are the
 convener. You watch, you speak as fate, and you can reach into the map and move things with your hand.
 
-The engine owns the world. Stats are rolled by code, dice are rolled by code, every number the World
-proposes is validated and clamped, the dead stay dead, and the map is fixed and known to everyone.
-The agents can talk, scheme, lie, and act; they cannot change a number by saying so.
+The engine owns the world. Stats are rolled by code, dice are rolled by code, every action is
+resolved by code, the dead stay dead, and the map is fixed and known to everyone. The World proposes
+nothing: it is told what happened and narrates it, and anything it invents is dropped. The agents can
+talk, scheme, lie, and act; they cannot change a number by saying so.
 
 ## Requirements
 
@@ -95,9 +96,13 @@ That takes a minute or two. Then day one begins.
    people whose pastimes put them in the same place are company and get a turn to talk. Anyone named
    or whispered to at the same place gets a turn to answer. Driving someone out, refusing to share,
    taking work, leaving, and every duty change are settled by the engine before the World sees anything.
-4. **The World resolves the afternoon.** It is given the morning's work, what went undone, the
-   settled outcomes, the day's events, and the afternoon's actions with a die for each, and writes
-   one outcome per person who acted, two sentences at most.
+4. **The engine resolves the afternoon, the World tells it.** Every free action is read into one of
+   fourteen verbs (travel, talk, give, take, steal, hit, drive out, help, tend, court, pray, trade,
+   search, wait) with a target, and settled by stats, ties and dice. An action that maps to no verb
+   is talk and changes nothing. The World is given only the list of resolved outcomes, with no
+   sheets, map, ledger or ties, and tells them one line each, two sentences at most. Its words are
+   checked: any line naming a person, place, number or item that is not in the outcome list is
+   dropped and logged, and if it gives nothing usable the engine's own lines stand.
 5. **Evening: talk.** Everyone goes home, or to the inn if it pulls them, and the people something
    touched talk where they are. No actions. Then the day ends.
 
@@ -117,11 +122,11 @@ from their natures and then shaped by the ties the World invents and everything 
 
 ### How things go
 
-The World is told how things go and may not soften it. A fight wounds. A person with Strength 7 or
-more who attacks on a roll of 5 or 6 can kill, and a knife in the dark kills on a 4. Drunk actions
-go wrong on a 1 to 3 and are witnessed. A theft that fails is seen. A murder that succeeds still
-leaves a body, and bodies are found. Lies succeed on a 4 or better against the simple and fail
-against the cunning. Every day, without exception, something happens that no character chose.
+Fights, thefts, courtship and the rest are settled by the engine. A fight is strength plus a die on
+each side; the loser is hurt, and a strong winner on a high roll can kill. A theft is cunning against
+cunning; a failed one is seen and costs standing and trust. Courtship is desire and tongue against the
+target's chastity and how they feel; a spouse hears of it either way. Every result is written to
+state before the World is told a word.
 
 ### Drama and events
 

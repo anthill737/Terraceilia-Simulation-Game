@@ -147,7 +147,7 @@ class MapTests(unittest.TestCase):
         self.assertEqual(g.status, "done"); self.assertGreater(w.day, 3)
         self.assertEqual(errs, [], f"a thread raised: {errs}")
         for t in r.terms: self.assertNotIn("[engine error", "\n".join(t["lines"]))
-        self.assertTrue(any("mud and argument" in e["text"] for e in g.transcript if e["kind"] == "world"), "the World never resolved an afternoon")
+        self.assertTrue(any(e["kind"] == "world" and e.get("day", 0) >= 1 for e in g.transcript), "the World never told an afternoon")
         self.assertIn("the bell", w.map["Fenchapel"].get("destroyed", []))
         self.assertTrue(w.map["Saltmarket"].get("destroyed"), "the fire ruined nothing")
         # The fire burns for three days and then burns itself out, which resolves its situation. It may also spread to a
