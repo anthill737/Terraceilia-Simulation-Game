@@ -218,7 +218,57 @@ def roll_character(name: str, seat: int, rng: random.Random, places: list[str] |
     return {"name": name, "seat": seat, "str": rng.randint(2, 9), "spd": rng.randint(2, 9), "hp": hp, "hp_max": hp,
             "gold": rng.randint(1, 9), "skills": {}, "location": rng.choice(places or PLACES), "standing": standing_word(0), "standing_score": 0,
             "alive": True, "gone": False, "gone_reason": "", "trade": "", "home": "", "personality": "", "secret": "", "fear": "", "want": "",
-            "cause_of_death": "", "traits": roll_traits(rng), "log": []}
+            "cause_of_death": "", "traits": roll_traits(rng), "log": [], "needs": fresh_needs(), "sick": False, "sick_days": 0}
+
+
+# ---------------------------------------------------------------- needs, seasons, weather
+# Every person has food, warmth and rest on a scale of 0 to 10, and health (hp). Needs fall every day. A need at zero
+# takes health, and health at zero is death. Sick people cannot work and get worse until someone tends them.
+NEEDS = ("food", "warmth", "rest")
+NEED_WORDS = {"food": ["starving", "hungry", "fed"], "warmth": ["freezing", "cold", "warm"], "rest": ["exhausted", "tired", "rested"]}
+STORES = ("grain", "meat", "fish", "wood", "meals", "tools", "herbs")     # what the valley keeps; all of it decays and none of it grows without work
+PLACE_STATE = ("roof", "warmth", "filth")                                  # what each place is in, 0 to 10; roof and warmth fall, filth rises
+SEASONS = [(6, "autumn"), (14, "early winter"), (24, "deep winter"), (10**9, "thaw")]
+WEATHER = {"autumn": [("clear", 50), ("rain", 35), ("cold snap", 15)],
+           "early winter": [("clear", 30), ("rain", 25), ("snow", 30), ("storm", 15)],
+           "deep winter": [("clear", 25), ("snow", 40), ("storm", 20), ("bitter cold", 15)],
+           "thaw": [("clear", 45), ("rain", 40), ("storm", 15)]}
+COLD = {"cold snap", "snow", "storm", "bitter cold"}
+WET = {"rain", "storm"}
+
+
+def fresh_needs() -> dict:
+    return {"food": 8, "warmth": 8, "rest": 8}
+
+
+def need_word(k: str, v: int) -> str:
+    return NEED_WORDS[k][0 if v <= 0 else 1 if v <= 4 else 2]
+
+
+def season_of(day: int) -> str:
+    for top, name in SEASONS:
+        if day <= top: return name
+    return SEASONS[-1][1]
+
+
+def roll_weather(day: int, rng: random.Random) -> str:
+    table = WEATHER[season_of(day)]; r = rng.random() * sum(w for _, w in table)
+    for name, w in table:
+        r -= w
+        if r < 0: return name
+    return table[0][0]
+
+
+def growing(day: int, weather: str) -> bool:
+    """Fields give nothing in winter; nothing planted comes up under snow."""
+    return season_of(day) in ("autumn", "thaw") and weather not in ("snow", "bitter cold")
+
+
+def starting_ledger(players: int, places: int) -> dict:
+    """Enough for a few days if nobody works, and not a day more. Grain is in sacks (a sack makes ten meals), meat and fish
+    in cuts (one meal each), meals ready to eat, wood in bundles (one warms a place for a day), tools and herbs by the piece."""
+    return {"grain": max(4, int(players * 1.2)), "meat": max(2, players // 3), "fish": max(2, players // 4), "wood": max(6, places * 3),
+            "meals": max(4, players), "tools": max(3, players // 2), "herbs": max(2, players // 4), "road_safe": False, "built": []}
 
 
 # ---------------------------------------------------------------- standing
@@ -318,13 +368,17 @@ class World:
         d = d or {}
         self.characters: dict[str, dict] = d.get("characters", {})
         self.day = d.get("day", 0)
-        self.ledger = d.get("ledger", {"grain_weeks": 10, "grain_needed": 16, "roofs_broken": 3, "road_safe": False, "sick": 0, "built": []})
+        self.ledger = d.get("ledger") or starting_ledger(20, 10)
         self.pending: list[dict] = d.get("pending", [])
         self.created = d.get("created", False)
+        self.weather: str = d.get("weather", "clear")
+        self.upkeep: dict[str, dict] = d.get("upkeep", {})         # per place: roof, warmth, filth; beside the map, which is fixed
+        self.bodies: dict[str, str] = d.get("bodies", {})          # the unburied dead: name -> where they lie
+        self.day_report: dict = d.get("day_report", {})            # what dawn found: season, weather, changes, the low and the broken and the sick
         for c in self.characters.values():           # games saved under the old rules
             if "gone" not in c: c["gone"] = bool(c.pop(OLD_GONE_KEY, False)); c["gone_reason"] = "driven out, in a game saved under the old rules" if c["gone"] else ""
             if "standing_score" not in c: c["standing_score"] = standing_score_for(c.get("standing", "unknown")); c["standing"] = standing_word(c["standing_score"])
-            c.setdefault("log", [])
+            c.setdefault("log", []); c.setdefault("needs", fresh_needs()); c.setdefault("sick", False); c.setdefault("sick_days", 0)
         self.map: dict = d.get("map") or json.loads(json.dumps(BASE_MAP))
         self.map_name: str = d.get("map_name") or BASE_NAME
         self.style: dict = d.get("style") or json.loads(json.dumps(BASE_STYLE))
@@ -335,21 +389,161 @@ class World:
         self.threads: list[dict] = d.get("threads", [])     # open situations: {id, text, day, place, who, status, spawn}
         self.fires: dict[str, int] = d.get("fires", {})    # place -> days burning
         self.next_thread = d.get("next_thread", 1)
+        if "grain_weeks" in self.ledger:             # the old prosperity ledger: carry what it meant across
+            old = self.ledger; self.ledger = starting_ledger(max(1, len(self.characters)) or 20, len(self.map))
+            self.ledger["grain"] = max(0, int(old.get("grain_weeks", 10)) * 2); self.ledger["road_safe"] = bool(old.get("road_safe")); self.ledger["built"] = list(old.get("built", []))
+        for k in STORES: self.ledger.setdefault(k, 0)
+        self.ledger.setdefault("road_safe", False); self.ledger.setdefault("built", []); self.seed_places()
 
     def to_dict(self) -> dict:
         return {"characters": self.characters, "day": self.day, "ledger": self.ledger, "pending": self.pending,
                 "created": self.created, "map": self.map, "fate": self.fate, "relations": self.relations,
                 "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
-                "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style}
+                "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style,
+                "weather": self.weather, "upkeep": self.upkeep, "bodies": self.bodies, "day_report": self.day_report}
 
     # ---- which map this game plays on
     def install_map(self, v: dict) -> None:
         self.map = v["places"]; self.map_name = v.get("name") or "The valley"; self.map_generated = True
-        self.names = list(v.get("names") or []); self.style = v.get("style") or json.loads(json.dumps(BASE_STYLE))
+        self.names = list(v.get("names") or []); self.style = v.get("style") or json.loads(json.dumps(BASE_STYLE)); self.seed_places()
 
     def install_builtin(self) -> None:
         self.map = json.loads(json.dumps(BASE_MAP)); self.map_name = BASE_NAME; self.map_generated = False
-        self.names = []; self.style = json.loads(json.dumps(BASE_STYLE))
+        self.names = []; self.style = json.loads(json.dumps(BASE_STYLE)); self.seed_places()
+
+    OUTDOORS = ("forest", "fields", "water", "road", "cave", "ruin")
+
+    def seed_places(self) -> None:
+        """Every place starts with a roof that mostly holds, a little warmth, and little filth. Outdoor kinds have no roof to lose.
+        Kept beside the map, not in it: the map is fixed, and this is what wears."""
+        for n, d in self.map.items():
+            u = self.upkeep.setdefault(n, {})
+            u.setdefault("roof", 0 if d.get("kind") in self.OUTDOORS else 7); u.setdefault("warmth", 5); u.setdefault("filth", 1)
+        for n in list(self.upkeep):
+            if n not in self.map: del self.upkeep[n]
+
+    def place_state(self, place: str) -> dict:
+        u = self.upkeep.get(place) or {}
+        return {k: int(u.get(k, 0)) for k in PLACE_STATE}
+
+    def roofed(self, place: str) -> bool:
+        return (self.map.get(place) or {}).get("kind") not in self.OUTDOORS
+
+    def sheltered(self, place: str) -> bool:
+        return self.place_state(place)["roof"] >= 4
+
+    # ---- dawn: the valley wears a little more each day, and the people with it
+    def dawn(self, rng: random.Random) -> dict:
+        """Run once at the start of every day, before anyone speaks. Rolls the weather, decays the stores and the places,
+        feeds and warms the people from what there is, moves their needs, lets sickness in, and buries nobody.
+        Returns the day report and keeps it on the world for the prompts and the UI."""
+        L = self.ledger; day = self.day; season = season_of(day); self.weather = roll_weather(day, rng); cold = self.weather in COLD; wet = self.weather in WET
+        before = {k: L[k] for k in STORES}; pbefore = {p: self.place_state(p) for p in self.map}
+        lines: list[str] = []; sick_new: list[str] = []; dead: list[str] = []
+        # stores spoil whether or not anyone touches them
+        L["grain"] = max(0, L["grain"] - (1 if rng.random() < .5 else 0)); L["meat"] = max(0, L["meat"] - (1 if not cold else 0)); L["fish"] = max(0, L["fish"] - (2 if not cold else 1))
+        L["meals"] = max(0, L["meals"] - max(0, (L["meals"] + 9) // 10 - 1)); L["herbs"] = max(0, L["herbs"] - (1 if day % 2 == 0 else 0))
+        if L["tools"] > 0 and rng.random() < .15: L["tools"] -= 1
+        # places: roofs rot in the wet, warmth needs wood every day, filth builds where people live and where the dead lie
+        self.seed_places()
+        for p in self.map:
+            u = self.upkeep[p]; here = self.at(p)
+            if u["roof"] > 0 and (wet or rng.random() < .2): u["roof"] = max(0, u["roof"] - (2 if self.weather == "storm" else 1))
+            if here:
+                need = 2 if cold else 1
+                if L["wood"] >= need: L["wood"] -= need; u["warmth"] = min(10, u["warmth"] + (1 if cold else 2))
+                else: u["warmth"] = max(0, u["warmth"] - (3 if cold else 2))
+                if u["roof"] < 4 and (wet or cold): u["warmth"] = max(0, u["warmth"] - 2)
+                u["filth"] = min(10, u["filth"] + 1 + len(here) // 4)
+            else:
+                u["warmth"] = max(0, u["warmth"] - (2 if cold else 1))
+                if u["filth"] > 0 and not any(pl == p for pl in self.bodies.values()): u["filth"] -= 1
+            u["filth"] = min(10, u["filth"] + sum(1 for pl in self.bodies.values() if pl == p))
+        # the people: they eat what there is, warm themselves at what fire there is, and rest as well as the roof lets them
+        for c in sorted(self.living(), key=lambda c: c["seat"]):
+            n = c.setdefault("needs", fresh_needs()); place = self.place_state(c["location"])
+            if L["meals"] > 0: L["meals"] -= 1; n["food"] = min(10, n["food"] + 4)
+            elif L["grain"] > 0 and rng.random() < .5: L["grain"] -= 1; n["food"] = min(7, n["food"] + 2)
+            elif L["fish"] > 0: L["fish"] -= 1; n["food"] = min(8, n["food"] + 3)
+            elif L["meat"] > 0: L["meat"] -= 1; n["food"] = min(9, n["food"] + 3)
+            n["food"] = max(0, n["food"] - 3)
+            warmth = place["warmth"]
+            n["warmth"] = max(0, min(10, n["warmth"] + (2 if warmth >= 6 else 0 if warmth >= 3 else -2) - (2 if cold else 1)))
+            n["rest"] = max(0, min(10, n["rest"] + (3 if place["roof"] >= 4 and warmth >= 3 else 1) - 2))
+            hurt = [k for k in NEEDS if n[k] <= 0]
+            if hurt:
+                c["hp"] = max(0, c["hp"] - len(hurt)); note_log(c, day, f"You are {', '.join(need_word(k, 0) for k in hurt)}. It is taking your health.")
+            # sickness: filth, the unburied, cold and hunger all let it in; the sick get worse until they are tended
+            risk = 0.0
+            if place["filth"] >= 6: risk += .15
+            risk += .08 * sum(1 for pl in self.bodies.values() if pl == c["location"])
+            if n["warmth"] <= 0: risk += .25
+            if n["food"] <= 0: risk += .10
+            if season != "autumn": risk += .03
+            if not c.get("sick") and rng.random() < risk:
+                c["sick"] = True; c["sick_days"] = 0; sick_new.append(c["name"]); note_log(c, day, "You woke sick. You cannot work until someone tends you.")
+            elif c.get("sick"):
+                c["sick_days"] = c.get("sick_days", 0) + 1
+                if c.get("tended_day") == day - 1 and rng.random() < .6:
+                    c["sick"] = False; note_log(c, day, "The tending worked. You are on your feet again.")
+                elif n["food"] >= 5 and n["warmth"] >= 5 and rng.random() < .12:
+                    c["sick"] = False; note_log(c, day, "You slept it off, warm and fed.")
+                else: c["hp"] = max(0, c["hp"] - 1)
+            if c["hp"] <= 0 and c["alive"]:
+                cause = "starved" if n["food"] <= 0 else "froze" if n["warmth"] <= 0 else "died of sickness" if c.get("sick") else "died worn out"
+                self.kill(c, cause); dead.append(f"{c['name']} {cause} at {c['location']}")
+                note_log(c, day, f"You {cause}.")
+        # the report
+        change = {k: L[k] - before[k] for k in STORES}
+        low = [k for k in STORES if L[k] <= (2 if k in ("tools", "herbs") else 4)]
+        broken = [p for p in self.map if self.roofed(p) and self.upkeep[p]["roof"] < 4]
+        coldp = [p for p in self.map if self.at(p) and self.upkeep[p]["warmth"] <= 2]
+        foul = [p for p in self.map if self.upkeep[p]["filth"] >= 6]
+        sick = [c["name"] for c in self.living() if c.get("sick")]
+        hungry = [c["name"] for c in self.living() if c["needs"]["food"] <= 2]; freezing = [c["name"] for c in self.living() if c["needs"]["warmth"] <= 2]
+        lines.append(f"Day {day}, {season}, {self.weather}.")
+        if low: lines.append("Low: " + ", ".join(f"{k} {L[k]}" for k in low) + ".")
+        if broken: lines.append("Roofs failing: " + ", ".join(broken) + ".")
+        if coldp: lines.append("Cold hearths: " + ", ".join(coldp) + ".")
+        if foul: lines.append("Foul with filth: " + ", ".join(foul) + ".")
+        if self.bodies: lines.append("Unburied: " + ", ".join(f"{n} at {p}" for n, p in self.bodies.items()) + ".")
+        if self.fires: lines.append("Burning: " + ", ".join(self.fires) + ".")
+        if sick: lines.append("Sick and cannot work: " + ", ".join(sick) + ".")
+        if hungry: lines.append("Hungry: " + ", ".join(hungry) + ".")
+        if freezing: lines.append("Freezing: " + ", ".join(freezing) + ".")
+        if sick_new: lines.append("Fell sick in the night: " + ", ".join(sick_new) + ".")
+        if dead: lines.append("Dead by morning: " + "; ".join(dead) + ".")
+        self.day_report = {"day": day, "season": season, "weather": self.weather, "growing": growing(day, self.weather), "ledger": dict(L), "change": change,
+                           "places": {p: {k: self.place_state(p)[k] - pbefore[p][k] for k in PLACE_STATE} for p in self.map},
+                           "low": low, "broken": broken, "cold": coldp, "foul": foul, "sick": sick, "hungry": hungry, "freezing": freezing, "sick_new": sick_new, "dead": dead,
+                           "lines": lines}
+        return self.day_report
+
+    def kill(self, c: dict, cause: str) -> None:
+        """The one way a person dies. The body lies where they were until someone buries it."""
+        if not c["alive"]: return
+        c["alive"] = False; c["hp"] = 0; c["cause_of_death"] = (cause or "unknown")[:120]; c["sick"] = False
+        self.bodies[c["name"]] = c["location"]
+
+    def bury(self, name: str) -> bool:
+        if name in self.bodies: del self.bodies[name]; return True
+        return False
+
+    def ledger_text(self) -> str:
+        L = self.ledger; ch = (self.day_report or {}).get("change", {})
+        parts = [f"{k} {L[k]}" + (f" ({ch[k]:+d})" if ch.get(k) else "") for k in STORES]
+        return ", ".join(parts) + f"; road {'safe' if L.get('road_safe') else 'unsafe'} after dark; built: {', '.join(L.get('built', [])) or 'nothing'}"
+
+    def places_text(self) -> str:
+        return "\n".join(f"- {p}: {'roof ' + str(self.place_state(p)['roof']) + '/10, ' if self.roofed(p) else 'no roof, '}warmth {self.place_state(p)['warmth']}/10, filth {self.place_state(p)['filth']}/10" for p in self.map)
+
+    def needs_text(self, name: str) -> str:
+        c = self.characters[name]; n = c.get("needs") or fresh_needs()
+        words = ", ".join(f"{need_word(k, n[k])} ({k} {n[k]}/10)" for k in NEEDS)
+        return f"HOW YOU ARE: {words}; health {c['hp']} of {c['hp_max']}" + ("; SICK, you cannot work until someone tends you" if c.get("sick") else "") + "."
+
+    def dawn_text(self) -> str:
+        return "\n".join((self.day_report or {}).get("lines") or [f"Day {self.day}, {season_of(self.day)}, {self.weather}."])
 
     def resolve_place(self, name: str) -> str | None:
         """A built-in place name on this map: the same name, or for the generic built-in places a place of the same kind."""
@@ -416,7 +610,7 @@ class World:
         if fx: m.setdefault("destroyed", []).append(fx[0])
         for c in self.at(p): c["hp"] = max(0, c["hp"] - 2)
         for c in self.at(p):
-            if c["hp"] <= 0 and c["alive"]: c["alive"] = False; c["cause_of_death"] = f"burned at {p}"
+            if c["hp"] <= 0 and c["alive"]: self.kill(c, f"burned at {p}")
 
     def spread_fires(self, rng: random.Random, log: list[str]) -> None:
         for p in list(self.fires):
@@ -531,7 +725,7 @@ class World:
     def smite(self, name: str) -> str:
         c = self.characters.get(name)
         if not c or not c["alive"]: return "no such living person"
-        c["alive"] = False; c["hp"] = 0; c["cause_of_death"] = "struck down by fate"; self.fate.append(f"{name} died suddenly, of no cause anyone can name."); return f"{name} is dead"
+        self.kill(c, "struck down by fate"); self.fate.append(f"{name} died suddenly, of no cause anyone can name."); return f"{name} is dead"
 
     def draw_events(self, drama: int, rng: random.Random, log: list[str]) -> list[str]:
         """Roll the day's events against the drama dial (0 none .. 10 chaos), apply their hard effects, return the lines to narrate."""
@@ -555,12 +749,16 @@ class World:
             if "hp" in fx: who["hp"] = max(0, min(who["hp_max"], who["hp"] + int(fx["hp"])))
             if "gold" in fx: who["gold"] = max(0, who["gold"] + int(fx["gold"]))
             if "standing" in fx: bump_standing(who, int(fx["standing"]))
-            if "sick" in fx: self.ledger["sick"] = max(0, self.ledger["sick"] + int(fx["sick"]))
-            if "grain" in fx: self.ledger["grain_weeks"] = max(0, self.ledger["grain_weeks"] + int(fx["grain"]))
-            if "roofs" in fx: self.ledger["roofs_broken"] = max(0, self.ledger["roofs_broken"] + int(fx["roofs"]))
+            if "sick" in fx:
+                pool = [c for c in self.living() if not c.get("sick")]; rng.shuffle(pool)
+                for c in pool[:max(0, int(fx["sick"]))]: c["sick"] = True; c["sick_days"] = 0; note_log(c, self.day, "You fell sick.")
+            if "grain" in fx: self.ledger["grain"] = max(0, self.ledger["grain"] + int(fx["grain"]))
+            if "roofs" in fx:
+                roofed = [p for p in self.map if self.roofed(p) and self.place_state(p)["roof"] > 0]
+                if roofed: rp = place if place in roofed else rng.choice(roofed); self.upkeep[rp]["roof"] = max(0, self.upkeep[rp]["roof"] - 4 * int(fx["roofs"]))
             if fx.get("road_unsafe"): self.ledger["road_safe"] = False
             if fx.get("destroy") and fixture in fixtures: self.map[place].setdefault("destroyed", []).append(fixture)
-            if who["hp"] <= 0 and who["alive"]: who["alive"] = False; who["cause_of_death"] = "died of it"
+            if who["hp"] <= 0 and who["alive"]: self.kill(who, "died of it")
             if e.get("thread"):
                 t = self.open_thread(text, place if ("{place}" in e["t"] or e.get("place") or e.get("spawn")) else None, [who["name"]] + ([who2["name"]] if "{who2}" in e["t"] else []), e.get("spawn"))
                 text = f"{text} [situation #{t['id']}]"
@@ -579,13 +777,10 @@ class World:
         return "WHO IS WHERE\n" + "\n".join(rows) + f"\nDEAD: {', '.join(dead) or 'none'}\nGONE: {', '.join(self.gone_list()) or 'none'}"
 
     def standings_table(self) -> str:
-        rows = [f"| {c['name']} | {c['location']} | {c['hp']}/{c['hp_max']} | {c['gold']} | {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'} | {c['standing']} |"
+        rows = [f"| {c['name']} | {c['location']} | {c['hp']}/{c['hp_max']}{' sick' if c.get('sick') else ''} | {c['gold']} | {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'} | {c['standing']} |"
                 for c in sorted(self.living(), key=lambda c: c["seat"])]
         dead = [f"{c['name']} ({c['cause_of_death']})" for c in self.characters.values() if not c["alive"]]
-        L = self.ledger
-        led = (f"PROSPERITY, day {self.day}: grain for {L['grain_weeks']} of {L['grain_needed']} weeks needed; "
-               f"{L['roofs_broken']} roofs still broken; road {'safe' if L['road_safe'] else 'unsafe'} after dark; "
-               f"{L['sick']} sick; built this year: {', '.join(L['built']) or 'nothing yet'}.")
+        led = f"PROSPERITY, day {self.day}, {season_of(self.day)}, {self.weather}: {self.ledger_text()}."
         return (led + "\n\nSTANDINGS\n| Name | Location | Health | Gold | Skills | Standing |\n|---|---|---|---|---|---|\n"
                 + "\n".join(rows) + f"\n\nDEAD: {', '.join(dead) or 'none'}\nGONE: {', '.join(self.gone_list()) or 'none'}")
 
@@ -725,6 +920,7 @@ class World:
         return (head + f"You are {c['name']}, {c['trade']}, living at {c['home']}. Your character: {c['personality']}\nYour disposition, which you play without softening: {trait_text(c.get('traits', {}))}\n"
                 f"Strength {c['str']}, Speed {c['spd']}, Health {c['hp']} of {c['hp_max']}, Gold {c['gold']}, "
                 f"Skills {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'}. You are at {c['location']}.\n"
+                f"{self.needs_text(name)}\n"
                 f"Your secret, known only to you: {c['secret']}\nYour fear: {c['fear']}\nWhat you want more than anything: {c['want']}\n"
                 f"YOUR PEOPLE, and how you truly feel about them (act on this):\n{self.relations_text(name)}")
 
@@ -749,9 +945,9 @@ class World:
                 except (TypeError, ValueError): log.append(f"standing for {c['name']} must be a number, -2 to 2")
         for d in res.get("dead", []) or []:
             c = self.characters.get(str(d.get("who", "")))
-            if c and c["alive"]: c["alive"] = False; c["hp"] = 0; c["cause_of_death"] = str(d.get("cause", "unknown"))[:120]
+            if c and c["alive"]: self.kill(c, str(d.get("cause", "unknown"))[:120])
         for c in self.characters.values():
-            if c["alive"] and c["hp"] <= 0: c["alive"] = False; c["cause_of_death"] = c["cause_of_death"] or "wounds"
+            if c["alive"] and c["hp"] <= 0: self.kill(c, c["cause_of_death"] or "wounds")
         if res.get("sent_away") or res.get("gone"): log.append("the block named people to send away and was ignored: nobody is sent away but by another person's own act")
         for th in res.get("threads", []) or []:
             if isinstance(th, dict) and th.get("status") == "resolved":
@@ -765,11 +961,10 @@ class World:
             self.set_rel(a, b, rr.get("type"), rr.get("feeling"), rr.get("trust"), delta=True, why=why)
             if rr.get("mutual"): self.set_rel(b, a, rr.get("type"), rr.get("feeling"), rr.get("trust"), delta=True, why=why)
         L = res.get("ledger", {}) or {}; g = self.ledger
-        try:
-            if "grain_weeks" in L: g["grain_weeks"] = max(0, g["grain_weeks"] + int(L["grain_weeks"]))
-            if "roofs_broken" in L: g["roofs_broken"] = max(0, g["roofs_broken"] + int(L["roofs_broken"]))
-            if "sick" in L: g["sick"] = max(0, g["sick"] + int(L["sick"]))
-        except (TypeError, ValueError): log.append("bad number in ledger")
+        for k in STORES:
+            if k in L:
+                try: g[k] = max(0, g[k] + max(-3, min(3, int(L[k]))))
+                except (TypeError, ValueError): log.append(f"bad number in ledger for {k}")
         if "road_safe" in L: g["road_safe"] = bool(L["road_safe"])
         for b in L.get("built", []) or []:
             if str(b).strip() and str(b).strip() not in g["built"]: g["built"].append(str(b).strip()[:60])

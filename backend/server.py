@@ -7,7 +7,7 @@ from pathlib import Path
 import connect
 import telegram
 from agents import PROVIDERS, VERSIONS, refresh_versions
-from engine import GAMES, STANDING_WORDS, World, now_id, standing_score_for, standing_word
+from engine import GAMES, NEEDS, STANDING_WORDS, World, now_id, standing_score_for, standing_word, need_word
 from game import Game, Run, list_games
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
@@ -43,7 +43,8 @@ class App:
             w = g.world
             return {"id": g.id, "day": w.day, "status": g.status, "current": r.current, "created": w.created,
                     "map": w.map, "map_name": w.map_name, "map_generated": w.map_generated, "map_style": w.style, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
-                    "characters": [{k: c[k] for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing")} for c in w.characters.values()],
+                    "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies),
+                    "characters": [{k: c.get(k) for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing", "sick", "needs")} for c in w.characters.values()],
                     "seats": [{"name": x["name"], "color": x["color"]} for x in g.seats], "version": r.version}
 
     def snapshot(self, since: int = -1, terms: bool = False, tail: int = 120) -> dict:
@@ -62,6 +63,7 @@ class App:
                     "seats": seats, "transcript": tr, "transcript_total": total, "last_turn": last_turn, "current": current, "day": day, "created": created,
                     "characters": chars, "ledger": ledger, "pending": pending, "map": mp, "relations": json.loads(json.dumps(w.relations)),
                     "threads": list(w.threads), "fires": dict(w.fires),
+                    "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies),
                     "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
                     "terms": tstates,
                     "phone_url": self.phone_url, "away_url": self.away_url, "last_god": self.last_god,
@@ -191,8 +193,16 @@ class App:
                     if c["traits"].get(k) != v: c["traits"][k] = v; life_changed = True
                 if life_changed and i is not None: g.cli_sessions.pop(str(i), None); c["changed"] = True
             c["hp"] = min(c["hp"], c["hp_max"])
-            if c["hp"] <= 0 and c["alive"]: c["alive"] = False; c["cause_of_death"] = "struck down by fate"; notes.append(f"{name} died")
-            if d.get("alive") is True and not c["alive"]: c["alive"] = True; c["hp"] = max(1, c["hp"]); c["cause_of_death"] = ""; notes.append(f"{name} lives again")
+            if c["hp"] <= 0 and c["alive"]: w.kill(c, "struck down by fate"); notes.append(f"{name} died")
+            if d.get("alive") is True and not c["alive"]: c["alive"] = True; c["hp"] = max(1, c["hp"]); c["cause_of_death"] = ""; w.bury(name); notes.append(f"{name} lives again")
+            if "sick" in d and bool(d["sick"]) != bool(c.get("sick")): c["sick"] = bool(d["sick"]); c["sick_days"] = 0; notes.append(f"{name} is {'sick' if c['sick'] else 'well again'}")
+            nd = d.get("needs")
+            if isinstance(nd, dict):
+                for k in NEEDS:
+                    if k in nd:
+                        try: v = max(0, min(10, int(nd[k])))
+                        except (TypeError, ValueError): continue
+                        if c["needs"].get(k) != v: c["needs"][k] = v; notes.append(f"{name} is now {need_word(k, v)}")
             if "gone" in d and bool(d["gone"]) != c["gone"]:
                 c["gone"] = bool(d["gone"])
                 if not c["gone"]: c["gone_reason"] = ""; notes.append(f"{name} has come back to the valley, walking in by the east road")

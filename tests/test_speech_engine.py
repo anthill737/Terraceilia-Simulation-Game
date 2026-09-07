@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 import engine, game  # noqa: E402
 from engine import strip_dashes, cap_speech, cap_outcomes, touched_text  # noqa: E402
 
-EM, EN = "—", "–"      # by code point: the dash itself is not allowed in this repo, tests included
+EM, EN = "\u2014", "\u2013"      # by code point: the dash itself is not allowed in this repo, tests included
 
 
 class DashTests(unittest.TestCase):
