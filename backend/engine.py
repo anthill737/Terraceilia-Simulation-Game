@@ -1357,16 +1357,41 @@ class World:
         if stops:
             self.set_activity(name, "working", stops[0]["what"], stops)
             if c["alive"] and not c["gone"]: c["location"] = stops[-1]["place"]
+        elif out and out[0].get("kind") == "needs": pass          # set_activity already ran, from see_to_needs
         elif out and out[0].get("kind") == "sick": self.set_activity(name, "resting", "resting", [{"place": c.get("home") if c.get("home") in self.map else c["location"], "what": "resting", "dur": 0}])
         elif any(r.get("kind") in ("skip", "refuse") for r in out): self.set_activity(name, "idle", "idle")
         return out
 
+    def see_to_needs(self, name: str) -> dict | None:
+        """A need at zero comes before any duty. The starving eat what the stores hold, the freezing go home to the fire and burn
+        what wood there is; either way the morning is spent on it. The duty is neither done nor lost; it simply waits."""
+        c = self.characters[name]; n = c.setdefault("needs", fresh_needs()); L = self.ledger
+        if n["food"] > 0 and n["warmth"] > 0: return None
+        home = c.get("home") if c.get("home") in self.map else c["location"]; bits = []
+        if n["food"] <= 0:
+            if L["meals"] > 0: L["meals"] -= 1; n["food"] = min(10, n["food"] + 5); bits.append("ate a meal")
+            elif L["grain"] > 0: L["grain"] -= 1; n["food"] = min(10, n["food"] + 3); bits.append("ate raw grain")
+            elif L["fish"] > 0: L["fish"] -= 1; n["food"] = min(10, n["food"] + 3); bits.append("ate what fish there was")
+            elif L["meat"] > 0: L["meat"] -= 1; n["food"] = min(10, n["food"] + 3); bits.append("ate what meat there was")
+            else: bits.append("found nothing to eat")
+        if n["warmth"] <= 0:
+            c["location"] = home; u = self.upkeep.get(home)
+            if L["wood"] > 0 and u is not None: L["wood"] -= 1; u["warmth"] = min(10, u["warmth"] + 3); n["warmth"] = min(10, n["warmth"] + 4); bits.append(f"burned wood at {home} to get warm")
+            else: bits.append(f"huddled at {home} with no wood to burn")
+        txt = f"{name} was too {'hungry' if 'ate' in ' '.join(bits) or 'nothing to eat' in ' '.join(bits) else 'cold'} to work and {', '.join(bits)}."
+        note_log(c, self.day, txt.replace(name, "You", 1).replace(" was ", " were ", 1))
+        self.set_activity(name, "needs", bits[0] if bits else "seeing to themselves", [{"place": c["location"], "what": bits[0] if bits else "seeing to themselves", "dur": 5}])
+        return {"kind": "needs", "who": name, "text": txt}
+
     def _resolve_morning(self, name: str, action: str | None, rng: random.Random) -> list[dict]:
         """One person's morning, settled: the emergency first if one pulled them, then WORK on their duties (or the one named),
-        or REFUSE (the duties go unclaimed and standing drops), or a skip, which costs the same as a refusal for the day."""
+        or REFUSE (the duties go unclaimed and standing drops), or a skip, which costs the same as a refusal for the day.
+        A need at zero preempts all of it: they see to it and keep their duties."""
         c = self.characters[name]; out: list[dict] = []
         if not self.able(c):
             out.append({"kind": "sick", "who": name, "text": f"{name} is sick and did no work."}); return out
+        nd = self.see_to_needs(name)
+        if nd: out.append(nd); return out
         kind, key = self.morning_intent(name, action or "")
         em = self.handle_emergency(name, rng)
         if em: out.append(dict(em, who=name)); c["needs"]["rest"] = max(0, c["needs"].get("rest", 5) - 1)
