@@ -141,6 +141,19 @@ thaw) and the weather is rolled from it each morning: cold burns wood and warmth
 and nothing grows in winter. The engine runs all of this at dawn, before anyone speaks, and writes a
 line into the chronicle with the season, the weather, and what is low, broken, sick, or burning.
 
+### Duties
+
+The valley's work is split into fifteen named duties in `data/duties.json`: mill, fields, hunt, fish,
+wood, roofs, stores, healing, kitchen, watch, burial, cleaning, trade, teaching, fire. Each says what
+it produces, what it consumes, where it happens on this map, the skill it uses, and what breaks when
+it goes undone. Every person holds one to three, seeded from their trade and disposition when the
+world is made. Duties change through play, never by a table: a person can refuse one as their action
+(standing drops and it goes unclaimed), hand one to someone by name, or take up one nobody holds.
+Fate can set them outright in the Duties tab under People. Every morning an unclaimed duty is dumped
+on the nearest able person with room for it, who is told so, and a fire, a bad injury, or an attack
+pulls whoever is nearest regardless of duty. Work is resolved by the engine: output rolled from skill
+and dice, the ledger moved, the skill nudged up.
+
 ## The convener's hand
 
 You are not a player, but you are not powerless.

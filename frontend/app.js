@@ -168,7 +168,7 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
  const html=rows.map(c=>{const pct=Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))));
   const band=(!c.alive||pct<30)?'low':pct<60?'mid':'';
   return `<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'#888')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
-   <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${esc(c.location)}</span>
+   <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${esc(c.location)}${c.sick?' · sick':''}</span>
    <span class="chp ${band}"><i style="width:${c.alive?pct:0}%"></i></span>
    <span class="chhp">${c.alive?`hp ${c.hp}/${c.hp_max}`:'dead'}</span></button>`}).join('')
   ||'<div class="empty">Nobody matches that.</div>';
@@ -184,7 +184,7 @@ function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)re
  const seat=(s.seats||[]).find(x=>x.name===c.name)||{};
  $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b><span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
- const html=(peoTab==='bio'?paneBio(s,c):peoTab==='health'?paneHealth(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):paneLog(s,c))
+ const html=(peoTab==='bio'?paneBio(s,c):peoTab==='health'?paneHealth(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):peoTab==='duties'?paneDuties(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<div class="note" style="margin-top:10px">${esc(peoNote)}</div>`);
  if(html===peoPaneHtml)return;
  $('peoPane').innerHTML=html;peoPaneHtml=html;peoWire(s,c)}
@@ -282,6 +282,22 @@ function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
    <label class="mut" title="also set the same the other way"><input type="checkbox" class="tm"> both ways</label>
    <button class="btn twhy">Why</button></div>`).join('')}
 
+// ---- Duties. What the valley's work is, who holds each piece, and this person's share of it. Fate ticks and unticks.
+function paneDuties(s,c){const defs=s.duty_defs||{};const mine=new Set(c.duties||[]);const dumped=new Set(c.dumped||[]);
+ const holdersOf=k=>(s.characters||[]).filter(o=>o.alive&&!o.gone&&(o.duties||[]).includes(k)).map(o=>o.name);
+ const made=d=>Object.entries(d.produces||{}).map(([k,v])=>v+' '+k).join(', ')||Object.entries(d.effect||{}).filter(([k])=>['roof','warmth','filth'].includes(k)).map(([k,v])=>k+' '+(v>0?'+':'')+v).join(', ')||'keeps things from getting worse';
+ const uses=d=>Object.entries(d.consumes||{}).map(([k,v])=>v+' '+k).join(', ');
+ const em=c.emergency;
+ return `<div class="note" style="margin-bottom:12px">${esc(c.name)} holds ${mine.size} of a possible 3. Tick a duty to give it to them, untick to take it away; it applies at once. A duty nobody holds is dumped each morning on whoever is nearest.</div>
+  ${em?`<div class="hsit">Emergency today: ${esc(em.text)} at ${esc(em.place)}</div>`:''}
+  ${dumped.size?`<div class="hsit">Dumped on them today: ${[...dumped].map(k=>esc((defs[k]||{}).label||k)).join(', ')}</div>`:''}
+  <div class="dutylist">${Object.entries(defs).map(([k,d])=>{const hs=holdersOf(k);const un=!hs.length;const st=((s.duty_state||{})[k])||{};
+   return `<label class="duty ${mine.has(k)?'on':''} ${un?'un':''}"><input type="checkbox" class="dk" data-k="${k}" ${mine.has(k)?'checked':''}>
+    <span class="dl"><b>${esc(d.label)}</b> <i>${esc(d.verb)} · ${esc(d.skill)}${(c.skills||{})[d.skill]?' '+(c.skills||{})[d.skill]:''}</i></span>
+    <span class="dm">makes ${esc(made(d))}${uses(d)?' · uses '+esc(uses(d)):''}</span>
+    <span class="dh ${un?'poor':''}">${un?'nobody holds it'+(st.undone_days?', undone '+st.undone_days+' day(s)':''):hs.map(esc).join(', ')}</span>
+    <span class="db">${esc(d.breaks)}</span></label>`}).join('')}</div>`}
+
 // ---- Log
 function paneLog(s,c){const rx=rxName(c.name);
  const body=t=>{const i=(t||'').search(/\nPROSPERITY|\nSTANDINGS/);return i>0?t.slice(0,i):(t||'')};
@@ -321,6 +337,9 @@ function peoWire(s,c){const pane=$('peoPane');
   $('h_save').onclick=()=>peoApply({hp:+$('h_hp').value,hp_max:+$('h_hpm').value,sick:$('h_sick').value==='1',needs:{food:+$('h_food').value,warmth:+$('h_warmth').value,rest:+$('h_rest').value}})}
  else if(peoTab==='disp'){
   pane.querySelectorAll('.dial').forEach(d=>d.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>peoApply({traits:{[d.dataset.k]:+b.dataset.i}})))}
+ else if(peoTab==='duties'){
+  pane.querySelectorAll('.dk').forEach(b=>b.onchange=()=>{const ks=[...pane.querySelectorAll('.dk')].filter(x=>x.checked).map(x=>x.dataset.k);
+   if(ks.length>3){b.checked=false;peoNote='Three at most.';return}peoApply({duties:ks})})}
  else if(peoTab==='ties'){
   $('t_sort').onchange=e=>{tieSort=e.target.value;peoPaneHtml='';renderPeople(S)};
   pane.querySelectorAll('.tie').forEach(row=>{const segs=row.querySelectorAll('.seg');
