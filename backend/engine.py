@@ -491,6 +491,16 @@ class World:
                     elif loy <= 2: bits.append("you trust no one much")
                     r["why"] = [{"day": 0, "note": "; ".join(bits), "feeling": r["feeling"], "trust": r["trust"], "type": "none"}]
 
+    def ties_of(self, name: str) -> list[str]:
+        """The people this person is really tied to: a named tie, or a strong feeling or trust either way."""
+        out = []
+        for b, r in self.relations.get(name, {}).items():
+            if b in self.characters and (r["type"] != "none" or abs(r["feeling"]) >= 3 or abs(r["trust"]) >= 3): out.append(b)
+        for a, rs in self.relations.items():
+            r = rs.get(name)
+            if a in self.characters and a != name and a not in out and r and (r["type"] != "none" or abs(r["feeling"]) >= 3 or abs(r["trust"]) >= 3): out.append(a)
+        return out
+
     def relations_of(self, name: str) -> list[tuple[str, dict]]:
         out = [(b, r) for b, r in self.relations.get(name, {}).items() if b in self.characters and (r["type"] != "none" or r["feeling"] or r["trust"])]
         return sorted(out, key=lambda x: (-abs(x[1]["feeling"]) - abs(x[1]["trust"]), x[0]))
@@ -791,6 +801,66 @@ def strip_json(text: str) -> str:
     return re.sub(r"```(?:json)?\s*\{.*?\}\s*```", "", text, flags=re.S).strip()
 
 
+DASH_RE = re.compile("[ \\t]*[\u2014\u2013\u2015]+[ \\t]*")      # em dash, en dash, horizontal bar, by code point so none is written here
+SENTENCE_RE = re.compile(r"(?<=[.!?][\"')\]])\s+(?=\S)|(?<=[.!?])\s+(?=\S)")
+
+
+def strip_dashes(text: str) -> str:
+    """No em or en dash survives a model's reply. Between words it becomes a comma; before a capital or at the end
+    of a line it becomes a full stop; at the start of a line it is dropped. Runs on every line the models send."""
+    out = []
+    for ln in (text or "").split("\n"):
+        pos = 0; s = ""
+        for m in DASH_RE.finditer(ln):
+            before = ln[:m.start()]; after = ln[m.end():]
+            s += ln[pos:m.start()]
+            if not before.strip(): pass                                   # a dash opening the line: just drop it
+            elif not after.strip(): s = s.rstrip(" ,;:") + "."           # a dash ending the line
+            elif after[:1].isupper() and not re.match(r"I\b", after): s = s.rstrip(" ,;:") + ". "
+            elif before.rstrip()[-1:] in ".!?,;:": s = s.rstrip() + " "  # already punctuated
+            else: s = s.rstrip() + ", "
+            pos = m.end()
+        s += ln[pos:]
+        out.append(s)
+    return "\n".join(out)
+
+
+def sentences(text: str) -> list[str]:
+    return [x for x in SENTENCE_RE.split(text.strip()) if x.strip()] if text and text.strip() else []
+
+
+def cap_speech(text: str, limit: int = 3) -> str:
+    """A person's reply is at most `limit` sentences before the ACTION line. WHISPER lines keep their own line;
+    everything after the cap is dropped, and the ACTION line is kept whole."""
+    lines = (text or "").split("\n"); body: list[str] = []; action: list[str] = []
+    for ln in lines:
+        if re.match(r"^\s*ACTION:", ln, re.I) or action: action.append(ln)
+        else: body.append(ln)
+    left = limit; kept: list[str] = []
+    for ln in body:
+        if left <= 0: break
+        if not ln.strip(): kept.append(ln); continue
+        m = WHISPER_RE.match(ln); head = ""
+        if m: head = ln[:ln.lower().index(":") + 1] + " "; ln = m.group(2)
+        ss = sentences(ln)
+        if len(ss) > left: ss = ss[:left]
+        left -= len(ss); kept.append(head + " ".join(ss))
+    while kept and not kept[-1].strip(): kept.pop()
+    return "\n".join(kept + action).strip()
+
+
+def cap_outcomes(text: str, limit: int = 2) -> str:
+    """The World's narration is at most `limit` sentences per outcome, one outcome per line or paragraph."""
+    out = []
+    for ln in (text or "").split("\n"):
+        if not ln.strip(): out.append(ln); continue
+        m = re.match(r"^(\s*(?:[-*]\s*)?(?:[A-Z][\w' -]{0,40}:\s*|EVENT:\s*|SETTLED:\s*)?)(.*)$", ln)
+        head, rest = (m.group(1), m.group(2)) if m else ("", ln)
+        ss = sentences(rest)
+        out.append(head + " ".join(ss[:limit]) if len(ss) > limit else ln)
+    return "\n".join(out)
+
+
 def action_line(text: str) -> str | None:
     m = list(re.finditer(r"^\s*ACTION:\s*(.+?)\s*$", text, re.M | re.I))
     return m[-1].group(1).strip() if m else None
@@ -833,4 +903,27 @@ def visible_text(entry: dict, viewer: str, viewer_place: str | None = None) -> s
 
 def can_see(entry: dict, viewer: str) -> bool:
     return visible_text(entry, viewer) is not None
+
+
+def _name_rx(name: str) -> re.Pattern:
+    return re.compile(r"(?<![\w@])@?" + re.escape(name) + r"(?:'s)?\b", re.I)
+
+
+def touched_text(entry: dict, me: str, my_place: str, ties: list[str]) -> str | None:
+    """What of a chronicle entry reached this person: only the lines that happened where they are, name them, or were done by
+    someone they have a tie with. Speech and the convener's words go through the usual sight rules. Engine notes never reach a person."""
+    kind = entry.get("kind")
+    if kind == "system": return None
+    if kind in ("speech", "convener"):
+        return visible_text(entry, me, my_place)
+    text = entry.get("text", "")
+    cut = re.search(r"\n(?:PROSPERITY|STANDINGS|WHO IS WHERE)\b", text)
+    if cut: text = text[:cut.start()]
+    rxs = [_name_rx(me), _name_rx(my_place)] + [_name_rx(t) for t in ties]
+    keep = []
+    for ln in text.split("\n"):
+        if not ln.strip(): continue
+        for s in sentences(ln) if len(sentences(ln)) > 1 else [ln]:
+            if any(rx.search(s) for rx in rxs): keep.append(s.strip())
+    return "\n".join(keep) or None
 

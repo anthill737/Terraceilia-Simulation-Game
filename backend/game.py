@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,
-                    whisper_targets, visible_text, urges, mentions, validate_map)
+                    whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 TURN_TIMEOUT = 1800
@@ -417,15 +417,17 @@ class Run:
     # ---- prompts
     def _player_prompt(self, i: int, instruction: str) -> str:
         g = self.g; me = g.seats[i]["name"]; w = g.world
-        my_place = w.characters[me]["location"]
-        seen = int(g.last_seen.get(str(i), 0)); new = [(e, visible_text(e, me, my_place)) for e in g.transcript[seen:]]; new = [(e, v) for e, v in new if v]
+        my_place = w.characters[me]["location"]; ties = w.ties_of(me)
+        seen = int(g.last_seen.get(str(i), 0))
+        # not the day's story: only what touched this person (happened where they are, named them, or was done by someone they are tied to)
+        new = [(e, touched_text(e, me, my_place, ties)) for e in g.transcript[seen:]]; new = [(e, v) for e, v in new if v]
         parts = [PLAYER_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP, known to everyone (the only places and things that exist):\n" + map_text(w.map) + "\n",
                  f"Day {w.day}. Everyone who lives in the valley: " + ", ".join(c["name"] for c in w.living() if c["name"] != me) + ".\n",
                  w.sheet(me), "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
         u = self.day_urges.get(me) or []
         if u: parts.append("YOUR URGES TODAY, which are your nature and not a suggestion; act on at least one of them, in words or in your ACTION, and do not apologize for it:\n" + "\n".join(f"- {x}" for x in u) + "\n")
         if new:
-            parts.append("What you saw and heard since your last turn (words spoken where you were, actions done in front of you, and the World's chronicle):\n")
+            parts.append("WHAT TOUCHED YOU since your last turn. Only this reached you: words spoken where you stand, things done to you or named you, and what the people you are tied to did. Do not repeat any of it back. React to it, or ignore it, as you would:\n")
             for e, v in new: parts.append(f"--- {e['speaker']} (day {e.get('day', 0)}) ---\n{v}\n")
         parts.append(f"Now: {instruction}")
         return "\n".join(parts)
@@ -452,7 +454,7 @@ class Run:
             settled_s,
             "\nWhat was said today (including whispers you are allowed to hear):\n" + (talk_s or "- nothing"),
             "\nActions to resolve, with the die the engine rolled for each (1 is a disaster, 6 a triumph, scaled by the character's stats):\n" + acts,
-            "\nWrite the day in at most two sentences. State what happened and stop: the outcome that mattered most, and any death by name and cause. No flourish and no scene setting. Everything else goes in the block, not the narration. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
+            "\nWrite one line per person who acted, and nothing else: their name, a colon, then what came of their action in at most two sentences. A death goes in that person's line, by name and cause. No opening line, no weather, no closing line, no line for anyone who did not act. Everything else goes in the block, not the narration. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
             '```json\n{"results":[{"who":"Name","hp":-2,"gold":3,"location":"The mill","skill":"axe","standing":-1,"note":"why"}],'
             '"events":["one line per world event"],"ledger":{"grain_weeks":1,"roofs_broken":-1,"road_safe":false,"sick":0,"built":["a granary"]},'
             '"dead":[{"who":"Name","cause":"how"}],'
@@ -504,10 +506,11 @@ class Run:
         for n in names:
             p = people.get(n, {})
             c = w.characters[n]
-            c["trade"] = str(p.get("trade") or "villager")[:40]; c["home"] = str(p.get("home") or c["location"])[:40]
-            c["personality"] = str(p.get("personality") or "keeps their own counsel")[:200]
-            c["secret"] = str(p.get("secret") or "nothing worth telling")[:200]; c["fear"] = str(p.get("fear") or "the cold")[:200]
-            c["want"] = str(p.get("want") or "to see spring")[:200]
+            sd = lambda v, alt: strip_dashes(str(v or alt))   # noqa: E731
+            c["trade"] = sd(p.get("trade"), "villager")[:40]; c["home"] = str(p.get("home") or c["location"])[:40]
+            c["personality"] = sd(p.get("personality"), "keeps their own counsel")[:200]
+            c["secret"] = sd(p.get("secret"), "nothing worth telling")[:200]; c["fear"] = sd(p.get("fear"), "the cold")[:200]
+            c["want"] = sd(p.get("want"), "to see spring")[:200]
             if p.get("home") in w.map: c["location"] = p["home"]
         w.seed_all_relations(self.rng)
         for rr in data.get("relations", []) or []:
@@ -515,7 +518,7 @@ class Run:
                 w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old tie"))
                 if rr.get("mutual", True): w.set_rel(str(rr.get("b", "")), str(rr.get("a", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old tie"))
         w.created = True; w.day = 1
-        self._record("World", (strip_json(out or "The valley wakes.") + "\n\n" + w.standings_table()), "world")
+        self._record("World", (strip_dashes(strip_json(out or "The valley wakes.")) + "\n\n" + w.standings_table()), "world")
 
     def _player_phase(self) -> None:
         """Every living character gets one prompt; anyone named or whispered to gets one reaction. Then the day resolves."""
@@ -537,6 +540,7 @@ class Run:
             if not text:
                 self._record("Engine", f"{g.seats[i]['name']} gave no answer this turn (see its terminal).", "system"); return
             if text.strip().upper().rstrip(".") == "PASS": self._term(i, "(passed)"); return
+            text = cap_speech(strip_dashes(text))         # one to three sentences, no dashes, the ACTION line kept whole
             for t in whisper_targets(text):
                 tc = next((c for c in w.living() if c["name"].lower() == t), None)
                 if tc and tc["location"] != w.characters[g.seats[i]["name"]]["location"]:
@@ -593,7 +597,7 @@ class Run:
             self._record("Engine", "The World gave no usable result; the day ends unchanged.", "system"); w.pending = []; w.day += 1; g.save(); return
         log: list[str] = []
         w.pending = []; w.fate = [f for f in w.fate if f not in told_fate]; w.apply(res, log); self.version += 1
-        text = strip_json(out or "") or "The day passes."
+        text = cap_outcomes(strip_dashes(strip_json(out or ""))) or "The day passes."
         if settled: text = "\n".join(f"SETTLED: {s['text']}" for s in settled) + "\n\n" + text
         if events: text = "\n".join(f"EVENT: {e}" for e in events) + "\n\n" + text
         self._record("World", text + "\n\n" + w.standings_table(), "world")
@@ -607,7 +611,7 @@ class Run:
         prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "The year is over. Here is the final state:\n" + w.standings_table(),
                             "\nWrite the chronicle's closing: what became of the valley and of each person, living, dead, and gone, in the order they mattered. No json block."])
         out = self._invoke(0, prompt, "epilogue")
-        self._record("World", (out or "The chronicle ends here.") + "\n\n" + w.standings_table(), "epilogue")
+        self._record("World", strip_dashes(out or "The chronicle ends here.") + "\n\n" + w.standings_table(), "epilogue")
         dead = [c["name"] for c in w.characters.values() if not c["alive"]]
         telegram.notify(f"{g.title or 'Terraceilia'}: the year is over on day {w.day}. "
                         f"{len(w.living())} still living, {len(dead)} dead" + (": " + ", ".join(dead[:8]) if dead else "") + ".", "finish")
