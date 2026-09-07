@@ -28,10 +28,15 @@ class SpeechRuleTests(unittest.TestCase):
         self.assertIn("one to three sentences, then stop", prompts.PLAYER_RULES.lower())
 
     def test_the_world_is_given_a_length(self) -> None:
-        t = prompts.WORLD_RULES.lower()
-        self.assertIn("at most two sentences per entry", t)
-        self.assertIn("state what happened and stop", t)
+        t = " ".join(prompts.WORLD_RULES.lower().split())
+        self.assertIn("at most two sentences per outcome", t)
+        self.assertIn("one outcome per person who acted, and nothing else", t)
         self.assertIn("no flourish", t)
+
+    def test_villagers_react_and_do_not_recount_the_day(self) -> None:
+        t = prompts.PLAYER_RULES.lower()
+        self.assertIn("never tell people what happened today", t)
+        self.assertIn("react to what touched you", t)
 
     def test_both_prompts_ban_the_same_words(self) -> None:
         for word in BANNED:
