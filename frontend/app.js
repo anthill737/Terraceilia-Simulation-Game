@@ -7,6 +7,8 @@ async function api(p,b){const r=await fetch(p,{method:b?'POST':'GET',headers:{'C
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const STATUS={idle:'Not started',running:'Running',paused:'Paused',done:'The year is over',stopped:'Stopped'};
 const mobile=()=>window.matchMedia('(max-width:820px)').matches;
+// the poll redraws every sheet; never redraw the one someone is typing into
+const typing=root=>!!root&&root.contains(document.activeElement)&&/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
 let chronShown=false;
 function chronBottom(){const c=$('chron');requestAnimationFrame(()=>{c.scrollTop=c.scrollHeight})}
 function seatColor(n){const x=(S&&S.seats||[]).find(y=>y.name===n);return x?x.color:''}
@@ -173,7 +175,7 @@ function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)re
  const seat=(s.seats||[]).find(x=>x.name===c.name)||{};
  $('peoHead').innerHTML=`<b style="--c:${esc(seatColor(c.name)||'#888')}">${esc(c.name)}</b><span class="note">${esc(c.trade||'no trade yet')} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.banished?'banished':'alive'):'dead: '+esc(c.cause_of_death||'unknown')}${seat.provider?' \u00b7 '+esc(seat.provider)+' '+esc(seat.model||''):''}</span>`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
- const html=(peoTab==='bio'?paneBio(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):paneLog(s,c))
+ const html=(peoTab==='bio'?paneBio(s,c):peoTab==='health'?paneHealth(s,c):peoTab==='stats'?paneStats(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<div class="note" style="margin-top:10px">${esc(peoNote)}</div>`);
  if(html===peoPaneHtml)return;
  $('peoPane').innerHTML=html;peoPaneHtml=html;peoWire(s,c)}
@@ -192,18 +194,56 @@ function paneBio(s,c){const places=s.places||[];
  <div class="pg"><div><label>Fear</label><textarea id="b_fear">${esc(c.fear)}</textarea></div><div><label>What they want more than anything</label><textarea id="b_want">${esc(c.want)}</textarea></div></div>
  <div class="row"><button class="primary" id="b_save">Save</button><span class="note">A changed life or model starts them fresh on their next turn.</span></div>`}
 
+// ---- Health. Only what the engine really keeps: one wound level, where they stand, and what is happening to them.
+const CONDITION=p=>p>=100?['Unhurt','good']:p>=75?['Scratched','good']:p>=50?['Hurt','fair']:p>=25?['Badly hurt','poor']:p>0?['Dying','poor']:['Dead','poor'];
+const WOUNDS=p=>p>=100?'none':p>=75?'minor':p>=50?'serious':p>=25?'severe':p>0?'mortal':'past helping';
+function row(label,value,cls){return `<div class="srow"><span class="lbl">${label}</span><span class="dots"></span><span class="val ${cls||''}">${value}</span></div>`}
+function paneHealth(s,c){
+ const pct=Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))));
+ const [word,tone]=CONDITION(c.alive?pct:0);
+ const burning=(s.fires||{})[c.location]!==undefined;
+ const ruined=((s.map||{})[c.location]||{}).destroyed||[];
+ const mine=(s.threads||[]).filter(t=>t.status==='open'&&((t.who||[]).includes(c.name)||t.place===c.location));
+ return `<div class="hgrid">
+  <div class="card2"><div class="ch">Condition</div>
+   <div class="gauge ${tone}"><div class="gnum">${c.alive?pct:0}<i>%</i></div><div class="gword">${word}</div></div>
+   <div class="gbar ${tone}"><i style="width:${c.alive?pct:0}%"></i>${[25,50,75].map(t=>`<b style="left:${t}%"></b>`).join('')}</div>
+   <div class="ghp">${c.alive?c.hp:0} of ${c.hp_max} health</div>
+   ${row('Wounds',c.alive?WOUNDS(pct):'past helping',tone)}
+   ${row('Health now',`<input class="vin" type="number" id="h_hp" min="0" value="${c.hp}">`)}
+   ${row('Health at most',`<input class="vin" type="number" id="h_hpm" min="1" value="${c.hp_max}">`)}
+   <div class="row" style="margin-top:10px"><button class="primary" id="h_save">Save</button></div>
+   <div class="foot">Terraceilia keeps one wound level for a person, not separate limbs and organs. Everything above is read from it.</div></div>
+  <div class="card2"><div class="ch">Where they stand</div>
+   ${row('Living',c.alive?'yes':'no, '+esc(c.cause_of_death||'unknown'),c.alive?'good':'poor')}
+   ${row('Banished',c.banished?'yes':'no',c.banished?'poor':'')}
+   ${row('Place',esc(c.location))}
+   ${row('Fire where they are',burning?'burning now':'no',burning?'poor':'good')}
+   ${row('Ruined there',ruined.length?esc(ruined.join(', ')):'nothing',ruined.length?'poor':'')}
+   ${row('The road after dark',(s.ledger||{}).road_safe?'safe':'unsafe',(s.ledger||{}).road_safe?'good':'poor')}
+   ${row('Sick in the valley',(s.ledger||{}).sick??0,((s.ledger||{}).sick||0)>0?'poor':'good')}
+   <div class="ch" style="margin-top:16px">What is happening to them</div>
+   ${mine.length?mine.map(t=>`<div class="hsit">#${t.id} · day ${t.day}${t.place?' · '+esc(t.place):''}<div>${esc(t.text)}</div></div>`).join('')
+    :'<div class="foot" style="margin-top:6px">Nothing unresolved touches them.</div>'}</div></div>`}
+
 // ---- Stats
 function paneStats(s,c){const sk=Object.entries(c.skills||{});
- return `<div class="pg4"><div><label>Strength</label><input type="number" id="s_str" min="0" value="${c.str}"></div>
-  <div><label>Speed</label><input type="number" id="s_spd" min="0" value="${c.spd}"></div>
-  <div><label>Health</label><input type="number" id="s_hp" min="0" value="${c.hp}"></div>
-  <div><label>Max health</label><input type="number" id="s_hpm" min="1" value="${c.hp_max}"></div></div>
- <div class="pg"><div><label>Gold</label><input type="number" id="s_gold" min="0" value="${c.gold}"></div>
-  <div><label>Standing in the valley</label><select id="s_stand">${['unknown','respected','feared','pitied','hated','loved'].map(x=>`<option ${x===c.standing?'selected':''}>${x}</option>`).join('')}</select></div></div>
- <label class="note" style="display:block;margin:14px 0 6px">Skills, 1 to 9. Set one to 0 to take it away.</label>
- <div id="s_skills">${sk.map(([k,v])=>`<div class="skillrow"><input class="sk" value="${esc(k)}"><input class="sv" type="number" min="0" max="9" value="${v}"><span class="note">of 9</span></div>`).join('')}
-  <div class="skillrow"><input class="sk" placeholder="a skill they have learned"><input class="sv" type="number" min="0" max="9" value="0"><span class="note">of 9</span></div></div>
- <div class="row" style="margin-top:12px"><button class="primary" id="s_save">Save</button></div>`}
+ const bar=(v,max)=>`<span class="pip">${Array.from({length:max},(_,i)=>`<b class="${i<v?'on':''}"></b>`).join('')}</span>`;
+ return `<div class="hgrid">
+  <div class="card2"><div class="ch">Body</div>
+   ${row('Strength',`${bar(c.str,9)}<input class="vin" type="number" id="s_str" min="0" max="9" value="${c.str}">`)}
+   ${row('Speed',`${bar(c.spd,9)}<input class="vin" type="number" id="s_spd" min="0" max="9" value="${c.spd}">`)}
+   <div class="ch" style="margin-top:16px">In the valley</div>
+   ${row('Gold',`<input class="vin" type="number" id="s_gold" min="0" value="${c.gold}">`)}
+   ${row('Standing',`<select class="vin wide" id="s_stand">${['unknown','respected','feared','pitied','hated','loved'].map(x=>`<option ${x===c.standing?'selected':''}>${x}</option>`).join('')}</select>`)}
+   ${row('Trade',esc(c.trade||'none'))}
+   ${row('Home',esc(c.home||'nowhere'))}</div>
+  <div class="card2"><div class="ch">Skills</div>
+   <div class="foot" style="margin:0 0 10px">1 to 9. Set one to 0 to take it away.</div>
+   <div id="s_skills">${sk.map(([k,v])=>`<div class="skillrow"><input class="sk" value="${esc(k)}">${bar(v,9)}<input class="sv vin" type="number" min="0" max="9" value="${v}"></div>`).join('')
+    ||'<div class="foot">Nothing learned yet.</div>'}
+    <div class="skillrow new"><input class="sk" placeholder="a skill they have learned"><span></span><input class="sv vin" type="number" min="0" max="9" value="0"></div></div>
+   <div class="row" style="margin-top:14px"><button class="primary" id="s_save">Save</button></div></div></div>`}
 
 // ---- Disposition
 function paneDisp(s,c){const t=c.traits||{};
@@ -263,10 +303,11 @@ function peoWire(s,c){const pane=$('peoPane');
    if(nn&&nn!==peoSel&&(r.characters||[]).some(x=>x.name===nn))peoSel=nn;
    peoNote=r.last_god||'no change';peoPaneHtml='';render(r)}}
  else if(peoTab==='stats'){
-  $('s_save').onclick=async()=>{const skills={};
-   pane.querySelectorAll('.skillrow').forEach(row=>{const k=row.querySelector('.sk').value.trim();if(k)skills[k]=+row.querySelector('.sv').value||0});
-   await peoApply({str:+$('s_str').value,spd:+$('s_spd').value,hp:+$('s_hp').value,hp_max:+$('s_hpm').value,
-    gold:+$('s_gold').value,standing:$('s_stand').value,skills})}}
+   $('s_save').onclick=async()=>{const skills={};
+   pane.querySelectorAll('.skillrow').forEach(r=>{const k=r.querySelector('.sk').value.trim();if(k)skills[k]=+r.querySelector('.sv').value||0});
+   await peoApply({str:+$('s_str').value,spd:+$('s_spd').value,gold:+$('s_gold').value,standing:$('s_stand').value,skills})}}
+ else if(peoTab==='health'){
+  $('h_save').onclick=()=>peoApply({hp:+$('h_hp').value,hp_max:+$('h_hpm').value})}
  else if(peoTab==='disp'){
   pane.querySelectorAll('.dial').forEach(d=>d.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>peoApply({traits:{[d.dataset.k]:+b.dataset.i}})))}
  else if(peoTab==='ties'){
@@ -308,7 +349,8 @@ async function saveWorld(){const r=await api('/edit/game',{title:$('g_title').va
  $('g_state').textContent='Saved '+new Date().toLocaleTimeString();render(r);mapInfo(S)}
 
 // ---------- Situations
-function renderSituations(s){const box=$('sitList');const th=(s.threads||[]);const fires=Object.entries(s.fires||{});
+let sitHtml='';
+function renderSituations(s){const box=$('sitList');if(typing(box))return;const th=(s.threads||[]);const fires=Object.entries(s.fires||{});
  const pres=Object.entries(s.map||{}).filter(([n,d])=>(d.present||[]).length);
  if(!th.length&&!fires.length&&!pres.length){box.innerHTML='<div class="empty">Nothing is unresolved. The valley is quiet, for now.</div>';return}
  let h='';
@@ -317,7 +359,8 @@ function renderSituations(s){const box=$('sitList');const th=(s.threads||[]);con
  const open=th.filter(t=>t.status==='open'),done=th.filter(t=>t.status!=='open');
  h+=`<div class="place">Open (${open.length})</div>`+(open.map(t=>`<div class="card"><span class="nm">#${t.id}</span> <span class="st">day ${t.day}${t.place?' \u00b7 '+esc(t.place):''}${(t.who||[]).length?' \u00b7 '+esc(t.who.join(', ')):''}</span><div style="margin:6px 0">${esc(t.text)}</div><div class="row"><input class="rnote" placeholder="how it ended (optional)"><button class="btn rdone" data-id="${t.id}">Resolve</button></div></div>`).join('')||'<div class="empty">Nothing open.</div>');
  h+=`<div class="place">Resolved (${done.length})</div>`+(done.map(t=>`<div class="card dead"><span class="nm">#${t.id}</span> <span class="st">day ${t.day}${t.place?' \u00b7 '+esc(t.place):''} \u00b7 ended day ${t.resolved_day??'?'}</span><div style="margin:6px 0">${esc(t.text)}</div>${t.note?`<div class="note">${esc(t.note)}</div>`:''}</div>`).join('')||'<div class="empty">Nothing resolved yet.</div>');
- box.innerHTML=h;
+ if(h===sitHtml)return;
+ box.innerHTML=h;sitHtml=h;
  box.querySelectorAll('.rdone').forEach(b=>b.onclick=async()=>{b.disabled=true;const note=b.closest('.row').querySelector('.rnote').value;render(await api('/god/resolve',{id:+b.dataset.id,note}))});
  box.querySelectorAll('[data-out]').forEach(b=>b.onclick=async()=>{b.disabled=true;render(await api('/god/extinguish',{place:b.dataset.out}))})}
 
@@ -340,7 +383,7 @@ function renderFate(s){const alive=(s.characters||[]).filter(c=>c.alive&&!c.bani
 
 // ---------- Connections
 const CONN_LABEL={connected:'Connected',not_installed:'Not installed',not_signed_in:'Not signed in',checking:'Checking',error:'Error'};
-function renderConn(s){const root=$('connList');const c=s.connections||{};const used=new Set((s.seats||[]).map(x=>x.provider).concat([(s.world_model||{}).provider,(s.model_a||{}).provider,(s.model_b||{}).provider]));
+function renderConn(s){const root=$('connList');if(typing(root))return;const c=s.connections||{};const used=new Set((s.seats||[]).map(x=>x.provider).concat([(s.world_model||{}).provider,(s.model_a||{}).provider,(s.model_b||{}).provider]));
  const keep={};root.querySelectorAll('.keyin').forEach(i=>keep[i.dataset.p]=i.value);
  root.innerHTML=Object.entries(c).map(([k,p])=>{const st=p.state==='connected'?'ok':p.state==='checking'?'unk':'bad';
   const job=p.job;const showKey=p.key_env&&p.state!=='connected';
