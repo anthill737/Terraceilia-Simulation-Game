@@ -212,7 +212,40 @@ const MapView=(()=>{
   const who=s.characters.filter(c=>c.alive&&!c.gone&&c.location===selected).map(c=>c.name);$('ppWho').textContent=who.length?'People: '+who.join(', '):'Nobody here.';pp.classList.add('open')}
  function note(t){const n=$('godNote');n.textContent=t||'';n.style.display=t?'':'none';clearTimeout(n._t);n._t=setTimeout(()=>n.style.display='none',4000)}
  function figure(t,col){el('ellipse',{cy:14,rx:8,ry:3,fill:'#000',opacity:.35},t);el('circle',{class:'ring',r:12,stroke:col},t);
-  el('path',{class:'cloak',d:'M-8 12 L-6 -2 L0 -6 L6 -2 L8 12 Z',fill:col,stroke:'#0a0d0b','stroke-width':1.2},t);el('circle',{class:'head',cy:-9,r:5,fill:'#e6c8a6',stroke:'#0a0d0b','stroke-width':1.2},t);el('text',{y:6,'text-anchor':'middle',class:'ini'},t)}
+  el('path',{class:'cloak',d:'M-8 12 L-6 -2 L0 -6 L6 -2 L8 12 Z',fill:col,stroke:'#0a0d0b','stroke-width':1.2},t);el('circle',{class:'head',cy:-9,r:5,fill:'#e6c8a6',stroke:'#0a0d0b','stroke-width':1.2},t);el('text',{y:6,'text-anchor':'middle',class:'ini'},t);
+  el('text',{y:40,'text-anchor':'middle',class:'act',filter:'url(#halo)'},t);el('rect',{x:-20,y:44,width:40,height:3,rx:1.5,class:'pbar'},t);el('rect',{x:-20,y:44,width:0,height:3,rx:1.5,class:'pfill'},t)}
+
+ // ---------- movement. The engine says what each person is doing, where, and since when; the map walks them there.
+ // A timeline is built from the activity: a walk along the paths to each stop (so many seconds a hop), then a stay there
+ // for the stop's seconds with the bar filling. Everything is a function of the time since the activity started, so a page
+ // opened halfway through shows the right stage. When the timeline is over the token glides to its resting slot.
+ const WALK=1.4,RUSH=0.25;let timelines={},raf=null,clockOff=0;
+ function pathBetween(m,a,b){if(a===b||!m[a]||!m[b])return [a,b].filter((x,i,arr)=>m[x]&&arr.indexOf(x)===i);const prev={[a]:null};let q=[a];
+  while(q.length){const nq=[];for(const p of q){for(const n of (m[p].adj||[])){if(n in prev)continue;prev[n]=p;if(n===b){const out=[b];let c=b;while(prev[c]){c=prev[c];out.unshift(c)}return out}nq.push(n)}}q=nq}
+  return [a,b]}
+ const nodeXY=(m,p)=>{const d=m[p];return d?{x:d.x,y:d.y+70}:null};
+ function buildTimeline(s,a){let t=0;const segs=[];let cur=(a.from&&s.map[a.from])?a.from:null;const speed=a.immediate?RUSH:WALK;
+  for(const st of (a.stops||[])){if(!s.map[st.place])continue;
+   if(cur&&cur!==st.place){const path=pathBetween(s.map,cur,st.place);const hops=Math.max(1,path.length-1);segs.push({kind:'walk',t0:t,t1:t+hops*speed,pts:path.map(p=>nodeXY(s.map,p)).filter(Boolean),what:st.what});t+=hops*speed}
+   if(st.dur>0){segs.push({kind:'stay',t0:t,t1:t+st.dur,place:st.place,what:st.what});t+=st.dur}
+   cur=st.place}
+  return {segs,end:t,final:cur,what:a.what,state:a.state}}
+ function posAt(tl,t,slotOf){for(const g of tl.segs){if(t>=g.t1)continue;const f=Math.max(0,(t-g.t0)/Math.max(.001,g.t1-g.t0));
+   if(g.kind==='walk'){const n=g.pts.length-1;if(n<1)continue;const k=Math.min(n-1,Math.floor(f*n)),lf=f*n-k;const p=g.pts[k],q=g.pts[k+1];return {x:p.x+(q.x-p.x)*lf,y:p.y+(q.y-p.y)*lf,what:g.what,bar:null,walking:true}}
+   const sl=slotOf(g.place);return {x:sl.x,y:sl.y,what:g.what,bar:f,walking:false}}
+  return null}
+ const serverNow=()=>Date.now()/1000-clockOff;
+ function tick(){raf=null;if(!S_)return;let busy=false;const now=serverNow();
+  for(const name in tokens){const t=tokens[name];if(t.classList.contains('drag'))continue;const tl=t._tl;let target=null,what=t._what||'',bar=null,walking=false;
+   if(tl){const a=t._act;const pos=posAt(tl,now-a.started,t._slotOf);if(pos){target=pos;what=pos.what;bar=pos.bar;walking=pos.walking;busy=true}else{t._tl=null}}
+   if(!target)target={x:+t.dataset.sx,y:+t.dataset.sy};
+   const cx=t._x??target.x,cy=t._y??target.y;let nx=target.x,ny=target.y;
+   if(t._tl&&walking){nx=target.x;ny=target.y}else{const dx=target.x-cx,dy=target.y-cy;const d=Math.hypot(dx,dy);if(d>0.5){const step=Math.min(1,0.12);nx=cx+dx*step;ny=cy+dy*step;busy=true}}
+   t._x=nx;t._y=ny;t.setAttribute('transform',`translate(${nx.toFixed(1)},${ny.toFixed(1)})`);t.classList.toggle('walking',!!walking);
+   const at=t.querySelector('.act');if(at&&at.textContent!==what)at.textContent=what;
+   const pb=t.querySelector('.pbar'),pf=t.querySelector('.pfill');const show=bar!==null&&bar!==undefined;pb.style.display=show?'':'none';pf.style.display=show?'':'none';if(show)pf.setAttribute('width',(40*Math.min(1,bar)).toFixed(1))}
+  if(busy)raf=requestAnimationFrame(tick)}
+ function kick(){if(!raf)raf=requestAnimationFrame(tick)}
  function render(s){S_=s;if(!s.map||!(s.created||s.map_generated))return;const svg=$('mapSvg');
   const mk=(s.map_name||'')+'|'+Object.keys(s.map).join('|')+'|'+JSON.stringify(s.map_style||{});
   if(!built||svg.dataset.gid!==s.id||svg.dataset.mk!==mk){buildBase(s);svg.dataset.gid=s.id;svg.dataset.mk=mk}
@@ -221,15 +254,22 @@ const MapView=(()=>{
   for(const [n,d] of Object.entries(s.map)){const gone=d.destroyed||[];const ru=$('ru-'+n.replace(/\W/g,'_'));if(ru)ru.textContent=gone.length?'ruined: '+gone.join(', '):''}
   const thinking=new Set((s.current||'').split(', ').filter(Boolean));const acted={};(s.pending||[]).forEach(a=>acted[a.who]=a.text);
   const col={};(s.seats||[]).forEach(x=>col[x.name]=x.color);
+  if(typeof s.now==='number')clockOff=Date.now()/1000-s.now;
   const byPlace={};s.characters.forEach(c=>{if(!c.alive||c.gone)return;(byPlace[c.location]=byPlace[c.location]||[]).push(c)});
-  const gt=$('tokens');const live=new Set();
-  for(const [pl,cs] of Object.entries(byPlace)){const d=s.map[pl];if(!d)continue;const n=cs.length;
-   cs.forEach((c,i)=>{live.add(c.name);const ang=Math.PI*0.12+(i/Math.max(1,n-1||1))*Math.PI*0.76;const rad=n>1?60:0;const x=d.x+(n>1?Math.cos(ang)*rad:0),y=d.y+70+(n>1?Math.sin(ang)*rad*0.4:4);
-    let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#888');t.querySelector('.ini').textContent=c.name[0];el('text',{y:28,'text-anchor':'middle',class:'lbl',filter:'url(#halo)'},t).textContent=c.name;tokens[c.name]=t;bind(t,c.name);t.setAttribute('transform',`translate(${x},${y})`)}
-    if(!t.classList.contains('drag'))t.setAttribute('transform',`translate(${x},${y})`);
-    t.classList.toggle('thinking',thinking.has(c.name));t.classList.toggle('hurt',c.hp<=c.hp_max/2);t.querySelector('.lbl').style.display=(n<=4||hover===c.name||selected===pl)?'':'none';
-    t.dataset.place=pl;t.dataset.action=acted[c.name]||'';t.dataset.info=`${c.name} · ${c.trade} · ${c.hp}/${c.hp_max} hp · ${c.gold} gold · ${c.standing}`})}
+  const slotOf=(pl,name)=>{const d=s.map[pl];if(!d)return {x:500,y:400};const cs=byPlace[pl]||[];const n=Math.max(1,cs.length);let i=cs.findIndex(c=>c.name===name);if(i<0){i=n;}
+   const ang=Math.PI*0.12+(i/Math.max(1,(i>=n?n:n-1)||1))*Math.PI*0.76;const rad=n>1||i>=n?60:0;return {x:d.x+(rad?Math.cos(ang)*rad:0),y:d.y+70+(rad?Math.sin(ang)*rad*0.4:4)}};
+  const gt=$('tokens');const live=new Set();const acts=s.activities||{};
+  s.characters.forEach(c=>{if(!c.alive||c.gone)return;const pl=c.location;const d=s.map[pl];if(!d)return;live.add(c.name);const sl=slotOf(pl,c.name);const n=(byPlace[pl]||[]).length;
+    let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#888');t.querySelector('.ini').textContent=c.name[0];el('text',{y:28,'text-anchor':'middle',class:'lbl',filter:'url(#halo)'},t).textContent=c.name;tokens[c.name]=t;bind(t,c.name);t._x=sl.x;t._y=sl.y;t.setAttribute('transform',`translate(${sl.x},${sl.y})`)}
+    t.dataset.sx=sl.x;t.dataset.sy=sl.y;t._slotOf=p=>slotOf(p,c.name);
+    const a=acts[c.name];const key=a?`${a.started}|${a.state}|${a.what}`:'';
+    if(key!==t._key){t._key=key;t._act=a||null;t._tl=a&&a.stops&&a.stops.length?buildTimeline(s,a):null;if(t._tl&&t._tl.end<=0)t._tl=null}
+    t._what=a?(a.state==='working'&&a.stops&&a.stops.length?a.stops[a.stops.length-1].what:a.what):'';
+    t.classList.toggle('thinking',thinking.has(c.name));t.classList.toggle('hurt',c.hp<=c.hp_max/2);t.classList.toggle('idle',!!a&&a.state==='idle');t.classList.toggle('resting',!!a&&a.state==='resting');
+    t.querySelector('.lbl').style.display=(n<=4||hover===c.name||selected===pl)?'':'none';
+    t.dataset.place=pl;t.dataset.action=acted[c.name]||(a?a.what:'');t.dataset.info=`${c.name} · ${c.trade} · ${c.hp}/${c.hp_max} hp · ${c.gold} gold · ${c.standing}`});
   for(const n in tokens)if(!live.has(n)){tokens[n].remove();delete tokens[n]}
+  kick();
   if(hover&&tokens[hover])tip(tokens[hover]);else $('tips').innerHTML='';
   if(selected)showPlace(s)}
  function tip(t){const g=$('tips');g.innerHTML='';const m=/translate\(([-\d.]+),([-\d.]+)\)/.exec(t.getAttribute('transform'));if(!m)return;const x=+m[1],y=+m[2];
@@ -239,7 +279,7 @@ const MapView=(()=>{
  function bind(t,name){const svg=$('mapSvg');
   t.addEventListener('pointerenter',()=>{hover=name;render(S_)});t.addEventListener('pointerleave',()=>{if(!drag){hover=null;render(S_)}});
   t.addEventListener('pointerdown',e=>{drag={name,g:t};t.classList.add('drag');t.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation()});
-  t.addEventListener('pointermove',e=>{if(!drag||drag.g!==t)return;const p=svgPoint(svg,e);t.setAttribute('transform',`translate(${p.x},${p.y})`);highlight(nearest(S_,p))});
+  t.addEventListener('pointermove',e=>{if(!drag||drag.g!==t)return;const p=svgPoint(svg,e);t._x=p.x;t._y=p.y;t.setAttribute('transform',`translate(${p.x},${p.y})`);highlight(nearest(S_,p))});
   t.addEventListener('pointerup',async e=>{if(!drag||drag.g!==t)return;const p=svgPoint(svg,e);const dest=nearest(S_,p);t.classList.remove('drag');drag=null;highlight(null);hover=null;
    if(dest&&dest!==t.dataset.place){const r=await App.api('/god/move',{name,place:dest});note(r.last_god);App.render(r)}else render(S_)});
   t.addEventListener('click',e=>e.stopPropagation())}
