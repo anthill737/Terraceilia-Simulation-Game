@@ -76,7 +76,7 @@ def answer(text: str) -> str:
     if "The year is over" in text:
         return "The chronicle ends here, in the fen."
     if "It is morning" in text: return "ACTION: WORK"
-    if "It is evening" in text: return "Cold night." if "Say something" in text else "PASS"
+    if "It is evening" in text or "Say something to them" in text: return "Cold night."
     return "I keep my own counsel and watch the water.\nACTION: I mend my nets and listen."
 
 

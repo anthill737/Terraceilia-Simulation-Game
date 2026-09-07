@@ -1,0 +1,267 @@
+[
+ {
+  "key": "carving",
+  "label": "carving",
+  "verb": "carving by the fire",
+  "where": {
+   "home": true
+  },
+  "social": false,
+  "seed": {
+   "tongue": 1,
+   "warmth": 3
+  },
+  "effects": {
+   "item": [
+    "a carved spoon",
+    "a carved bird",
+    "a whistle",
+    "a small box",
+    "a comb"
+   ]
+  }
+ },
+ {
+  "key": "fishing",
+  "label": "fishing for fun",
+  "verb": "fishing for the fun of it",
+  "where": {
+   "kinds": [
+    "water"
+   ],
+   "features": [
+    "coast",
+    "island",
+    "marsh"
+   ],
+   "fallback": [
+    "village"
+   ]
+  },
+  "social": false,
+  "seed": {
+   "tongue": 2,
+   "temper": 1
+  },
+  "effects": {
+   "fish": 1
+  }
+ },
+ {
+  "key": "singing",
+  "label": "singing at the inn",
+  "verb": "singing at the inn",
+  "where": {
+   "kinds": [
+    "inn"
+   ],
+   "fallback": [
+    "town"
+   ]
+  },
+  "social": true,
+  "seed": {
+   "tongue": 4,
+   "drink": 3
+  },
+  "effects": {
+   "spirit_others": 1
+  }
+ },
+ {
+  "key": "dice",
+  "label": "dice",
+  "verb": "playing dice",
+  "where": {
+   "kinds": [
+    "inn"
+   ],
+   "fallback": [
+    "town",
+    "market"
+   ]
+  },
+  "social": true,
+  "seed": {
+   "greed": 4,
+   "cunning": 4
+  },
+  "effects": {
+   "gold_swing": 1
+  }
+ },
+ {
+  "key": "drinking",
+  "label": "drinking",
+  "verb": "drinking at the inn",
+  "where": {
+   "kinds": [
+    "inn"
+   ],
+   "fallback": [
+    "town"
+   ]
+  },
+  "social": true,
+  "seed": {
+   "drink": 4
+  },
+  "effects": {
+   "rest": -2,
+   "warmth": -1
+  }
+ },
+ {
+  "key": "wandering",
+  "label": "wandering the ridge",
+  "verb": "wandering the ridge",
+  "where": {
+   "high": true,
+   "fallback": [
+    "road",
+    "forest",
+    "fields"
+   ]
+  },
+  "social": false,
+  "seed": {
+   "ambition": 1,
+   "courage": 4
+  },
+  "effects": {}
+ },
+ {
+  "key": "gossip",
+  "label": "gossip",
+  "verb": "trading gossip",
+  "where": {
+   "kinds": [
+    "town",
+    "market",
+    "village"
+   ],
+   "fallback": [
+    "inn"
+   ]
+  },
+  "social": true,
+  "seed": {
+   "tongue": 4,
+   "cunning": 4
+  },
+  "effects": {}
+ },
+ {
+  "key": "garden",
+  "label": "tending a garden",
+  "verb": "tending the garden",
+  "where": {
+   "home": true
+  },
+  "social": false,
+  "seed": {
+   "warmth": 4,
+   "ambition": 2
+  },
+  "effects": {
+   "herbs_chance": 0.25
+  }
+ },
+ {
+  "key": "sparring",
+  "label": "sparring",
+  "verb": "sparring",
+  "where": {
+   "kinds": [
+    "castle",
+    "town"
+   ],
+   "fallback": [
+    "fields",
+    "village"
+   ]
+  },
+  "social": true,
+  "seed": {
+   "courage": 4,
+   "temper": 4
+  },
+  "effects": {
+   "str_chance": 0.2
+  }
+ },
+ {
+  "key": "stories",
+  "label": "telling stories",
+  "verb": "telling stories",
+  "where": {
+   "kinds": [
+    "inn",
+    "village"
+   ],
+   "fallback": [
+    "town"
+   ]
+  },
+  "social": true,
+  "seed": {
+   "tongue": 5,
+   "piety": 3
+  },
+  "effects": {
+   "spirit_others": 1
+  }
+ },
+ {
+  "key": "praying",
+  "label": "praying",
+  "verb": "praying at the chapel",
+  "where": {
+   "kinds": [
+    "chapel"
+   ],
+   "fallback": [
+    "castle",
+    "town"
+   ]
+  },
+  "social": false,
+  "seed": {
+   "piety": 4
+  },
+  "effects": {
+   "spirit": 1
+  }
+ },
+ {
+  "key": "collecting",
+  "label": "collecting things",
+  "verb": "collecting things",
+  "where": {
+   "kinds": [
+    "forest",
+    "road",
+    "fields"
+   ],
+   "fallback": [
+    "village"
+   ]
+  },
+  "social": false,
+  "seed": {
+   "greed": 3,
+   "cunning": 3,
+   "ambition": 2
+  },
+  "effects": {
+   "item": [
+    "a smooth stone",
+    "a bird's skull",
+    "an old coin",
+    "a feather",
+    "a bit of blue glass"
+   ],
+   "gold_chance": 0.1
+  }
+ }
+]

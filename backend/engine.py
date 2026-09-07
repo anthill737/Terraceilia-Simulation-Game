@@ -10,6 +10,7 @@ GAMES = ROOT / "games"
 NAMES = json.loads((DATA / "names.json").read_text(encoding="utf-8"))
 EVENTS = json.loads((DATA / "events.json").read_text(encoding="utf-8"))
 DUTIES: dict[str, dict] = {d["key"]: d for d in json.loads((DATA / "duties.json").read_text(encoding="utf-8"))}
+PASTIMES: dict[str, dict] = {d["key"]: d for d in json.loads((DATA / "pastimes.json").read_text(encoding="utf-8"))}
 MAX_DUTIES = 3
 _MAPFILE = json.loads((DATA / "map.json").read_text(encoding="utf-8"))
 BASE_MAP = _MAPFILE["places"]
@@ -221,14 +222,15 @@ def roll_character(name: str, seat: int, rng: random.Random, places: list[str] |
             "gold": rng.randint(1, 9), "skills": {}, "location": rng.choice(places or PLACES), "standing": standing_word(0), "standing_score": 0,
             "alive": True, "gone": False, "gone_reason": "", "trade": "", "home": "", "personality": "", "secret": "", "fear": "", "want": "",
             "cause_of_death": "", "traits": roll_traits(rng), "log": [], "needs": fresh_needs(), "sick": False, "sick_days": 0,
-            "duties": [], "dumped": [], "emergency": None}
+            "duties": [], "dumped": [], "emergency": None, "pastime": "", "items": [], "skip_streak": 0}
 
 
 # ---------------------------------------------------------------- needs, seasons, weather
 # Every person has food, warmth and rest on a scale of 0 to 10, and health (hp). Needs fall every day. A need at zero
 # takes health, and health at zero is death. Sick people cannot work and get worse until someone tends them.
-NEEDS = ("food", "warmth", "rest")
-NEED_WORDS = {"food": ["starving", "hungry", "fed"], "warmth": ["freezing", "cold", "warm"], "rest": ["exhausted", "tired", "rested"]}
+NEEDS = ("food", "warmth", "rest")                 # the needs of the body: at zero they take health
+ALL_NEEDS = ("food", "warmth", "rest", "spirit")   # and the spirit, which falls daily and rises on a pastime, good company, or a good meal
+NEED_WORDS = {"food": ["starving", "hungry", "fed"], "warmth": ["freezing", "cold", "warm"], "rest": ["exhausted", "tired", "rested"], "spirit": ["broken", "low", "in good spirits"]}
 STORES = ("grain", "meat", "fish", "wood", "meals", "tools", "herbs")     # what the valley keeps; all of it decays and none of it grows without work
 PLACE_STATE = ("roof", "warmth", "filth")                                  # what each place is in, 0 to 10; roof and warmth fall, filth rises
 SEASONS = [(6, "autumn"), (14, "early winter"), (24, "deep winter"), (10**9, "thaw")]
@@ -241,7 +243,7 @@ WET = {"rain", "storm"}
 
 
 def fresh_needs() -> dict:
-    return {"food": 8, "warmth": 8, "rest": 8}
+    return {"food": 8, "warmth": 8, "rest": 8, "spirit": 7}
 
 
 def need_word(k: str, v: int) -> str:
@@ -357,7 +359,10 @@ def urges(c: dict, world: "World", rng: random.Random) -> list[str]:
     if g("ambition") >= 4 and r() < .4: out.append(f"{pick(near)} stands between you and what you mean to become. Undercut them today.")
     if g("loyalty") <= 2 and r() < .3: out.append(f"Someone would pay for what you know about {pick(near)}. Consider selling it.")
     if g("loyalty") >= 4 and here and r() < .3: out.append(f"{pick(here)} needs you today whether they know it or not. Stand with them even if it costs.")
-    rng.shuffle(out); return out[:3]
+    rng.shuffle(out); out = out[:3]
+    if int((c.get("needs") or {}).get("spirit", 6)) <= 2:
+        out = ["Your spirit is low. The work feels pointless and you would sooner refuse it than do it; only something that lifts you would change that."] + out[:2]
+    return out
 
 
 def trait_text(traits: dict) -> str:
@@ -390,6 +395,7 @@ class World:
             c["standing"] = standing_word(c["standing_score"])
             c.setdefault("log", []); c.setdefault("needs", fresh_needs()); c.setdefault("sick", False); c.setdefault("sick_days", 0)
             c.setdefault("duties", []); c.setdefault("dumped", []); c.setdefault("emergency", None)
+            c.setdefault("pastime", ""); c.setdefault("items", []); c.setdefault("skip_streak", 0); c["needs"].setdefault("spirit", 6)
         self.map: dict = d.get("map") or json.loads(json.dumps(BASE_MAP))
         self.map_name: str = d.get("map_name") or BASE_NAME
         self.style: dict = d.get("style") or json.loads(json.dumps(BASE_STYLE))
@@ -474,7 +480,8 @@ class World:
         # the people: they eat what there is, warm themselves at what fire there is, and rest as well as the roof lets them
         for c in sorted(self.living(), key=lambda c: c["seat"]):
             n = c.setdefault("needs", fresh_needs()); place = self.place_state(c["location"])
-            if L["meals"] > 0: L["meals"] -= 1; n["food"] = min(10, n["food"] + 4)
+            n.setdefault("spirit", 6)
+            if L["meals"] > 0: L["meals"] -= 1; n["food"] = min(10, n["food"] + 4); n["spirit"] = min(10, n["spirit"] + 1)
             elif L["grain"] > 0 and rng.random() < .5: L["grain"] -= 1; n["food"] = min(7, n["food"] + 2)
             elif L["fish"] > 0: L["fish"] -= 1; n["food"] = min(8, n["food"] + 3)
             elif L["meat"] > 0: L["meat"] -= 1; n["food"] = min(9, n["food"] + 3)
@@ -482,6 +489,7 @@ class World:
             warmth = place["warmth"]
             n["warmth"] = max(0, min(10, n["warmth"] + (2 if warmth >= 6 else 0 if warmth >= 3 else -2) - (2 if cold else 1)))
             n["rest"] = max(0, min(10, n["rest"] + (3 if place["roof"] >= 4 and warmth >= 3 else 1) - 2))
+            n["spirit"] = max(0, n["spirit"] - (2 if n["food"] <= 2 or n["warmth"] <= 2 or c.get("sick") else 1))
             hurt = [k for k in NEEDS if n[k] <= 0]
             if hurt:
                 c["hp"] = max(0, c["hp"] - len(hurt)); note_log(c, day, f"You are {', '.join(need_word(k, 0) for k in hurt)}. It is taking your health.")
@@ -551,7 +559,7 @@ class World:
 
     def needs_text(self, name: str) -> str:
         c = self.characters[name]; n = c.get("needs") or fresh_needs()
-        words = ", ".join(f"{need_word(k, n[k])} ({k} {n[k]}/10)" for k in NEEDS)
+        words = ", ".join(f"{need_word(k, n.get(k, 6))} ({k} {n.get(k, 6)}/10)" for k in ALL_NEEDS)
         return f"HOW YOU ARE: {words}; health {c['hp']} of {c['hp_max']}" + ("; SICK, you cannot work until someone tends you" if c.get("sick") else "") + "."
 
     def dawn_text(self) -> str:
@@ -1140,6 +1148,9 @@ class World:
         if d.get("needs_tools") and L["tools"] <= 0: factor = min(factor, 0.5); out["no_tools"] = True
         if d.get("growing_only") and not growing(self.day, self.weather): factor = 0.0; out["season"] = True
         if c.get("needs", {}).get("rest", 5) <= 0: factor = min(factor, 0.5)
+        spirit = int(c.get("needs", {}).get("spirit", 6))
+        if spirit <= 2: factor *= 0.5; out["low_spirit"] = True
+        elif spirit >= 8 and factor > 0: factor *= 1.25; out["high_spirit"] = True
         # what it uses: all of it, or one of the "any" set, only if it is there
         use = dict(d.get("consumes", {})); any_of = d.get("consumes_any")
         if any_of:
@@ -1199,6 +1210,86 @@ class World:
             if s == "road_safe": L["road_safe"] = False
             elif s in STORES: L[s] = max(0, L[s] + v)
         return {"duty": key, "days": st["undone_days"], "text": f"{d['label'].capitalize()} went undone: {d['breaks']}."}
+
+    # ---- pastimes: what a person does with a free afternoon, seeded from their nature, and what it does for them
+    def pastime_fit(self, c: dict, key: str) -> float:
+        tr = c.get("traits", {}); score = 0.0
+        for k, v in PASTIMES[key].get("seed", {}).items():
+            t = int(tr.get(k, 3))
+            if v >= 4 and t >= v: score += 2 + (0.5 if t == 5 else 0)
+            elif v <= 2 and t <= v: score += 2 + (0.5 if t == 1 else 0)
+            elif v == 3 and t == 3: score += .5
+            elif abs(t - v) == 1: score += .25
+        return score
+
+    def roll_pastime(self, name: str, rng: random.Random) -> str:
+        c = self.characters[name]; fit = {k: self.pastime_fit(c, k) + rng.random() * 1.5 for k in PASTIMES}
+        return max(fit, key=fit.get)
+
+    def seed_pastimes(self, rng: random.Random) -> None:
+        for c in self.living():
+            if not c.get("pastime") or c["pastime"] not in PASTIMES: c["pastime"] = self.roll_pastime(c["name"], rng)
+
+    def set_pastime(self, name: str, key: str) -> str:
+        c = self.characters.get(name); key = str(key or "").strip().lower()
+        if not c or key not in PASTIMES: return "no such person or pastime"
+        if c.get("pastime") == key: return "no change"
+        c["pastime"] = key; return f"{name}'s pastime is now {PASTIMES[key]['label']}"
+
+    def pastime_place(self, name: str) -> str:
+        c = self.characters[name]; d = PASTIMES.get(c.get("pastime") or "", {}); w = d.get("where", {})
+        home = c.get("home") if c.get("home") in self.map else c["location"]
+        if w.get("home"): return home
+        if w.get("high"):
+            top = max(self.map.values(), key=lambda pd: int(pd.get("elevation", 0)))
+            if int(top.get("elevation", 0)) > 0: return next(p for p, pd in self.map.items() if pd is top)
+        for kind in w.get("kinds", []):
+            for p, pd in self.map.items():
+                if pd.get("kind") == kind: return p
+        for feat in w.get("features", []):
+            for p, pd in self.map.items():
+                if pd.get("feature") == feat: return p
+        for kind in w.get("fallback", []):
+            for p, pd in self.map.items():
+                if pd.get("kind") == kind: return p
+        return home
+
+    def do_pastime(self, name: str, rng: random.Random) -> dict:
+        """A free afternoon spent on the pastime: they go where it is done, their spirit rises, and the pastime does what it does."""
+        c = self.characters[name]; key = c.get("pastime") if c.get("pastime") in PASTIMES else self.roll_pastime(name, rng); c["pastime"] = key
+        d = PASTIMES[key]; place = self.pastime_place(name); n = c.setdefault("needs", fresh_needs()); n.setdefault("spirit", 6); L = self.ledger; fx = d.get("effects", {}); bits = []
+        c["location"] = place; n["spirit"] = min(10, n["spirit"] + 3 + int(fx.get("spirit", 0)))
+        if "fish" in fx: L["fish"] += int(fx["fish"]); bits.append(f"brought back {fx['fish']} fish")
+        if "item" in fx: it = rng.choice(fx["item"]); c.setdefault("items", []).append(it); del c["items"][:-12]; bits.append(f"made {it}" if key == "carving" else f"found {it}")
+        if fx.get("herbs_chance") and rng.random() < fx["herbs_chance"]: L["herbs"] += 1; bits.append("picked a handful of herbs")
+        if fx.get("str_chance") and rng.random() < fx["str_chance"] and int(c["str"]) < 9: c["str"] = int(c["str"]) + 1; bits.append("came away a little stronger")
+        if fx.get("gold_chance") and rng.random() < fx["gold_chance"]: c["gold"] += 1; bits.append("found a coin")
+        for k in ("rest", "warmth"):
+            if k in fx: n[k] = max(0, min(10, n[k] + int(fx[k])))
+        if "rest" in fx or "warmth" in fx: bits.append("and will feel it tomorrow")
+        if fx.get("gold_swing"):
+            others = [x for x in self.living() if x["name"] != name and x["location"] == place and x.get("pastime") == key]
+            if others and c["gold"] > 0:
+                o = rng.choice(others); win = rng.random() < .5
+                if win and o["gold"] > 0: o["gold"] -= 1; c["gold"] += 1; bits.append(f"won a coin off {o['name']}")
+                elif not win: c["gold"] -= 1; o["gold"] += 1; bits.append(f"lost a coin to {o['name']}")
+        if fx.get("spirit_others"):
+            for x in self.living():
+                if x["name"] != name and x["location"] == place: x.setdefault("needs", fresh_needs()); x["needs"]["spirit"] = min(10, x["needs"].get("spirit", 6) + int(fx["spirit_others"]))
+        liked = [x["name"] for x in self.living() if x["name"] != name and x["location"] == place and self.rel(name, x["name"])["feeling"] >= 2]
+        if liked: n["spirit"] = min(10, n["spirit"] + 2); bits.append(f"in good company: {', '.join(liked[:3])}")
+        txt = f"{name} spent the afternoon {d['verb']} at {place}" + (", " + ", ".join(bits) if bits else "") + "."
+        note_log(c, self.day, txt.replace(name, "You", 1))
+        self.set_activity(name, "pastime", d["verb"], [{"place": place, "what": d["verb"], "dur": 8}])
+        return {"kind": "pastime", "who": name, "place": place, "pastime": key, "text": txt}
+
+    def pastime_groups(self) -> dict[str, list[str]]:
+        """Who is at the same place on their pastime this afternoon: place -> names. Two or more make company, and talk."""
+        out: dict[str, list[str]] = {}
+        for n, a in self.activities.items():
+            if a.get("state") == "pastime" and a.get("day") == self.day and n in self.characters and self.able(self.characters[n]):
+                out.setdefault(self.characters[n]["location"], []).append(n)
+        return {p: ns for p, ns in out.items() if len(ns) >= 2}
 
     # ---- wants: what a person is after, measured, so the engine can say how close they are
     # A want is gold to hold, a skill to reach or to be best at, a tie to win, or an evening spent somewhere. Reached, it is
@@ -1393,6 +1484,8 @@ class World:
         nd = self.see_to_needs(name)
         if nd: out.append(nd); return out
         kind, key = self.morning_intent(name, action or "")
+        if kind == "work" and int(c.get("needs", {}).get("spirit", 6)) <= 1 and rng.random() < .25:
+            kind, key = "skip", None; c["could_not_face"] = True
         em = self.handle_emergency(name, rng)
         if em: out.append(dict(em, who=name)); c["needs"]["rest"] = max(0, c["needs"].get("rest", 5) - 1)
         mine = list(c.get("duties", [])) + [k for k in c.get("dumped", []) if k not in c.get("duties", [])]
@@ -1404,19 +1497,29 @@ class World:
             for k in todo:
                 r = self.do_duty(name, k, rng); r["kind"] = "work"; out.append(r)
             skipped = [k for k in mine if k not in todo]
+            if not skipped: c["skip_streak"] = 0
         else:
             skipped = [key] if (kind == "refuse" and key and key in mine) else mine
         if skipped:
-            for k in skipped:
-                if k in c.get("duties", []): c["duties"].remove(k)
-                if k in c.get("dumped", []): c["dumped"].remove(k)
-                st = self.duty_state(k)
-                if not self.holders(k): st["unclaimed_day"] = self.day
-            bump_standing(c, -1)
-            verb = "refused" if kind == "refuse" else "skipped"
-            labels = ", ".join(DUTIES[k]["label"] for k in skipped)
-            note_log(c, self.day, f"You {verb} {labels}. It is no longer yours, and people noticed.")
-            out.append({"kind": kind if kind == "refuse" else "skip", "who": name, "duties": skipped, "text": f"{name} {verb} {labels}; {'it is' if len(skipped) == 1 else 'they are'} nobody's now."})
+            bump_standing(c, -1); labels = ", ".join(DUTIES[k]["label"] for k in skipped)
+            lost = kind == "refuse"
+            if not lost:
+                c["skip_streak"] = int(c.get("skip_streak", 0)) + 1
+                lost = c["skip_streak"] >= 2
+            if lost:
+                for k in skipped:
+                    if k in c.get("duties", []): c["duties"].remove(k)
+                    if k in c.get("dumped", []): c["dumped"].remove(k)
+                    st = self.duty_state(k)
+                    if not self.holders(k): st["unclaimed_day"] = self.day
+                c["skip_streak"] = 0
+                verb = "refused" if kind == "refuse" else "skipped, for the second day running,"
+                note_log(c, self.day, f"You {verb} {labels}. It is no longer yours, and people noticed.")
+                out.append({"kind": kind if kind == "refuse" else "skip", "who": name, "duties": skipped, "lost": True, "text": f"{name} {verb} {labels}; {'it is' if len(skipped) == 1 else 'they are'} nobody's now."})
+            else:
+                why = "could not face" if c.pop("could_not_face", False) else "skipped"
+                note_log(c, self.day, f"You {why} {labels} today. People noticed. Skip it again tomorrow and it is nobody's.")
+                out.append({"kind": "skip", "who": name, "duties": skipped, "lost": False, "text": f"{name} {why} {labels} today; once more and {'it is' if len(skipped) == 1 else 'they are'} nobody's."})
         return out
 
     def end_morning(self, done: set[str], rng: random.Random) -> dict:
@@ -1450,6 +1553,9 @@ class World:
             dest = inn if (inn and pull and not c.get("sick")) else home
             if dest and dest != c["location"]: c["location"] = dest; moves[c["name"]] = dest
             self.set_activity(c["name"], "evening", "at the inn" if dest == inn and inn != home else "at home", [{"place": dest or c["location"], "what": "at the inn" if dest == inn and inn != home else "at home", "dur": 0}])
+        for c in self.living():
+            if any(x["name"] != c["name"] and x["location"] == c["location"] and self.rel(c["name"], x["name"])["feeling"] >= 2 for x in self.living()):
+                c.setdefault("needs", fresh_needs()); c["needs"]["spirit"] = min(10, c["needs"].get("spirit", 6) + 1)
         return moves
 
     def duties_text(self) -> str:
@@ -1502,6 +1608,7 @@ class World:
                 f"{self.needs_text(name)}\n"
                 f"Your secret, known only to you: {c['secret']}\nYour fear: {c['fear']}\n{self.want_text(name)}\n"
                 + (f"People call you {', '.join(self.titles().get(name, []))}.\n" if self.titles().get(name) else "")
+                + f"Your pastime, what you do with a free afternoon: {PASTIMES[c['pastime']]['label'] if c.get('pastime') in PASTIMES else 'not settled yet'}.\n"
                 + f"YOUR PEOPLE, and how you truly feel about them (act on this):\n{self.relations_text(name)}")
 
     def apply(self, res: dict, log: list[str]) -> None:

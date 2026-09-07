@@ -100,6 +100,7 @@ class RefusalConsequences(unittest.TestCase):
         for act in ("REFUSE", "I walk to the inn instead"):
             w = valley(); c = w.characters["P0"]; held = list(c["duties"]); s0 = c["standing_score"]
             w.resolve_morning("P0", act, random.Random(1))
+            if act != "REFUSE": self.assertEqual(c["duties"], held, "one skip only costs the day"); w.day += 1; w.resolve_morning("P0", act, random.Random(2))
             self.assertEqual(c["duties"], []); self.assertLess(c["standing_score"], s0)
             for k in held: self.assertFalse(w.holders(k) and "P0" in w.holders(k)); self.assertTrue(w.duty_state(k)["unclaimed_day"] is not None or w.holders(k))
             self.assertTrue(any(("refused" if act == "REFUSE" else "skipped") in x["text"] for x in c["log"]))

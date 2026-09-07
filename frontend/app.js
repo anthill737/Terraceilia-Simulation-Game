@@ -23,7 +23,7 @@ function modelUI(pfx,val){const p=$(pfx+'_p'),m=$(pfx+'_m'),c=$(pfx+'_c');fillSe
 function modelVal(pfx){const m=$(pfx+'_m').value;return {provider:$(pfx+'_p').value,model:m==='Custom...'?($(pfx+'_c').value.trim()||''):m}}
 const DRAMA=['nothing','a whisper','quiet','calm','ordinary','lively','eventful','hard','harsh','brutal','chaos'];
 const STORES=['grain','meat','fish','wood','meals','tools','herbs'];
-const NEEDW={food:['starving','hungry','fed'],warmth:['freezing','cold','warm'],rest:['exhausted','tired','rested']};
+const NEEDW={food:['starving','hungry','fed'],warmth:['freezing','cold','warm'],rest:['exhausted','tired','rested'],spirit:['broken','low','in good spirits']};
 const needWord=(k,v)=>NEEDW[k][v<=0?0:v<=4?1:2];
 
 // ---------- setup screen (a game that has not started)
@@ -223,6 +223,7 @@ function paneBio(s,c){const places=s.places||[];
   <div><label>State</label><select id="b_state"><option value="alive" ${c.alive&&!c.gone?'selected':''}>alive</option><option value="gone" ${c.gone?'selected':''}>gone from the valley</option><option value="dead" ${!c.alive?'selected':''}>dead</option></select></div></div>
  <div class="pg"><div><label>Played by</label><select id="b_prov"></select></div><div><label>Model</label><select id="b_model"></select><input id="b_custom" placeholder="custom model" style="display:none;margin-top:4px"></div></div>
  <div class="pg"><div><label>Personality</label><textarea id="b_pers">${esc(c.personality)}</textarea></div><div><label>Secret, known only to them</label><textarea id="b_secret">${esc(c.secret)}</textarea></div></div>
+ <div class="pg"><div><label>Pastime, what they do with a free afternoon</label><select id="b_pastime">${Object.entries(s.pastime_defs||{}).map(([k,d])=>`<option value="${k}" ${k===c.pastime?'selected':''}>${esc(d.label)}</option>`).join('')}</select>${(c.items||[]).length?`<div class="note" style="margin-top:4px">Keeps: ${c.items.map(esc).join(', ')}</div>`:''}</div><div></div></div>
  <div class="pg"><div><label>Fear</label><textarea id="b_fear">${esc(c.fear)}</textarea></div><div><label>What they want more than anything</label><textarea id="b_want">${esc(c.want)}</textarea>
   ${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return `<div class="wantline"><span>In plain terms: <b>${esc(g.text||'nothing measured')}</b></span><span class="wbar"><i style="width:${wp[0]}%"></i></span><span class="note">${wp[0]}% · ${esc(wp[1])}</span><button type="button" class="btn sm" id="b_reroll">Roll a new want</button></div>${(c.wants_reached||[]).length?`<div class="note">Reached: ${c.wants_reached.map(x=>'day '+x.day+', '+esc(x.text)).join('; ')}</div>`:''}`})()}</div></div>
  <div class="row"><button class="primary" id="b_save">Save</button><span class="note">A changed life or model starts them fresh on their next turn.</span></div>`}
@@ -244,7 +245,7 @@ function paneHealth(s,c){
    <div class="ghp">${c.alive?c.hp:0} of ${c.hp_max} health</div>
    ${row('Wounds',c.alive?WOUNDS(pct):'past helping',tone)}
    ${row('Sick',`<select class="vin wide" id="h_sick"><option value="0" ${c.sick?'':'selected'}>no</option><option value="1" ${c.sick?'selected':''}>yes, cannot work</option></select>`,c.sick?'poor':'good')}
-   ${['food','warmth','rest'].map(k=>{const v=(c.needs||{})[k]??0;return row(k[0].toUpperCase()+k.slice(1),`<span class="${v<=0?'poor':v<=4?'fair':'good'}">${needWord(k,v)}</span><input class="vin" type="number" id="h_${k}" min="0" max="10" value="${v}">`)}).join('')}
+   ${['food','warmth','rest','spirit'].map(k=>{const v=(c.needs||{})[k]??0;return row(k[0].toUpperCase()+k.slice(1),`<span class="${v<=0?'poor':v<=4?'fair':'good'}">${needWord(k,v)}</span><input class="vin" type="number" id="h_${k}" min="0" max="10" value="${v}">`)}).join('')}
    ${row('Health now',`<input class="vin" type="number" id="h_hp" min="0" value="${c.hp}">`)}
    ${row('Health at most',`<input class="vin" type="number" id="h_hpm" min="1" value="${c.hp_max}">`)}
    <div class="row" style="margin-top:10px"><button class="primary" id="h_save">Save</button></div>
@@ -328,7 +329,7 @@ function paneLog(s,c){const rx=rxName(c.name);
  const rows=[];
  for(const e of (s.transcript||[])){
   if(e.speaker===c.name){rows.push({e,text:e.text});continue}
-  if(!['world','system','fate','epilogue','convener','dawn','morning','evening'].includes(e.kind))continue;
+  if(!['world','system','fate','epilogue','convener','dawn','morning','afternoon','evening'].includes(e.kind))continue;
   const b=body(e.text);if(!rx.test(b))continue;
   const hits=b.split(/(?<=[.!?])\s+/).filter(x=>rx.test(x));
   rows.push({e,text:hits.length?hits.join(' '):b.slice(0,240)})}
@@ -346,7 +347,7 @@ function peoWire(s,c){const pane=$('peoPane');
   if($('b_reroll'))$('b_reroll').onclick=()=>peoApply({reroll_want:true});
   $('b_save').onclick=async()=>{const st=$('b_state').value;
    const d={new_name:$('b_name').value.trim(),trade:$('b_trade').value,home:$('b_home').value,location:$('b_loc').value,
-    personality:$('b_pers').value,secret:$('b_secret').value,fear:$('b_fear').value,want:$('b_want').value,
+    personality:$('b_pers').value,secret:$('b_secret').value,fear:$('b_fear').value,want:$('b_want').value,pastime:$('b_pastime').value,
     ...pickVal($('b_prov'),$('b_model'),$('b_custom'))};
    if(st==='dead')d.hp=0;
    if(st==='gone')d.gone=true;
@@ -359,7 +360,7 @@ function peoWire(s,c){const pane=$('peoPane');
    pane.querySelectorAll('.skillrow').forEach(r=>{const k=r.querySelector('.sk').value.trim();if(k)skills[k]=+r.querySelector('.sv').value||0});
    await peoApply({str:+$('s_str').value,spd:+$('s_spd').value,gold:+$('s_gold').value,standing:$('s_stand').value,skills})}}
  else if(peoTab==='health'){
-  $('h_save').onclick=()=>peoApply({hp:+$('h_hp').value,hp_max:+$('h_hpm').value,sick:$('h_sick').value==='1',needs:{food:+$('h_food').value,warmth:+$('h_warmth').value,rest:+$('h_rest').value}})}
+  $('h_save').onclick=()=>peoApply({hp:+$('h_hp').value,hp_max:+$('h_hpm').value,sick:$('h_sick').value==='1',needs:{food:+$('h_food').value,warmth:+$('h_warmth').value,rest:+$('h_rest').value,spirit:+$('h_spirit').value}})}
  else if(peoTab==='disp'){
   pane.querySelectorAll('.dial').forEach(d=>d.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>peoApply({traits:{[d.dataset.k]:+b.dataset.i}})))}
  else if(peoTab==='duties'){

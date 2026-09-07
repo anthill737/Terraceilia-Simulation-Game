@@ -7,9 +7,10 @@ from pathlib import Path
 import connect
 import telegram
 from agents import PROVIDERS, VERSIONS, refresh_versions
-from engine import DUTIES, GAMES, NEEDS, STANDING_WORDS, World, now_id, standing_score_for, standing_word, need_word
+from engine import ALL_NEEDS, DUTIES, GAMES, PASTIMES, STANDING_WORDS, World, now_id, standing_score_for, standing_word, need_word
 
 DUTY_DEFS = {k: {x: d.get(x) for x in ("label", "verb", "skill", "produces", "consumes", "effect", "breaks")} for k, d in DUTIES.items()}
+PASTIME_DEFS = {k: {"label": d["label"], "verb": d["verb"]} for k, d in PASTIMES.items()}
 from game import Game, Run, list_games
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
@@ -47,7 +48,7 @@ class App:
                     "map": w.map, "map_name": w.map_name, "map_generated": w.map_generated, "map_style": w.style, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies), "roster": w.roster, "phase": w.phase,
                     "activities": json.loads(json.dumps(w.activities)), "now": time.time(),
-                    "characters": [{k: c.get(k) for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing", "sick", "needs", "duties", "dumped", "emergency", "activity", "goal")} for c in w.characters.values()],
+                    "characters": [{k: c.get(k) for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing", "sick", "needs", "duties", "dumped", "emergency", "activity", "goal", "pastime", "items")} for c in w.characters.values()],
                     "titles": w.titles(),
                     "seats": [{"name": x["name"], "color": x["color"]} for x in g.seats], "version": r.version}
 
@@ -68,7 +69,7 @@ class App:
                     "characters": chars, "ledger": ledger, "pending": pending, "map": mp, "relations": json.loads(json.dumps(w.relations)),
                     "threads": list(w.threads), "fires": dict(w.fires),
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies),
-                    "roster": w.roster, "duty_state": w.duties, "duty_defs": DUTY_DEFS, "phase": w.phase, "morning": w.morning,
+                    "roster": w.roster, "duty_state": w.duties, "duty_defs": DUTY_DEFS, "pastime_defs": PASTIME_DEFS, "phase": w.phase, "morning": w.morning,
                     "titles": w.titles(), "want_progress": {c["name"]: w.want_progress(c["name"]) for c in w.characters.values()},
                     "activities": json.loads(json.dumps(w.activities)), "now": time.time(),
                     "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
@@ -205,7 +206,7 @@ class App:
             if "sick" in d and bool(d["sick"]) != bool(c.get("sick")): c["sick"] = bool(d["sick"]); c["sick_days"] = 0; notes.append(f"{name} is {'sick' if c['sick'] else 'well again'}")
             nd = d.get("needs")
             if isinstance(nd, dict):
-                for k in NEEDS:
+                for k in ALL_NEEDS:
                     if k in nd:
                         try: v = max(0, min(10, int(nd[k])))
                         except (TypeError, ValueError): continue
@@ -218,6 +219,9 @@ class App:
                 from engine import place_key
                 dest = place_key(str(d["location"]), w.map)
                 if dest and dest != c["location"]: c["location"] = dest; notes.append(f"{name} is at {dest}")
+            if "pastime" in d:
+                note = w.set_pastime(name, d["pastime"])
+                if note != "no change" and not note.startswith("no such"): notes.append(note)
             if d.get("reroll_want"):
                 c["goal"] = w.roll_want(name, self.run.rng); c["want"] = c["goal"]["text"]; notes.append(f"{name} now wants {c['goal']['text']}")
             if isinstance(d.get("duties"), list):
