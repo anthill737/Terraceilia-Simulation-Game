@@ -209,7 +209,7 @@ const MapView=(()=>{
   $('ppFx').querySelectorAll('button').forEach(b=>b.onclick=async()=>{const r=await App.api('/god/destroy',{place:selected,fixture:b.dataset.f});note(r.last_god);App.render(r)});
   const burning=(s.fires||{})[selected]!==undefined;$('ppFire').textContent=burning?'Put out the fire':'Set fire';$('ppFire').className=burning?'btn':'danger solid';$('ppFire').onclick=async()=>{const r=await App.api(burning?'/god/extinguish':'/god/fire',{place:selected});note(r.last_god);App.render(r)};
   const pres=(d.present||[]);$('ppPres').innerHTML=pres.length?'Here: '+pres.map(esc).join(', '):'';
-  const who=s.characters.filter(c=>c.alive&&!c.banished&&c.location===selected).map(c=>c.name);$('ppWho').textContent=who.length?'People: '+who.join(', '):'Nobody here.';pp.classList.add('open')}
+  const who=s.characters.filter(c=>c.alive&&!c.gone&&c.location===selected).map(c=>c.name);$('ppWho').textContent=who.length?'People: '+who.join(', '):'Nobody here.';pp.classList.add('open')}
  function note(t){const n=$('godNote');n.textContent=t||'';n.style.display=t?'':'none';clearTimeout(n._t);n._t=setTimeout(()=>n.style.display='none',4000)}
  function figure(t,col){el('ellipse',{cy:14,rx:8,ry:3,fill:'#000',opacity:.35},t);el('circle',{class:'ring',r:12,stroke:col},t);
   el('path',{class:'cloak',d:'M-8 12 L-6 -2 L0 -6 L6 -2 L8 12 Z',fill:col,stroke:'#0a0d0b','stroke-width':1.2},t);el('circle',{class:'head',cy:-9,r:5,fill:'#e6c8a6',stroke:'#0a0d0b','stroke-width':1.2},t);el('text',{y:6,'text-anchor':'middle',class:'ini'},t)}
@@ -221,7 +221,7 @@ const MapView=(()=>{
   for(const [n,d] of Object.entries(s.map)){const gone=d.destroyed||[];const ru=$('ru-'+n.replace(/\W/g,'_'));if(ru)ru.textContent=gone.length?'ruined: '+gone.join(', '):''}
   const thinking=new Set((s.current||'').split(', ').filter(Boolean));const acted={};(s.pending||[]).forEach(a=>acted[a.who]=a.text);
   const col={};(s.seats||[]).forEach(x=>col[x.name]=x.color);
-  const byPlace={};s.characters.forEach(c=>{if(!c.alive||c.banished)return;(byPlace[c.location]=byPlace[c.location]||[]).push(c)});
+  const byPlace={};s.characters.forEach(c=>{if(!c.alive||c.gone)return;(byPlace[c.location]=byPlace[c.location]||[]).push(c)});
   const gt=$('tokens');const live=new Set();
   for(const [pl,cs] of Object.entries(byPlace)){const d=s.map[pl];if(!d)continue;const n=cs.length;
    cs.forEach((c,i)=>{live.add(c.name);const ang=Math.PI*0.12+(i/Math.max(1,n-1||1))*Math.PI*0.76;const rad=n>1?60:0;const x=d.x+(n>1?Math.cos(ang)*rad:0),y=d.y+70+(n>1?Math.sin(ang)*rad*0.4:4);

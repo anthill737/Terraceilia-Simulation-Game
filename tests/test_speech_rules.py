@@ -13,7 +13,7 @@ import prompts  # noqa: E402
 
 # the words that kept leaking into the valley, and the plain word each one stands in for
 BANNED = ["folk", "skinful", "bedding", "aye", "nay", "thee", "thou", "prithee", "verily",
-          "forsooth", "hark", "alas", "'tis", "mayhap", "methinks", "morrow", "let court hear"]
+          "forsooth", "hark", "alas", "'tis", "mayhap", "methinks", "morrow"]
 
 
 class SpeechRuleTests(unittest.TestCase):

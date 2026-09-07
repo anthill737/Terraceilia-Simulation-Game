@@ -78,7 +78,7 @@ That takes a minute or two. Then day one begins.
 
 ## How a day goes
 
-1. **The people speak.** Every living person who is not banished gets one prompt containing their
+1. **The people speak.** Every living person still in the valley gets one prompt containing their
    sheet, where they are and who is with them, the valley's unresolved situations, and everything
    they saw and heard since their last turn. Extreme traits push daily urges on them: a drunkard has
    been drinking since noon, a wanton one wants somebody, a schemer has decided somebody is in the
@@ -89,14 +89,17 @@ That takes a minute or two. Then day one begins.
 3. **The World resolves the day.** The engine rolls a die for every action, draws the day's events
    from the drama dial, spreads any fires, and hands it all to the World. The World narrates what
    happened, place by place, and proposes results in a JSON block: wounds, gold, moves, deaths,
-   banishments, the prosperity ledger, new situations, changed feelings. The engine validates every
-   line and clamps anything impossible.
+   the prosperity ledger, new situations, changed feelings. The engine validates every line and
+   clamps anything impossible.
 4. **The chronicle.** What the whole valley learned goes into the chronicle. What each person
    witnessed goes into their own memory file.
 
-Every sixth day the lord's court sits and the World must name the one person the valley trusts
-least. They are banished. The year ends when the days run out, the clock runs out, or one person
-is left standing. Then the World writes the epilogue.
+Nothing is decided by a body or a show of hands. If someone has to go, a person drives them out
+as their action, and the engine settles it: the target can resist, the people standing there take a
+side, and the outcome is rolled from standing, ties, and dice. A person can also refuse to share
+with someone, take their work from them, or leave the valley for good, all settled the same way.
+Anyone driven out or gone is benched with the reason in their log. The year ends when the days run
+out, the clock runs out, or one person is left standing. Then the World writes the epilogue.
 
 ### The people
 
@@ -108,9 +111,9 @@ are skewed away from nice. Most people are middling, a good share are hard, a fe
 Everyone has an opinion about everyone else, as a feeling and a trust score from -5 to 5, seeded
 from their natures and then shaped by the ties the World invents and everything that happens after.
 
-### The World's rules of judgement
+### How things go
 
-The World is told how to judge and may not soften it. A fight wounds. A person with Strength 7 or
+The World is told how things go and may not soften it. A fight wounds. A person with Strength 7 or
 more who attacks on a roll of 5 or 6 can kill, and a knife in the dark kills on a 4. Drunk actions
 go wrong on a 1 to 3 and are witnessed. A theft that fails is seen. A murder that succeeds still
 leaves a body, and bodies are found. Lies succeed on a 4 or better against the simple and fail
@@ -142,7 +145,7 @@ You are not a player, but you are not powerless.
   the place on fire and put it out again.
 - **Strike someone down.** Smite a person and they are dead.
 - **Edit anyone.** In Settings, change a person's model, stats, life, or name while the game runs.
-  Bring the dead back or let a banished person walk home. Change how any two people feel about each
+  Bring the dead back or let someone who left walk home. Change how any two people feel about each
   other.
 - **Change the game.** Title, world text, days, time limit, drama, and the World's model can all be
   changed mid-game, under World.

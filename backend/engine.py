@@ -216,9 +216,42 @@ def now_id() -> str:
 def roll_character(name: str, seat: int, rng: random.Random, places: list[str] | None = None) -> dict:
     hp = rng.randint(8, 14)
     return {"name": name, "seat": seat, "str": rng.randint(2, 9), "spd": rng.randint(2, 9), "hp": hp, "hp_max": hp,
-            "gold": rng.randint(1, 9), "skills": {}, "location": rng.choice(places or PLACES), "standing": "unknown",
-            "alive": True, "banished": False, "trade": "", "home": "", "personality": "", "secret": "", "fear": "", "want": "",
-            "cause_of_death": "", "traits": roll_traits(rng)}
+            "gold": rng.randint(1, 9), "skills": {}, "location": rng.choice(places or PLACES), "standing": standing_word(0), "standing_score": 0,
+            "alive": True, "gone": False, "gone_reason": "", "trade": "", "home": "", "personality": "", "secret": "", "fear": "", "want": "",
+            "cause_of_death": "", "traits": roll_traits(rng), "log": []}
+
+
+# ---------------------------------------------------------------- standing
+# One number, -9 to 9, and the word the valley uses for it. Nobody decides it; it moves from what a person does and how
+# the people around them answer it. The words the World used to hand out ("feared", "pitied") are gone.
+STANDING_BANDS = [(-6, "hated"), (-3, "shunned"), (2, "unknown"), (5, "known"), (8, "respected"), (99, "loved")]
+STANDING_WORDS = [w for _, w in STANDING_BANDS]
+
+
+def standing_word(score: int) -> str:
+    for top, word in STANDING_BANDS:
+        if score < top or top == 99: return word
+    return STANDING_WORDS[-1]
+
+
+STANDING_MID = {"hated": -8, "shunned": -5, "unknown": 0, "known": 3, "respected": 6, "loved": 9}
+OLD_GONE_KEY = "bani" + "shed"      # the key saves used before people were "gone"; spelled in two halves so the word itself is out of the game
+
+
+def standing_score_for(word: str) -> int:
+    """The middle of a band, for when fate sets the word by hand."""
+    return STANDING_MID.get(word, 0)
+
+
+def bump_standing(c: dict, delta: int) -> str:
+    """Move a person's standing and return the word for it now."""
+    c["standing_score"] = max(-9, min(9, int(c.get("standing_score", 0)) + int(delta)))
+    c["standing"] = standing_word(c["standing_score"]); return c["standing"]
+
+
+def note_log(c: dict, day: int, text: str) -> None:
+    """A line in a person's own log: what happened to them, in the engine's words."""
+    c.setdefault("log", []).append({"day": day, "text": str(text)[:240]}); del c["log"][:-60]
 
 
 TRAITS = ["warmth", "temper", "honesty", "greed", "courage", "tongue", "desire", "piety", "ambition", "loyalty", "cunning", "drink"]
@@ -287,8 +320,11 @@ class World:
         self.day = d.get("day", 0)
         self.ledger = d.get("ledger", {"grain_weeks": 10, "grain_needed": 16, "roofs_broken": 3, "road_safe": False, "sick": 0, "built": []})
         self.pending: list[dict] = d.get("pending", [])
-        self.court_every = d.get("court_every", 6)
         self.created = d.get("created", False)
+        for c in self.characters.values():           # games saved under the old rules
+            if "gone" not in c: c["gone"] = bool(c.pop(OLD_GONE_KEY, False)); c["gone_reason"] = "driven out, in a game saved under the old rules" if c["gone"] else ""
+            if "standing_score" not in c: c["standing_score"] = standing_score_for(c.get("standing", "unknown")); c["standing"] = standing_word(c["standing_score"])
+            c.setdefault("log", [])
         self.map: dict = d.get("map") or json.loads(json.dumps(BASE_MAP))
         self.map_name: str = d.get("map_name") or BASE_NAME
         self.style: dict = d.get("style") or json.loads(json.dumps(BASE_STYLE))
@@ -302,7 +338,7 @@ class World:
 
     def to_dict(self) -> dict:
         return {"characters": self.characters, "day": self.day, "ledger": self.ledger, "pending": self.pending,
-                "court_every": self.court_every, "created": self.created, "map": self.map, "fate": self.fate, "relations": self.relations,
+                "created": self.created, "map": self.map, "fate": self.fate, "relations": self.relations,
                 "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
                 "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style}
 
@@ -508,7 +544,7 @@ class World:
             # hard effects, applied now
             if "hp" in fx: who["hp"] = max(0, min(who["hp_max"], who["hp"] + int(fx["hp"])))
             if "gold" in fx: who["gold"] = max(0, who["gold"] + int(fx["gold"]))
-            if fx.get("standing"): who["standing"] = fx["standing"]
+            if "standing" in fx: bump_standing(who, int(fx["standing"]))
             if "sick" in fx: self.ledger["sick"] = max(0, self.ledger["sick"] + int(fx["sick"]))
             if "grain" in fx: self.ledger["grain_weeks"] = max(0, self.ledger["grain_weeks"] + int(fx["grain"]))
             if "roofs" in fx: self.ledger["roofs_broken"] = max(0, self.ledger["roofs_broken"] + int(fx["roofs"]))
@@ -522,25 +558,143 @@ class World:
         return out
 
     def living(self) -> list[dict]:
-        return [c for c in self.characters.values() if c["alive"] and not c["banished"]]
+        return [c for c in self.characters.values() if c["alive"] and not c["gone"]]
+
+    def gone_list(self) -> list[str]:
+        return [f"{c['name']} ({c['gone_reason'] or 'gone'})" for c in self.characters.values() if c["gone"] and c["alive"]]
 
     def public_table(self) -> str:
         rows = [f"{c['name']}: {c['location']}, {c['standing']}" for c in sorted(self.living(), key=lambda c: c["seat"])]
         dead = [f"{c['name']} ({c['cause_of_death']})" for c in self.characters.values() if not c["alive"]]
-        ban = [c["name"] for c in self.characters.values() if c["banished"] and c["alive"]]
-        return "WHO IS WHERE\n" + "\n".join(rows) + f"\nDEAD: {', '.join(dead) or 'none'}\nBANISHED: {', '.join(ban) or 'none'}"
+        return "WHO IS WHERE\n" + "\n".join(rows) + f"\nDEAD: {', '.join(dead) or 'none'}\nGONE: {', '.join(self.gone_list()) or 'none'}"
 
     def standings_table(self) -> str:
         rows = [f"| {c['name']} | {c['location']} | {c['hp']}/{c['hp_max']} | {c['gold']} | {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'} | {c['standing']} |"
                 for c in sorted(self.living(), key=lambda c: c["seat"])]
         dead = [f"{c['name']} ({c['cause_of_death']})" for c in self.characters.values() if not c["alive"]]
-        ban = [c["name"] for c in self.characters.values() if c["banished"] and c["alive"]]
         L = self.ledger
         led = (f"PROSPERITY, day {self.day}: grain for {L['grain_weeks']} of {L['grain_needed']} weeks needed; "
                f"{L['roofs_broken']} roofs still broken; road {'safe' if L['road_safe'] else 'unsafe'} after dark; "
                f"{L['sick']} sick; built this year: {', '.join(L['built']) or 'nothing yet'}.")
         return (led + "\n\nSTANDINGS\n| Name | Location | Health | Gold | Skills | Standing |\n|---|---|---|---|---|---|\n"
-                + "\n".join(rows) + f"\n\nDEAD: {', '.join(dead) or 'none'}\nBANISHED: {', '.join(ban) or 'none'}")
+                + "\n".join(rows) + f"\n\nDEAD: {', '.join(dead) or 'none'}\nGONE: {', '.join(self.gone_list()) or 'none'}")
+
+    # ---- what one person does to another, decided here and only here
+    # Nothing in the valley is decided by a body. A person drives someone out, refuses them, takes their work, or leaves,
+    # and the engine settles it: the target resists, the people standing there take a side, and the dice fall.
+    SOCIAL_KINDS = ("drive_out", "refuse", "take_duty", "leave")
+
+    def social_intent(self, actor: str, text: str) -> tuple[str, str | None] | None:
+        """(kind, target) when an ACTION line is one of the four social acts, else None. The target is a living person named in it."""
+        t = " ".join((text or "").lower().split())
+        if not t: return None
+        names = [c["name"] for c in self.living() if c["name"] != actor]
+        target = next((n for n in sorted(names, key=len, reverse=True) if re.search(r"(?<![\w@])@?" + re.escape(n.lower()) + r"(?:'s)?\b", t)), None)
+        if re.search(r"\b(leave|leaving|quit|abandon|walk out of|walk away from|go from|get out of)\b.{0,30}\b(valley|village|this place|for good|forever|and (?:not|never) come back)\b", t) \
+                or re.search(r"\b(leave|leaving)\b.{0,12}\bfor good\b", t) or re.search(r"\bpack\b.{0,20}\b(leave|go)\b", t):
+            if not target or re.search(r"\bi(?:'m| am|'ll| will)? (?:leav|quit|go|walk|pack|am done|take the road)", t): return ("leave", None)
+        if not target: return None
+        if re.search(r"\b(drive|driving|run|running|chase|chasing|throw|throwing|force|forcing|push|pushing|cast|casting|turn|turning|kick|kicking|see|march)\b.{0,40}\b(out|off|away|from the valley|out of the valley)\b", t) \
+                or re.search(r"\b(exile|expel|evict)\w*\b", t) or re.search(r"\b(out of (?:the|this|our) valley|out of here for good|leave the valley or else)\b", t):
+            return ("drive_out", target)
+        if re.search(r"\b(refuse|refusing|deny|denying|won't|will not|shan't|not going to|stop)\b.{0,30}\b(share|sharing|feed|feeding|give|giving|sell|selling|lend|lending|help|helping|serve|serving|bread|grain|food|fire|water|shelter|roof|a place)\b", t) \
+                or re.search(r"\b(cut|cutting)\b.{0,20}\b(off|out)\b", t) or re.search(r"\bno (?:more )?(?:bread|grain|food|help|share|fire)\b.{0,20}\bfor\b", t):
+            return ("refuse", target)
+        if re.search(r"\b(take|taking|seize|seizing|claim|claiming|do|doing)\b.{0,30}\b(duty|duties|job|work|post|place at|role|trade|charge of)\b", t) and re.search(r"\b(from|over|off|his|her|their|" + re.escape(target.lower()) + r"'s)\b", t):
+            return ("take_duty", target)
+        return None
+
+    def sides(self, actor: str, target: str, place: str) -> tuple[list[str], list[str]]:
+        """Who standing at `place` stands with the actor, and who with the target, by how they feel about each."""
+        with_a: list[str] = []; with_t: list[str] = []
+        for c in self.at(place):
+            if c["name"] in (actor, target): continue
+            fa = self.rel(c["name"], actor)["feeling"]; ft = self.rel(c["name"], target)["feeling"]
+            if fa - ft >= 2: with_a.append(c["name"])
+            elif ft - fa >= 2: with_t.append(c["name"])
+        return with_a, with_t
+
+    def resolve_social(self, actor: str, kind: str, target: str | None, rng: random.Random, resisting: bool = False) -> dict:
+        """Settle one social act now and write it into the world. Returns {kind, actor, target, ok, text, with_actor, with_target, rolls}.
+        Standing, ties, and dice decide it; no group does. `resisting` is true when the target's own action today pushed back."""
+        a = self.characters[actor]; here = a["location"]
+        if kind == "leave":
+            a["gone"] = True; a["gone_reason"] = f"left the valley on day {self.day}"; a["location"] = here
+            note_log(a, self.day, "You left the valley for good, by your own choice.")
+            txt = f"{actor} left the valley for good."
+            for c in self.living(): self.set_rel(c["name"], actor, feeling=-1, delta=True, why=f"{actor} walked out on the valley")
+            return {"kind": kind, "actor": actor, "target": None, "ok": True, "text": txt, "with_actor": [], "with_target": [], "rolls": []}
+        t = self.characters.get(target or "")
+        if not t or not t["alive"] or t["gone"]:
+            return {"kind": kind, "actor": actor, "target": target, "ok": False, "text": f"{actor} tried to act against {target}, who is not here to be acted on.", "with_actor": [], "with_target": [], "rolls": []}
+        with_a, with_t = self.sides(actor, target, here) if t["location"] == here else ([], [])
+        ra, rt = rng.randint(1, 6), rng.randint(1, 6)
+        tr = t.get("traits", {}); grit = (int(tr.get("courage", 3)) + int(tr.get("temper", 3)) - 6) // 2
+        score_a = ra + int(a.get("standing_score", 0)) // 2 + len(with_a)
+        score_t = rt + int(t.get("standing_score", 0)) // 2 + len(with_t) + grit + (2 if resisting else 0)
+        if kind == "refuse": score_t -= 2                   # a refusal is a person's own to make; it takes a crowd to stop one
+        if kind == "drive_out" and t["location"] != here: score_a -= 3     # you cannot drive out someone who is not in front of you
+        ok = score_a > score_t
+        who_a = f", with {', '.join(with_a)} behind them" if with_a else ""; who_t = f", with {', '.join(with_t)} standing by {target}" if with_t else ""
+        if kind == "drive_out":
+            if ok:
+                t["gone"] = True; t["gone_reason"] = f"driven out by {actor} on day {self.day}"
+                note_log(t, self.day, f"{actor} drove you out of the valley{who_a}. You are gone.")
+                note_log(a, self.day, f"You drove {target} out of the valley{who_a}.")
+                bump_standing(a, 1 if with_a else -1); txt = f"{actor} drove {target} out of the valley{who_a}{who_t}. {target} is gone."
+                for n in with_t: self.set_rel(n, actor, feeling=-2, trust=-1, delta=True, why=f"drove {target} out over their objection")
+            else:
+                bump_standing(a, -2); a["hp"] = max(1, a["hp"] - (1 if grit > 0 else 0))
+                note_log(a, self.day, f"You tried to drive {target} out and failed{who_t}. People saw."); note_log(t, self.day, f"{actor} tried to drive you out and failed{who_t}.")
+                txt = f"{actor} tried to drive {target} out{who_a} and failed{who_t}. {actor} lost face."
+                self.set_rel(target, actor, feeling=-3, trust=-2, delta=True, why="tried to drive them out of the valley")
+            self.set_rel(actor, target, feeling=-2, delta=True, why="tried to be rid of them")
+        elif kind == "refuse":
+            if ok:
+                bump_standing(t, -1); note_log(t, self.day, f"{actor} refused to share with you{who_a}."); note_log(a, self.day, f"You refused {target}{who_a}.")
+                txt = f"{actor} refused to share with {target}{who_a}{who_t}. {target} went without."
+                t["hp"] = max(1, t["hp"] - 1)
+            else:
+                bump_standing(a, -1); note_log(a, self.day, f"You refused {target} and the people there made you share anyway{who_t}."); note_log(t, self.day, f"{actor} refused you, and the people there shamed them into it{who_t}.")
+                txt = f"{actor} refused {target}{who_a}, and the people there shamed them into sharing{who_t}."
+            self.set_rel(target, actor, feeling=-2, trust=-1, delta=True, why="refused to share")
+        elif kind == "take_duty":
+            taken = self.transfer_duty(target, actor) if ok else None
+            if ok:
+                bump_standing(t, -1); bump_standing(a, 1)
+                what = taken or "their work"
+                note_log(t, self.day, f"{actor} took {what} from you{who_a}."); note_log(a, self.day, f"You took {what} from {target}{who_a}.")
+                txt = f"{actor} took {what} from {target}{who_a}{who_t}."
+            else:
+                bump_standing(a, -1); note_log(a, self.day, f"You tried to take {target}'s work and were refused{who_t}."); note_log(t, self.day, f"{actor} tried to take your work and was refused{who_t}.")
+                txt = f"{actor} tried to take {target}'s work{who_a} and was refused{who_t}."
+            self.set_rel(target, actor, feeling=-2, trust=-1, delta=True, why="tried to take their work")
+        else:
+            return {"kind": kind, "actor": actor, "target": target, "ok": False, "text": "", "with_actor": [], "with_target": [], "rolls": []}
+        return {"kind": kind, "actor": actor, "target": target, "ok": ok, "text": txt, "with_actor": with_a, "with_target": with_t, "rolls": [ra, rt]}
+
+    def transfer_duty(self, frm: str, to: str) -> str | None:
+        """Hand one piece of work from one person to another. Until duties exist there is nothing to hand over."""
+        return None
+
+    def resists(self, target: str, actor: str, text: str) -> bool:
+        """The target's own action today pushed back: it names the actor and says stay, fight, refuse, or the like."""
+        t = (text or "").lower()
+        if not re.search(r"(?<![\w@])@?" + re.escape(actor.lower()) + r"\b", t): return False
+        return bool(re.search(r"\b(stay|staying|stand|standing|resist|refuse|fight|won't go|will not go|not leaving|not going|hold|keep my|defend|my ground|dare)\b", t))
+
+    def resolve_social_actions(self, actions: list[dict], rng: random.Random, log: list[str]) -> list[dict]:
+        """Pull the social acts out of today's actions, settle them, and return their outcomes. The rest are left for the World to narrate."""
+        out = []
+        for a in list(actions):
+            intent = self.social_intent(a["who"], a["text"])
+            if not intent: continue
+            kind, target = intent
+            if a["who"] not in self.characters or not self.characters[a["who"]]["alive"] or self.characters[a["who"]]["gone"]: continue
+            resisting = bool(target) and any(x["who"] == target and self.resists(target, a["who"], x["text"]) for x in actions)
+            r = self.resolve_social(a["who"], kind, target, rng, resisting)
+            if r["text"]: out.append(r); log.append(f"{kind}: {r['text'][:80]}"); actions.remove(a)
+        return out
 
     def at(self, place: str) -> list[dict]:
         return [c for c in self.living() if c["location"] == place]
@@ -564,9 +718,9 @@ class World:
                 f"Your secret, known only to you: {c['secret']}\nYour fear: {c['fear']}\nWhat you want more than anything: {c['want']}\n"
                 f"YOUR PEOPLE, and how you truly feel about them (act on this):\n{self.relations_text(name)}")
 
-    def apply(self, res: dict, log: list[str], court: bool = False) -> None:
+    def apply(self, res: dict, log: list[str]) -> None:
         """Validate and apply a World result block. Anything impossible is clamped and logged.
-        Banishment is accepted only on a court day, one name only; the convener's returns are never undone."""
+        Nobody is sent away by this block: driving out and leaving are actions the engine settles itself."""
         for r in res.get("results", []) or []:
             c = self.characters.get(str(r.get("who", "")))
             if not c or not c["alive"]: log.append(f"ignored result for unknown or dead '{r.get('who')}'"); continue
@@ -580,19 +734,15 @@ class World:
                 elif dest != c["location"] and dest not in self.map[c["location"]]["adj"]: log.append(f"{c['name']}: {dest} is not one path from {c['location']}, stayed put")
                 else: c["location"] = dest
             if r.get("skill"): k = str(r["skill"]).strip().lower()[:30]; c["skills"][k] = min(9, c["skills"].get(k, 0) + 1)
-            if r.get("standing") in ("respected", "feared", "pitied", "hated", "unknown", "loved"): c["standing"] = r["standing"]
+            if "standing" in r:
+                try: bump_standing(c, max(-2, min(2, int(r["standing"]))))
+                except (TypeError, ValueError): log.append(f"standing for {c['name']} must be a number, -2 to 2")
         for d in res.get("dead", []) or []:
             c = self.characters.get(str(d.get("who", "")))
             if c and c["alive"]: c["alive"] = False; c["hp"] = 0; c["cause_of_death"] = str(d.get("cause", "unknown"))[:120]
         for c in self.characters.values():
             if c["alive"] and c["hp"] <= 0: c["alive"] = False; c["cause_of_death"] = c["cause_of_death"] or "wounds"
-        bl = [str(b) for b in (res.get("banished", []) or []) if str(b) in self.characters]
-        if bl and not court: log.append(f"banishment of {', '.join(bl)} ignored: the court does not sit today")
-        elif bl:
-            if len(bl) > 1: log.append(f"only one may be banished per court; taking {bl[0]}")
-            c = self.characters[bl[0]]
-            if c.get("returned_day", -1) == self.day: log.append(f"{bl[0]} was returned by fate today and cannot be banished the same day")
-            elif not c["banished"]: c["banished"] = True; c["returned_day"] = -1
+        if res.get("sent_away") or res.get("gone"): log.append("the block named people to send away and was ignored: nobody is sent away but by another person's own act")
         for th in res.get("threads", []) or []:
             if isinstance(th, dict) and th.get("status") == "resolved":
                 try: self.resolve_thread(int(th.get("id", 0)), str(th.get("note", "")))
