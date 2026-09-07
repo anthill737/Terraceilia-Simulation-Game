@@ -389,8 +389,11 @@ class World:
         self.phase: str = d.get("phase", "morning")                # morning, afternoon, evening
         self.bodies: dict[str, str] = d.get("bodies", {})          # the unburied dead: name -> where they lie
         self.day_report: dict = d.get("day_report", {})            # what dawn found: season, weather, changes, the low and the broken and the sick
+        self.migrated: list[str] = []                 # what this load had to carry over from an older save
         for c in self.characters.values():           # games saved under the old rules
-            if "gone" not in c: c["gone"] = bool(c.pop(OLD_GONE_KEY, False)); c["gone_reason"] = "driven out, in a game saved under the old rules" if c["gone"] else ""
+            if "gone" not in c: c["gone"] = bool(c.pop(OLD_GONE_KEY, False)); c["gone_reason"] = "driven out, in a game saved under the old rules" if c["gone"] else ""; self._note_migrated("who is gone")
+            if "needs" not in c: self._note_migrated("needs")
+            elif "spirit" not in c["needs"]: self._note_migrated("spirit")
             if "standing_score" not in c: c["standing_score"] = standing_score_for(c.get("standing", "nobody"))
             c["standing"] = standing_word(c["standing_score"])
             c.setdefault("log", []); c.setdefault("needs", fresh_needs()); c.setdefault("sick", False); c.setdefault("sick_days", 0)
@@ -406,11 +409,37 @@ class World:
         self.threads: list[dict] = d.get("threads", [])     # open situations: {id, text, day, place, who, status, spawn}
         self.fires: dict[str, int] = d.get("fires", {})    # place -> days burning
         self.next_thread = d.get("next_thread", 1)
+        if "grain_weeks" in self.ledger or (self.characters and not any(k in self.ledger for k in STORES)):   # the old prosperity ledger, or none
+            self._note_migrated("the ledger")
         if "grain_weeks" in self.ledger:             # the old prosperity ledger: carry what it meant across
             old = self.ledger; self.ledger = starting_ledger(max(1, len(self.characters)) or 20, len(self.map))
             self.ledger["grain"] = max(0, int(old.get("grain_weeks", 10)) * 2); self.ledger["road_safe"] = bool(old.get("road_safe")); self.ledger["built"] = list(old.get("built", []))
         for k in STORES: self.ledger.setdefault(k, 0)
         self.ledger.setdefault("road_safe", False); self.ledger.setdefault("built", []); self.seed_places()
+
+    def _note_migrated(self, what: str) -> None:
+        if what not in self.migrated: self.migrated.append(what)
+
+    def needs_seeding(self) -> list[str]:
+        """What a loaded game still lacks that a new game would have: duties, pastimes, wants, upkeep for its places."""
+        if not self.created or not self.living(): return []
+        out = []
+        if not any(c.get("duties") for c in self.living()): out.append("duties")
+        if any(not c.get("pastime") for c in self.living()): out.append("pastimes")
+        if any(not c.get("goal") for c in self.living()): out.append("wants")
+        if any(p not in self.upkeep for p in self.map): out.append("the state of the places")
+        return out
+
+    def seed_missing(self, rng: random.Random) -> list[str]:
+        """Seed whatever needs_seeding names, exactly as a new game would, and return what was done."""
+        done = []
+        for what in self.needs_seeding():
+            if what == "duties": self.seed_duties(rng)
+            elif what == "pastimes": self.seed_pastimes(rng)
+            elif what == "wants": self.seed_wants(rng)
+            elif what == "the state of the places": self.seed_places()
+            done.append(what)
+        return done
 
     def to_dict(self) -> dict:
         return {"characters": self.characters, "day": self.day, "ledger": self.ledger, "pending": self.pending,
@@ -533,6 +562,7 @@ class World:
         if freezing: lines.append("Freezing: " + ", ".join(freezing) + ".")
         if sick_new: lines.append("Fell sick in the night: " + ", ".join(sick_new) + ".")
         if dead: lines.append("Dead by morning: " + "; ".join(dead) + ".")
+        for ln in self.expire_threads(): lines.append(ln + ".")
         self.day_report = {"day": day, "season": season, "weather": self.weather, "growing": growing(day, self.weather), "ledger": dict(L), "change": change,
                            "places": {p: {k: self.place_state(p)[k] - pbefore[p][k] for k in PLACE_STATE} for p in self.map},
                            "low": low, "broken": broken, "cold": coldp, "foul": foul, "sick": sick, "hungry": hungry, "freezing": freezing, "sick_new": sick_new, "dead": dead,
@@ -591,8 +621,13 @@ class World:
         return True
 
     # ---- situations that persist until resolved
-    def open_thread(self, text: str, place: str | None, who: list[str], spawn: str | None = None) -> dict:
-        t = {"id": self.next_thread, "text": text, "day": self.day, "place": place, "who": who, "status": "open", "spawn": spawn}
+    MAX_OPEN = 6
+
+    def open_thread(self, text: str, place: str | None, who: list[str], spawn: str | None = None, days: int = 4, key: str | None = None, fixed_by: list[str] | None = None) -> dict:
+        """A situation: it stays in front of everyone until it is resolved, by a person, by a duty, or by time. `key` marks which event
+        it came from so the same one is never rolled while it is open; `fixed_by` names the duties that settle it."""
+        t = {"id": self.next_thread, "text": text, "day": self.day, "place": place, "who": who, "status": "open", "spawn": spawn,
+             "expires": self.day + max(1, int(days)), "key": key, "fixed_by": list(fixed_by or [])}
         self.next_thread += 1; self.threads.append(t)
         if spawn and place in self.map: self.map[place].setdefault("present", []).append(spawn)
         return t
@@ -609,6 +644,23 @@ class World:
 
     def open_threads(self) -> list[dict]: return [t for t in self.threads if t["status"] == "open"]
 
+    def expire_threads(self) -> list[str]:
+        """Situations past their day end by themselves. Returns the lines for the chronicle."""
+        out = []
+        for t in list(self.open_threads()):
+            if t.get("expires") is not None and self.day >= int(t["expires"]):
+                self.resolve_thread(t["id"], "it passed on its own"); out.append(f"Situation #{t['id']} ended by itself: {t['text'][:90]}")
+        return out
+
+    def resolve_by_duty(self, key: str, name: str, place: str) -> list[str]:
+        """A duty done settles the situations it can fix: the smith fixes the bell, the healer ends the sickness, the sexton buries the body."""
+        out = []
+        for t in list(self.open_threads()):
+            if key not in (t.get("fixed_by") or []): continue
+            if t.get("place") and t["place"] != place and self.characters[name]["location"] != t["place"]: continue
+            self.resolve_thread(t["id"], f"{name} saw to it: {DUTIES[key]['label']}"); out.append(f"settled situation #{t['id']}: {t['text'][:70]}")
+        return out
+
     def threads_text(self) -> str:
         ts = self.open_threads()
         if not ts: return "- nothing unresolved"
@@ -622,7 +674,7 @@ class World:
         self.fires[p] = 0
         self._burn(p)
         self.fate.append(f"Fire has broken out at {p}; it is burning now and will keep burning and spreading until it is put out or burns itself out. People there were hurt.")
-        self.open_thread(f"Fire at {p}. It burns until the people put it out.", p, [c["name"] for c in self.at(p)], "smoke and flames")
+        self.open_thread(f"Fire at {p}. It burns until the people put it out.", p, [c["name"] for c in self.at(p)], "smoke and flames", days=3, key="fire", fixed_by=["fire"])
         return f"{p} is burning"
 
     def _burn(self, p: str) -> None:
@@ -640,7 +692,7 @@ class World:
             self._burn(p); log.append(f"the fire at {p} burns on")
             if rng.random() < .35:
                 q = rng.choice(self.map[p]["adj"])
-                if q not in self.fires: self.fires[q] = 0; self._burn(q); log.append(f"the fire spread from {p} to {q}"); self.open_thread(f"Fire spread to {q} from {p}.", q, [c["name"] for c in self.at(q)], "smoke and flames")
+                if q not in self.fires: self.fires[q] = 0; self._burn(q); log.append(f"the fire spread from {p} to {q}"); self.open_thread(f"Fire spread to {q} from {p}.", q, [c["name"] for c in self.at(q)], "smoke and flames", days=3, key="fire", fixed_by=["fire"])
 
     def extinguish(self, place: str) -> bool:
         p = place_key(place, self.map)
@@ -756,7 +808,9 @@ class World:
             if rng.random() < (drama / 10) * (0.9, 0.5, 0.25)[k]: n += 1
         out = []
         for _ in range(n):
-            pool = [e for e in EVENTS if e.get("tier", 1) <= (1 if drama <= 3 else 2 if drama <= 7 else 3) and self.event_fits(e)]
+            open_keys = {t.get("key") for t in self.open_threads()}
+            if len(self.open_threads()) >= self.MAX_OPEN: log.append("no more events: six situations are already open"); break
+            pool = [e for e in EVENTS if e.get("tier", 1) <= (1 if drama <= 3 else 2 if drama <= 7 else 3) and self.event_fits(e) and not (e.get("thread") and e["t"] in open_keys)]
             if not pool: break
             e = rng.choice(pool); ppl = self.living(); rng.shuffle(ppl)
             who = ppl[0]; who2 = ppl[1] if len(ppl) > 1 else ppl[0]
@@ -780,7 +834,8 @@ class World:
             if fx.get("destroy") and fixture in fixtures: self.map[place].setdefault("destroyed", []).append(fixture)
             if who["hp"] <= 0 and who["alive"]: self.kill(who, "died of it")
             if e.get("thread"):
-                t = self.open_thread(text, place if ("{place}" in e["t"] or e.get("place") or e.get("spawn")) else None, [who["name"]] + ([who2["name"]] if "{who2}" in e["t"] else []), e.get("spawn"))
+                t = self.open_thread(text, place if ("{place}" in e["t"] or e.get("place") or e.get("spawn")) else None, [who["name"]] + ([who2["name"]] if "{who2}" in e["t"] else []), e.get("spawn"),
+                                     days=int(e.get("days", 4)), key=e["t"], fixed_by=e.get("fixed_by"))
                 text = f"{text} [situation #{t['id']}]"
             out.append(text); log.append(f"event: {text[:60]}")
         return out
@@ -1185,6 +1240,7 @@ class World:
         if d.get("risk") == "hurt" and roll == 1: c["hp"] = max(0, c["hp"] - 2); out["hurt"] = True
         c["needs"]["rest"] = max(0, c["needs"].get("rest", 5) - 2); c["activity"] = d["verb"]
         if factor > 0 and rng.random() < .3 + .1 * (factor > 1): c["skills"][d["skill"]] = min(9, c["skills"].get(d["skill"], 0) + 1); out["learned"] = True
+        out["settled"] = self.resolve_by_duty(key, name, place) if factor > 0 else []
         said = {"roof": "the roof mended at {v}", "warmth": "the hearth warmed at {v}", "filth": "the filth cleared at {v}", "kept": "the stores kept from the rats",
                 "road_safe": "the road watched and safe tonight", "buried": "{v} buried", "tended": "{v} tended", "taught": "{v}"}
         bits = []
@@ -1199,7 +1255,7 @@ class World:
         elif not made and "bury" in d.get("effect", {}): out["text"] = f"{name} went {d['verb']} at {place} and found nobody to bury."
         elif not made and "teach" in d.get("effect", {}): out["text"] = f"{name} went {d['verb']} at {place} and found nobody to teach."
         else:
-            out["text"] = f"{name} spent the morning {d['verb']} at {place}: {made or 'it held'}" + (", and broke a tool" if out.get("broke_tool") else "") + (", and got hurt" if out.get("hurt") else "") + "."
+            out["text"] = f"{name} spent the morning {d['verb']} at {place}: {made or 'it held'}" + (", and broke a tool" if out.get("broke_tool") else "") + (", and got hurt" if out.get("hurt") else "") + (", and " + "; ".join(out["settled"]) if out.get("settled") else "") + "."
         note_log(c, self.day, out["text"].replace(name, "You", 1))
         return out
 

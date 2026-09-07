@@ -300,6 +300,21 @@ Every request carries the token as `?token=` or a cookie.
   installs, because they share one sign in.
 - Codex refuses folders it has not been told to trust. The engine marks the run folder as trusted
   in `~/.codex/config.toml` and keeps a backup of the file beside it.
+- A game saved before some part of the colony existed is brought up to date when it is opened: duties,
+  pastimes, wants, needs, spirit, the ledger and the state of the places are seeded once, exactly as
+  for a new game, and a line in the chronicle says so.
+- Situations never repeat while they are open, at most six are open at once, each expires after its
+  own number of days with a chronicle line, and the duties that can settle one do (the trader fixes
+  the bell, the healer ends the sickness, the sexton buries the body). `data/events.json` carries
+  `days` and `fixed_by` for each.
+- The whole page is drawn from seven colours defined once at the top of `frontend/style.css`; the
+  map's own painting keeps its colours. Seat colours are warm and earthen.
+- If a Codex seat is refused with a 401, or Codex says the refresh token was revoked, the year pauses,
+  the saved sign in is put back and primed again, and the year carries on by itself if that worked.
+  If it did not, the year stays paused and says so; sign in to Codex under Connections and press
+  Resume, which primes again, keeps the new sign in as the copy, and asks again any seat that was
+  refused mid-turn so nobody loses a morning to a rotated token. `codex login status` reports a
+  revoked token as signed in, so the Connections row cannot warn you first.
 - Prompts are code. `backend/prompts.py` is short and worth reading before changing anything.
 - A test runs a whole year to its end, and the end of a year is one of the things Telegram is told
   about. Set `TERRACEILIA_NO_TELEGRAM=1` for anything that is not a real game; the test suite sets it

@@ -78,10 +78,25 @@ def answer(text: str) -> str:
     return "I keep my own counsel and watch the water.\nACTION: I mend my nets and listen."
 
 
+def refused() -> bool:
+    """TERRA_STUB_401 names a file holding a number: while it is above zero, every call is refused like a rotated Codex sign in,
+    and the number goes down by one each time. A missing file, or zero, means signed in."""
+    path = os.environ.get("TERRA_STUB_401")
+    if not path or not os.path.exists(path): return False
+    try: n = int(open(path, encoding="utf-8").read().strip() or "0")
+    except ValueError: n = 0
+    if n <= 0: return False
+    if n < 99: open(path, "w", encoding="utf-8").write(str(n - 1))
+    return True
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     m = re.search(r"Read the file (.+?) and respond", " ".join(sys.argv[1:]))
     if not m: print("stub: no prompt file named"); return 1
+    if refused():
+        print("ERROR: Your access token could not be refreshed because your refresh token was revoked. Please run codex login again.", file=sys.stderr)
+        print("ERROR: 401 Unauthorized", file=sys.stderr); return 1
     print(answer(open(m.group(1), encoding="utf-8").read()))
     return 0
 
