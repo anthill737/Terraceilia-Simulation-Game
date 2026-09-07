@@ -7,7 +7,7 @@ from pathlib import Path
 import connect
 import telegram
 from agents import PROVIDERS, VERSIONS, refresh_versions
-from engine import ALL_NEEDS, DUTIES, GAMES, PASTIMES, STANDING_WORDS, World, now_id, standing_score_for, standing_word, need_word
+from engine import ALL_NEEDS, DUTIES, GAMES, PASTIMES, REGION, SEASONS, SEASON_RULES, STANDING_WORDS, World, now_id, standing_score_for, standing_word, need_word, season_sentence, weather_chances
 
 DUTY_DEFS = {k: {x: d.get(x) for x in ("label", "verb", "skill", "produces", "consumes", "effect", "breaks")} for k, d in DUTIES.items()}
 PASTIME_DEFS = {k: {"label": d["label"], "verb": d["verb"]} for k, d in PASTIMES.items()}
@@ -78,6 +78,8 @@ class App:
                     "threads": list(w.threads), "fires": dict(w.fires),
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies),
                     "roster": w.roster, "duty_state": w.duties, "duty_defs": DUTY_DEFS, "pastime_defs": PASTIME_DEFS, "phase": w.phase, "morning": w.morning,
+                    "region": REGION, "calendar": {sn: {k: {"word": v[0], "factor": v[1]} for k, v in r.items()} for sn, r in SEASON_RULES.items()},
+                    "season_days": [[top, name] for top, name in SEASONS], "tomorrow": weather_chances(w.day + 1), "sentence": season_sentence(w.day, w.weather),
                     "titles": w.titles(), "want_progress": {c["name"]: w.want_progress(c["name"]) for c in w.characters.values()},
                     "activities": json.loads(json.dumps(w.activities)), "now": time.time(),
                     "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
@@ -177,7 +179,7 @@ class App:
             if isinstance(wm, dict) and wm.get("provider") in PROVIDERS:
                 g.world_model = {"provider": wm["provider"], "model": str(wm.get("model") or "")}
                 if g.seats: g.seats[0]["provider"], g.seats[0]["model"] = wm["provider"], wm["model"]; g.cli_sessions.pop("0", None)
-            if not g.world.created and not r.busy() and not r.map_generating: self._set_map_choice(g, d)
+            if not g.world.created and not g.seats and not r.busy() and not r.map_generating: self._set_map_choice(g, d)
             g.save(); r.version += 1
 
     def edit_character(self, d: dict) -> str:

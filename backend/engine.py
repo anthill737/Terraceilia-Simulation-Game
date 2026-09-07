@@ -264,9 +264,54 @@ def roll_weather(day: int, rng: random.Random) -> str:
     return table[0][0]
 
 
+# What each season does to each source of food and fuel: a word for the sheet and a multiplier for the work.
+SEASON_RULES = {
+    "autumn":       {"fields": ("yield", 1.0), "fish": ("normal", 1.0), "game": ("normal", 1.0), "forage": ("good", 1.0), "wood": ("normal", 1.0)},
+    "early winter": {"fields": ("dormant", 0.0), "fish": ("reduced", 0.5), "game": ("reduced", 0.5), "forage": ("low", 0.5), "wood": ("normal", 1.0)},
+    "deep winter":  {"fields": ("dormant", 0.0), "fish": ("reduced", 0.5), "game": ("reduced", 0.5), "forage": ("low", 0.25), "wood": ("normal", 1.0)},
+    "thaw":         {"fields": ("sowing", 0.5), "fish": ("normal", 1.0), "game": ("normal", 1.0), "forage": ("low", 0.5), "wood": ("normal", 1.0)},
+}
+SOURCE_OF_DUTY = {"fields": "fields", "fish": "fish", "hunt": "game", "wood": "wood"}
+REGION = json.loads((DATA / "region.json").read_text(encoding="utf-8"))
+
+
+def season_rules(day: int, weather: str) -> dict:
+    """The rules today: the season's, with snow and bitter cold stopping the fields whatever the season says."""
+    rules = dict(SEASON_RULES[season_of(day)])
+    if weather in ("snow", "bitter cold"): rules["fields"] = ("dormant", 0.0)
+    return rules
+
+
+def source_factor(day: int, weather: str, duty_key: str) -> float:
+    src = SOURCE_OF_DUTY.get(duty_key)
+    return season_rules(day, weather)[src][1] if src else 1.0
+
+
 def growing(day: int, weather: str) -> bool:
-    """Fields give nothing in winter; nothing planted comes up under snow."""
-    return season_of(day) in ("autumn", "thaw") and weather not in ("snow", "bitter cold")
+    """Whether the fields give anything today."""
+    return season_rules(day, weather)["fields"][1] > 0
+
+
+def season_sentence(day: int, weather: str) -> str:
+    """One plain sentence for the Colony header: the day, the season and weather, and what each source does."""
+    rules = season_rules(day, weather); season = season_of(day)
+    f = rules["fields"][0]
+    fields = {"yield": "Fields yield", "dormant": "Fields are dormant until spring", "sowing": "Fields are being sown and give half"}[f]
+    others = []
+    if rules["game"][1] < 1 and rules["fish"][1] < 1: others.append("hunting and fishing are reduced")
+    else:
+        if rules["game"][1] < 1: others.append("hunting is reduced")
+        if rules["fish"][1] < 1: others.append("fishing is reduced")
+    if rules["forage"][1] < 1: others.append("forage is low")
+    fine = [n for n, k in (("hunting", "game"), ("fishing", "fish"), ("foraging", "forage"), ("wood", "wood")) if rules[k][1] >= 1]
+    if fine: others.append((", ".join(fine[:-1]) + " and " + fine[-1] if len(fine) > 1 else fine[0]) + (" still yield" if len(fine) > 1 else " still yields"))
+    return f"Day {day}. {season[0].upper() + season[1:]}, {weather}. {fields}; {'; '.join(others)}."
+
+
+def weather_chances(day: int) -> list[tuple[str, int]]:
+    """Tomorrow's weather, as the table gives it: name and percent."""
+    table = WEATHER[season_of(day)]; total = sum(w for _, w in table)
+    return [(n, round(100 * w / total)) for n, w in table]
 
 
 def starting_ledger(players: int, places: int) -> dict:
@@ -564,6 +609,7 @@ class World:
         if dead: lines.append("Dead by morning: " + "; ".join(dead) + ".")
         for ln in self.expire_threads(): lines.append(ln + ".")
         self.day_report = {"day": day, "season": season, "weather": self.weather, "growing": growing(day, self.weather), "ledger": dict(L), "change": change,
+                           "rules": {k: {"word": v[0], "factor": v[1]} for k, v in season_rules(day, self.weather).items()}, "sentence": season_sentence(day, self.weather),
                            "places": {p: {k: self.place_state(p)[k] - pbefore[p][k] for k in PLACE_STATE} for p in self.map},
                            "low": low, "broken": broken, "cold": coldp, "foul": foul, "sick": sick, "hungry": hungry, "freezing": freezing, "sick_new": sick_new, "dead": dead,
                            "lines": lines}
@@ -1201,7 +1247,8 @@ class World:
         factor = 0.0 if total <= 2 else 0.5 if total <= 5 else 1.0 if total <= 8 else 1.5
         out: dict = {"who": name, "duty": key, "place": place, "roll": roll, "skill": skill, "made": {}, "used": {}, "text": ""}
         if d.get("needs_tools") and L["tools"] <= 0: factor = min(factor, 0.5); out["no_tools"] = True
-        if d.get("growing_only") and not growing(self.day, self.weather): factor = 0.0; out["season"] = True
+        sf = source_factor(self.day, self.weather, key)
+        if sf < 1.0: factor *= sf; out["season"] = sf == 0.0
         if c.get("needs", {}).get("rest", 5) <= 0: factor = min(factor, 0.5)
         spirit = int(c.get("needs", {}).get("spirit", 6))
         if spirit <= 2: factor *= 0.5; out["low_spirit"] = True
@@ -1249,7 +1296,7 @@ class World:
             else: bits.append(f"{v} {k2}")
         made = ", ".join(bits)
         if factor == 0:
-            why = "there was nothing to work with" if out.get("short") or out.get("nothing_to_cook") else "nothing grows this season" if out.get("season") else "it went badly"
+            why = "there was nothing to work with" if out.get("short") or out.get("nothing_to_cook") else "the fields are dormant this season" if out.get("season") else "it went badly"
             out["text"] = f"{name} tried {d['verb']} at {place} and got nothing: {why}."
         elif not made and "tend" in d.get("effect", {}): out["text"] = f"{name} went {d['verb']} at {place} and found nobody sick."
         elif not made and "bury" in d.get("effect", {}): out["text"] = f"{name} went {d['verb']} at {place} and found nobody to bury."
@@ -1317,7 +1364,7 @@ class World:
         c["location"] = place; n["spirit"] = min(10, n["spirit"] + 3 + int(fx.get("spirit", 0)))
         if "fish" in fx: L["fish"] += int(fx["fish"]); bits.append(f"brought back {fx['fish']} fish")
         if "item" in fx: it = rng.choice(fx["item"]); c.setdefault("items", []).append(it); del c["items"][:-12]; bits.append(f"made {it}" if key == "carving" else f"found {it}")
-        if fx.get("herbs_chance") and rng.random() < fx["herbs_chance"]: L["herbs"] += 1; bits.append("picked a handful of herbs")
+        if fx.get("herbs_chance") and rng.random() < fx["herbs_chance"] * season_rules(self.day, self.weather)["forage"][1]: L["herbs"] += 1; bits.append("picked a handful of herbs")
         if fx.get("str_chance") and rng.random() < fx["str_chance"] and int(c["str"]) < 9: c["str"] = int(c["str"]) + 1; bits.append("came away a little stronger")
         if fx.get("gold_chance") and rng.random() < fx["gold_chance"]: c["gold"] += 1; bits.append("found a coin")
         for k in ("rest", "warmth"):
