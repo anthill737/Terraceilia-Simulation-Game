@@ -41,10 +41,19 @@ class Seasons(unittest.TestCase):
         self.assertEqual(made(22, "wood", "wood"), made(3, "wood", "wood"))
         w.day = 22; c["skills"]["farming"] = 9; self.assertIn("dormant", w.do_duty("P0", "fields", random.Random(1))["text"])
 
-    def test_tomorrow_and_the_region(self) -> None:
+    def test_tomorrow(self) -> None:
         ch = engine.weather_chances(23); self.assertEqual(sum(p for _, p in ch), 100); self.assertIn(("snow", 40), ch)
-        self.assertEqual([a["name"] for a in engine.REGION], ["The lord's lands", "The next valley", "The forest road", "The market town"])
-        for a in engine.REGION: self.assertTrue(a["offers"] and a["threatens"])
+
+    def test_the_calendar_rows_are_plain(self) -> None:
+        self.assertEqual(engine.season_row("deep winter"), "Deep winter, days 15 to 24: fields dormant, hunting and fishing halved, forage low, wood normal.")
+        self.assertEqual(engine.season_row("autumn"), "Autumn, days 1 to 6: fields yield, hunting and fishing normal, forage good, wood normal.")
+        self.assertEqual(engine.season_row("thaw"), "Thaw, from day 25: fields sown at half, hunting and fishing normal, forage low, wood normal.")
+        for _, name in engine.SEASONS: self.assertNotIn(":", engine.season_row(name).split(":", 1)[1]); self.assertNotIn("\u00b7", engine.season_row(name))
+
+    def test_nothing_backs_the_lands_around_so_it_is_gone(self) -> None:
+        self.assertFalse(hasattr(engine, "REGION")); self.assertFalse((ROOT / "data" / "region.json").exists())
+        for text in (JS, HTML, CSS, (ROOT / "README.md").read_text(encoding="utf-8")): self.assertNotIn("lands around", text)
+        self.assertNotIn("s.region", JS); self.assertNotIn("offers", JS); self.assertNotIn("threatens", JS)
 
 
 class Sheets(unittest.TestCase):
@@ -63,7 +72,11 @@ class Sheets(unittest.TestCase):
         self.assertLess(bio.index("<textarea"), bio.index('id="b_save"'))
 
     def test_the_world_sheet_is_the_region_and_the_map_is_locked_once_started(self) -> None:
-        self.assertIn('id="g_region"', HTML); self.assertIn("function renderRegion", JS); self.assertIn("The season calendar", JS); self.assertIn("The lands around", JS); self.assertIn("Tomorrow:", JS)
+        self.assertIn('id="g_region"', HTML); self.assertIn("function renderRegion", JS); self.assertIn("The season calendar", JS); self.assertIn("Tomorrow:", JS)
+        top = JS[JS.index("function renderRegion"):JS.index("const html=`", JS.index("function renderRegion"))]
+        self.assertIn("s.world_text", JS[JS.index("function renderRegion"):]); self.assertIn("d.kind", top)
+        for tok in ("map_style", "st.water", "st.sky", "map_generated", "elevation", "feature"): self.assertNotIn(tok, JS[JS.index("function renderRegion"):JS.index("regionHtml=html")])
+        self.assertIn("s.calendar_rows", JS); self.assertNotIn("seasonRow", JS)
         self.assertIn("$('g_mapBlock').style.display=started?'none':''", JS)
         import connect, game, server
         tmp = Path(tempfile.mkdtemp(prefix="terra-ui-")); engine.GAMES = tmp; game.GAMES = tmp; server.GAMES = tmp
@@ -72,9 +85,19 @@ class Sheets(unittest.TestCase):
             app = server.App(); g = app.run.g; g.seats = [{"name": "World", "provider": "Claude Code", "model": "", "color": "#d0a92c"}, {"name": "Bett", "provider": "Claude Code", "model": "", "color": "#7f9a5c"}]
             app.edit_game({"map_source": "generated"}); self.assertEqual(g.map_source, "builtin", "a started game keeps its map")
             snap = app.snapshot()
-            for k in ("region", "calendar", "season_days", "tomorrow", "sentence"): self.assertIn(k, snap)
+            for k in ("calendar_rows", "tomorrow", "sentence"): self.assertIn(k, snap)
+            for k in ("region", "calendar", "season_days"): self.assertNotIn(k, snap)
+            self.assertEqual(snap["calendar_rows"][2], engine.season_row("deep winter"))
         finally:
             connect.start, server.refresh_versions = st, rv; shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_the_person_header_is_one_line(self) -> None:
+        head = JS[JS.index("$('peoHead').innerHTML=`"):JS.index("`;", JS.index("$('peoHead').innerHTML=`"))]
+        self.assertIn('<span class="nm">', head); self.assertIn('<i class="ttl">', head); self.assertIn("showTrade", head); self.assertIn("'the '+trade", head)
+        for tok in ("seat.provider", "seat.model", "wants", "class=\"note\"", "<b"): self.assertNotIn(tok, head)
+        self.assertIn("title.replace(/^the /,'').toLowerCase()===trade.replace(/^the /,'').toLowerCase()", JS, "the trade is dropped when it equals the title")
+        self.assertIn("white-space:nowrap", CSS[CSS.index("#peoHead{"):CSS.index("}", CSS.index("#peoHead{"))])
+        bio = JS[JS.index("function paneBio"):JS.index("// ---- Body")]; self.assertIn('id="b_prov"', bio); self.assertIn('id="b_model"', bio)
 
     def test_the_colony_header_is_the_sentence(self) -> None:
         self.assertIn('class="colsent"', JS); self.assertNotIn("nothing grows", JS); self.assertNotIn('class="colseason"', JS)
@@ -95,6 +118,21 @@ class Stylesheet(unittest.TestCase):
         self.assertNotIn("dotted", CSS); self.assertNotIn(".dots", CSS); self.assertNotIn('class="dots"', JS)
         self.assertIn(".sheetwrap .panel{width:min(900px,100%)", CSS); self.assertIn(".panel.wide{width:min(900px,100%)}", CSS)
         self.assertNotIn(".fatecard", CSS); self.assertNotIn('class="fatecard"', HTML)
+
+    def test_one_weight_for_body_text(self) -> None:
+        weights = set(re.findall(r"font-weight:\s*(\d+)", CSS)) | set(re.findall(r"font:\s*(\d+) ", CSS))
+        self.assertEqual(weights, {"400", "600"}, f"weights in use: {weights}")
+        bold = [m for m in re.findall(r"([^{}]*)\{[^{}]*font-weight:\s*600", CSS)]
+        self.assertEqual(len(bold), 1, "one rule carries the bold weight")
+        self.assertEqual(set(x.strip() for x in bold[0].split(",")), {".chip .cn", ".ch", "h1", ".sheetwrap .panel h1", ".logday", ".place", ".railhdr", "header .brand"})
+        self.assertIn("b,strong{font-weight:400}", CSS)
+
+    def test_italics_only_for_the_earned_title_and_no_highlight(self) -> None:
+        italic = re.findall(r"([^{}]*)\{[^{}]*font-style:\s*italic", CSS) + re.findall(r"([^{}]*)\{[^{}]*font:\s*italic", CSS)
+        self.assertEqual([x.strip() for x in italic], ["#peoHead .ttl"], f"italic rules: {italic}")
+        self.assertIn("i,em{font-style:normal}", CSS)
+        act = CSS[CSS.index(".act{"):CSS.index("}", CSS.index(".act{"))]; self.assertNotIn("background", act)
+        self.assertNotIn("<mark", JS); self.assertNotIn("<mark", HTML); self.assertNotIn("mark{", CSS)
 
     def test_accent_only_where_selected(self) -> None:
         self.assertIn(".dial.sel{outline:1px solid var(--accent)", CSS); self.assertIn(".tie.sel{outline:1px solid var(--accent)", CSS)

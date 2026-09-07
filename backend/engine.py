@@ -272,7 +272,6 @@ SEASON_RULES = {
     "thaw":         {"fields": ("sowing", 0.5), "fish": ("normal", 1.0), "game": ("normal", 1.0), "forage": ("low", 0.5), "wood": ("normal", 1.0)},
 }
 SOURCE_OF_DUTY = {"fields": "fields", "fish": "fish", "hunt": "game", "wood": "wood"}
-REGION = json.loads((DATA / "region.json").read_text(encoding="utf-8"))
 
 
 def season_rules(day: int, weather: str) -> dict:
@@ -306,6 +305,19 @@ def season_sentence(day: int, weather: str) -> str:
     fine = [n for n, k in (("hunting", "game"), ("fishing", "fish"), ("foraging", "forage"), ("wood", "wood")) if rules[k][1] >= 1]
     if fine: others.append((", ".join(fine[:-1]) + " and " + fine[-1] if len(fine) > 1 else fine[0]) + (" still yield" if len(fine) > 1 else " still yields"))
     return f"Day {day}. {season[0].upper() + season[1:]}, {weather}. {fields}; {'; '.join(others)}."
+
+
+def season_row(name: str) -> str:
+    """One plain line for the calendar: the season, its days, and what it does to each source."""
+    tops = [top for top, _ in SEASONS]; i = [n for _, n in SEASONS].index(name)
+    first = 1 if i == 0 else tops[i - 1] + 1; last = tops[i]
+    days = f"days {first} to {last}" if last < 10**8 else f"from day {first}"
+    r = SEASON_RULES[name]
+    fields = {"yield": "fields yield", "dormant": "fields dormant", "sowing": "fields sown at half"}[r["fields"][0]]
+    g, f = r["game"][1], r["fish"][1]
+    hunt = "hunting and fishing halved" if g < 1 and f < 1 else "hunting and fishing normal" if g >= 1 and f >= 1 else f"hunting {'halved' if g < 1 else 'normal'}, fishing {'halved' if f < 1 else 'normal'}"
+    forage = f"forage {r['forage'][0]}"; wood = f"wood {r['wood'][0]}"
+    return f"{name[0].upper() + name[1:]}, {days}: {fields}, {hunt}, {forage}, {wood}."
 
 
 def weather_chances(day: int) -> list[tuple[str, int]]:
