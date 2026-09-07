@@ -46,7 +46,8 @@ class App:
             return {"id": g.id, "day": w.day, "status": g.status, "current": r.current, "created": w.created,
                     "map": w.map, "map_name": w.map_name, "map_generated": w.map_generated, "map_style": w.style, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies), "roster": w.roster, "phase": w.phase,
-                    "characters": [{k: c.get(k) for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing", "sick", "needs", "duties", "dumped", "emergency", "activity")} for c in w.characters.values()],
+                    "characters": [{k: c.get(k) for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing", "sick", "needs", "duties", "dumped", "emergency", "activity", "goal")} for c in w.characters.values()],
+                    "titles": w.titles(),
                     "seats": [{"name": x["name"], "color": x["color"]} for x in g.seats], "version": r.version}
 
     def snapshot(self, since: int = -1, terms: bool = False, tail: int = 120) -> dict:
@@ -67,6 +68,7 @@ class App:
                     "threads": list(w.threads), "fires": dict(w.fires),
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies),
                     "roster": w.roster, "duty_state": w.duties, "duty_defs": DUTY_DEFS, "phase": w.phase, "morning": w.morning,
+                    "titles": w.titles(), "want_progress": {c["name"]: w.want_progress(c["name"]) for c in w.characters.values()},
                     "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
                     "terms": tstates,
                     "phone_url": self.phone_url, "away_url": self.away_url, "last_god": self.last_god,
@@ -214,6 +216,8 @@ class App:
                 from engine import place_key
                 dest = place_key(str(d["location"]), w.map)
                 if dest and dest != c["location"]: c["location"] = dest; notes.append(f"{name} is at {dest}")
+            if d.get("reroll_want"):
+                c["goal"] = w.roll_want(name, self.run.rng); c["want"] = c["goal"]["text"]; notes.append(f"{name} now wants {c['goal']['text']}")
             if isinstance(d.get("duties"), list):
                 note = w.set_duties(name, d["duties"])
                 if note != "no change": notes.append(note)

@@ -277,7 +277,7 @@ def starting_ledger(players: int, places: int) -> dict:
 # ---------------------------------------------------------------- standing
 # One number, -9 to 9, and the word the valley uses for it. Nobody decides it; it moves from what a person does and how
 # the people around them answer it. The words the World used to hand out ("feared", "pitied") are gone.
-STANDING_BANDS = [(-6, "hated"), (-3, "shunned"), (2, "unknown"), (5, "known"), (8, "respected"), (99, "loved")]
+STANDING_BANDS = [(-6, "hated"), (-3, "shunned"), (2, "nobody"), (5, "known"), (8, "respected"), (99, "loved")]
 STANDING_WORDS = [w for _, w in STANDING_BANDS]
 
 
@@ -287,7 +287,7 @@ def standing_word(score: int) -> str:
     return STANDING_WORDS[-1]
 
 
-STANDING_MID = {"hated": -8, "shunned": -5, "unknown": 0, "known": 3, "respected": 6, "loved": 9}
+STANDING_MID = {"hated": -8, "shunned": -5, "nobody": 0, "known": 3, "respected": 6, "loved": 9, "unknown": 0, "feared": 3, "pitied": -3}    # the last three: old saves only
 OLD_GONE_KEY = "bani" + "shed"      # the key saves used before people were "gone"; spelled in two halves so the word itself is out of the game
 
 
@@ -379,12 +379,14 @@ class World:
         self.duties: dict[str, dict] = d.get("duties", {})         # per duty: unclaimed since, done day, days undone
         self.roster: dict = d.get("roster", {})                    # today's assignment: who does what where, and the emergencies
         self.morning: dict = d.get("morning", {})                  # what the morning left undone, and who complained
+        self.reached: list[dict] = d.get("reached", [])            # wants reached and not yet announced by the World
         self.phase: str = d.get("phase", "morning")                # morning, afternoon, evening
         self.bodies: dict[str, str] = d.get("bodies", {})          # the unburied dead: name -> where they lie
         self.day_report: dict = d.get("day_report", {})            # what dawn found: season, weather, changes, the low and the broken and the sick
         for c in self.characters.values():           # games saved under the old rules
             if "gone" not in c: c["gone"] = bool(c.pop(OLD_GONE_KEY, False)); c["gone_reason"] = "driven out, in a game saved under the old rules" if c["gone"] else ""
-            if "standing_score" not in c: c["standing_score"] = standing_score_for(c.get("standing", "unknown")); c["standing"] = standing_word(c["standing_score"])
+            if "standing_score" not in c: c["standing_score"] = standing_score_for(c.get("standing", "nobody"))
+            c["standing"] = standing_word(c["standing_score"])
             c.setdefault("log", []); c.setdefault("needs", fresh_needs()); c.setdefault("sick", False); c.setdefault("sick_days", 0)
             c.setdefault("duties", []); c.setdefault("dumped", []); c.setdefault("emergency", None)
         self.map: dict = d.get("map") or json.loads(json.dumps(BASE_MAP))
@@ -409,7 +411,7 @@ class World:
                 "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
                 "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style,
                 "weather": self.weather, "upkeep": self.upkeep, "bodies": self.bodies, "day_report": self.day_report,
-                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase}
+                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase, "reached": self.reached}
 
     # ---- which map this game plays on
     def install_map(self, v: dict) -> None:
@@ -1195,6 +1197,90 @@ class World:
             elif s in STORES: L[s] = max(0, L[s] + v)
         return {"duty": key, "days": st["undone_days"], "text": f"{d['label'].capitalize()} went undone: {d['breaks']}."}
 
+    # ---- wants: what a person is after, measured, so the engine can say how close they are
+    # A want is gold to hold, a skill to reach or to be best at, a tie to win, or an evening spent somewhere. Reached, it is
+    # announced, standing rises, and a new one is rolled. Nobody chooses these; they come from the person's nature and life.
+    def roll_want(self, name: str, rng: random.Random) -> dict:
+        c = self.characters[name]; tr = c.get("traits", {}); others = [x["name"] for x in self.living() if x["name"] != name]
+        kinds = ["gold"] * (2 + (2 if int(tr.get("greed", 3)) >= 4 else 0)) + ["skill"] * (2 + (2 if int(tr.get("ambition", 3)) >= 4 else 0)) \
+            + ["tie"] * (2 + (2 if int(tr.get("desire", 3)) >= 4 or int(tr.get("warmth", 3)) >= 4 else 0)) + ["place"] * 2
+        kind = rng.choice(kinds) if others else rng.choice(["gold", "skill", "place"])
+        if kind == "gold":
+            n = int(c.get("gold", 0)) + rng.randint(5, 12)
+            return {"kind": "gold", "target": n, "text": f"to have {n} gold put by"}
+        if kind == "skill":
+            keys = list(c.get("duties") or list(DUTIES)); k = rng.choice(keys); sk = DUTIES[k]["skill"]; lvl = int(c.get("skills", {}).get(sk, 0))
+            if rng.random() < .5: return {"kind": "best", "target": sk, "text": f"to be the best at {sk} in the valley, {DUTIES[k].get('title', 'the one everyone goes to')}"}
+            t = min(9, lvl + rng.randint(2, 3)); return {"kind": "skill", "target": sk, "level": t, "text": f"to reach {sk} {t}"}
+        if kind == "tie":
+            who = rng.choice(others); r = rng.random()
+            if r < .4: return {"kind": "feeling", "target": who, "level": 3, "text": f"to be liked by {who}, truly"}
+            if r < .7: return {"kind": "trust", "target": who, "level": 3, "text": f"to have {who}'s trust"}
+            return {"kind": "lover", "target": who, "text": f"to be {who}'s lover, or more"}
+        place = rng.choice([p for p in self.map if p != c["location"]] or list(self.map))
+        return {"kind": "place", "target": place, "text": f"to spend an evening at {place}"}
+
+    def want_progress(self, name: str) -> tuple[int, str]:
+        """(percent, a plain line about how close they are)."""
+        c = self.characters[name]; g = c.get("goal") or {}; k = g.get("kind")
+        if not g: return 0, "nothing measured yet"
+        if k == "gold": have = int(c.get("gold", 0)); n = max(1, int(g["target"])); return min(100, 100 * have // n), f"{have} of {n} gold"
+        if k == "skill": have = int(c.get("skills", {}).get(g["target"], 0)); n = max(1, int(g["level"])); return min(100, 100 * have // n), f"{g['target']} {have} of {n}"
+        if k == "best":
+            have = int(c.get("skills", {}).get(g["target"], 0)); top = max([int(x.get("skills", {}).get(g["target"], 0)) for x in self.living() if x["name"] != name] or [0])
+            pct = 100 if have > top and have >= 2 else min(95, 100 * have // max(2, top + 1)); return pct, f"{g['target']} {have}; the best other is {top}"
+        if k in ("feeling", "trust"):
+            t = self.characters.get(g["target"])
+            if not t or not t["alive"]: return 0, f"{g['target']} is gone"
+            have = int(self.rel(g["target"], name)[k]); n = int(g["level"]); return max(0, min(100, 100 * (have + 5) // (n + 5))), f"{g['target']} {'feels' if k == 'feeling' else 'trusts'} {have:+d} toward you, {n:+d} wanted"
+        if k == "lover":
+            t = self.characters.get(g["target"])
+            if not t or not t["alive"]: return 0, f"{g['target']} is gone"
+            r = self.rel(g["target"], name); ok = r["type"] in ("lover", "spouse"); return 100 if ok else max(0, min(90, 100 * (r["feeling"] + 5) // 10)), ("they are yours" if ok else f"{g['target']} feels {r['feeling']:+d} toward you")
+        if k == "place":
+            d = self.distance(c["location"], g["target"]); return max(0, 100 - 25 * d) if d < 4 else 5, f"{d} path(s) from {g['target']}"
+        return 0, "nothing measured yet"
+
+    def want_reached(self, name: str) -> bool:
+        c = self.characters[name]; g = c.get("goal") or {}; k = g.get("kind")
+        if k == "place": return c["location"] == g["target"] and self.phase == "evening"
+        return bool(g) and self.want_progress(name)[0] >= 100
+
+    def want_text(self, name: str) -> str:
+        c = self.characters[name]; pct, how = self.want_progress(name)
+        return f"What you want more than anything: {c.get('want') or 'to see spring'}. In plain terms: {(c.get('goal') or {}).get('text', 'nothing measured')}. How close you are: {pct}% ({how})."
+
+    def seed_wants(self, rng: random.Random) -> None:
+        for c in self.living():
+            if not c.get("goal"): c["goal"] = self.roll_want(c["name"], rng); c.setdefault("wants_reached", [])
+
+    def check_wants(self, rng: random.Random) -> list[dict]:
+        """Anyone whose want is reached: it is written down, standing rises, and a new want is rolled. Returns what to announce."""
+        out = []
+        for c in self.living():
+            if not c.get("goal") or not self.want_reached(c["name"]): continue
+            old = c["goal"]; bump_standing(c, 2); c.setdefault("wants_reached", []).append({"day": self.day, "text": old["text"]})
+            c["goal"] = self.roll_want(c["name"], rng); c["want"] = c["goal"]["text"]
+            note_log(c, self.day, f"You got what you wanted: {old['text']}. Now you want {c['goal']['text']}.")
+            out.append({"who": c["name"], "text": f"{c['name']} got what they wanted: {old['text']}. Now they want {c['goal']['text']}."})
+        if out: self.reached += out
+        return out
+
+    # ---- recognition: whoever is best at a duty's skill is called by it
+    def titles(self) -> dict[str, list[str]]:
+        """name -> the titles the valley gives them: the one person with the highest skill (at least 2, no tie) for each duty."""
+        out: dict[str, list[str]] = {}
+        for k, d in DUTIES.items():
+            sk = d["skill"]; title = d.get("title")
+            if not title: continue
+            scores = sorted(((int(c.get("skills", {}).get(sk, 0)), c["name"]) for c in self.living()), reverse=True)
+            if scores and scores[0][0] >= 2 and (len(scores) < 2 or scores[1][0] < scores[0][0]): out.setdefault(scores[0][1], []).append(title)
+        return out
+
+    def titled(self, name: str) -> str:
+        t = self.titles().get(name, [])
+        return f"{name} ({', '.join(t)})" if t else name
+
     # ---- the morning: WORK, REFUSE, or anything else, which is a skip
     def morning_intent(self, name: str, text: str) -> tuple[str, str | None]:
         """("work", duty or None) for WORK and WORK <duty>; ("refuse", duty or None) for REFUSE and REFUSE <duty>; ("skip", None) for anything else."""
@@ -1355,8 +1441,9 @@ class World:
                 f"Strength {c['str']}, Speed {c['spd']}, Health {c['hp']} of {c['hp_max']}, Gold {c['gold']}, "
                 f"Skills {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'}. You are at {c['location']}.\n"
                 f"{self.needs_text(name)}\n"
-                f"Your secret, known only to you: {c['secret']}\nYour fear: {c['fear']}\nWhat you want more than anything: {c['want']}\n"
-                f"YOUR PEOPLE, and how you truly feel about them (act on this):\n{self.relations_text(name)}")
+                f"Your secret, known only to you: {c['secret']}\nYour fear: {c['fear']}\n{self.want_text(name)}\n"
+                + (f"People call you {', '.join(self.titles().get(name, []))}.\n" if self.titles().get(name) else "")
+                + f"YOUR PEOPLE, and how you truly feel about them (act on this):\n{self.relations_text(name)}")
 
     def apply(self, res: dict, log: list[str]) -> None:
         """Validate and apply a World result block. Anything impossible is clamped and logged.
