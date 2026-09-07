@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,
-                    whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of)
+                    whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 TURN_TIMEOUT = 1800
@@ -423,7 +423,7 @@ class Run:
         new = [(e, touched_text(e, me, my_place, ties)) for e in g.transcript[seen:]]; new = [(e, v) for e, v in new if v]
         parts = [PLAYER_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP, known to everyone (the only places and things that exist):\n" + map_text(w.map) + "\n",
                  f"Day {w.day}, {season_of(w.day)}, {w.weather}. Everyone who lives in the valley: " + ", ".join(c["name"] for c in w.living() if c["name"] != me) + ".\n",
-                 w.sheet(me), "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
+                 w.sheet(me), "\n" + w.duty_brief(me) + "\n", "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
         u = self.day_urges.get(me) or []
         if u: parts.append("YOUR URGES TODAY, which are your nature and not a suggestion; act on at least one of them, in words or in your ACTION, and do not apologize for it:\n" + "\n".join(f"- {x}" for x in u) + "\n")
         if new:
@@ -444,6 +444,7 @@ class Run:
                      + "\n".join(f"- {s['text']}" for s in settled) + "\n") if settled else ""
         return "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", f"It is day {w.day}.",
             "\nThe people, as the engine knows them:\n" + sheets,
+            "\nTHE DUTIES, who holds each, and what nobody holds:\n" + w.duties_text(),
             "\nTheir notable ties (a -> b: type, feeling -5..5, trust -5..5; everyone also has milder opinions of everyone else, which you may assume are ordinary):\n" + "\n".join(f"- {a} -> {b}: {r['type']}, feeling {r['feeling']:+d}, trust {r['trust']:+d}" for a, rs in w.relations.items() for b, r in rs.items() if a in w.characters and b in w.characters and (r['type'] != 'none' or abs(r['feeling']) + abs(r['trust']) >= 4)),
             "\nTHIS MORNING, as the engine found the valley (season, weather, what is low, broken, sick, or burning):\n" + w.dawn_text(),
             f"\nThe stores: {w.ledger_text()}.\nThe places (roof, warmth, filth, each 0 to 10):\n" + w.places_text(),
@@ -512,7 +513,7 @@ class Run:
             c["secret"] = sd(p.get("secret"), "nothing worth telling")[:200]; c["fear"] = sd(p.get("fear"), "the cold")[:200]
             c["want"] = sd(p.get("want"), "to see spring")[:200]
             if p.get("home") in w.map: c["location"] = p["home"]
-        w.seed_all_relations(self.rng)
+        w.seed_all_relations(self.rng); w.seed_duties(self.rng)
         for rr in data.get("relations", []) or []:
             if isinstance(rr, dict):
                 w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old tie"))
@@ -523,8 +524,16 @@ class Run:
     def _dawn(self) -> None:
         """The valley wears a little: weather, spoilage, hunger, cold, sickness, and the dead by morning. Before anyone speaks."""
         g = self.g; w = g.world
-        with self.lock: rep = w.dawn(self.rng); self.version += 1
-        self._record("The valley", "\n".join(rep["lines"]), "dawn")
+        with self.lock:
+            if not any(c.get("duties") for c in w.living()): w.seed_duties(self.rng)     # a game saved before duties existed
+            rep = w.dawn(self.rng); roster = w.assign_day(self.rng); self.version += 1
+        lines = list(rep["lines"])
+        dumped = [f"{DUTIES[k]['label']} (dumped on {r['dumped_on']})" if r.get("dumped_on") else DUTIES[k]["label"] for k, r in roster["duties"].items() if r["unclaimed"]]
+        if dumped: lines.append("Nobody holds: " + ", ".join(dumped) + ".")
+        for e in roster.get("emergencies", []):
+            if e.get("pulled"): lines.append(f"Emergency, {e['text']}: {', '.join(e['pulled'])} pulled to it.")
+        rep["lines"] = lines
+        self._record("The valley", "\n".join(lines), "dawn")
         g.save()
 
     def _player_phase(self) -> None:
@@ -590,6 +599,7 @@ class Run:
         told_fate = list(w.fate)
         elog: list[str] = []; w.spread_fires(self.rng, elog); events = w.draw_events(g.drama, self.rng, elog)
         settled = w.resolve_social_actions(actions, self.rng, elog)      # driven out, refused, work taken, gone: decided here, not by the World
+        settled += w.resolve_duty_actions(actions, elog)                # a duty refused, handed over, or taken up
         if settled: self.version += 1
         if elog: g.save()
         if events: g.save()
