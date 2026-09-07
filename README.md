@@ -128,11 +128,18 @@ including raids, fires, and deaths. Events apply their wounds and losses in code
 ever sees them, and many open a **situation** that stays in front of everyone until it is resolved.
 Fires burn for days, wreck what is at a place, hurt the people there, and spread to neighbours.
 
-### The ledger
+### Needs and the ledger
 
-The valley has to store enough grain for the winter, mend three broken roofs, make the forest road
-safe, tend its sick, and build something that was not there before. The World moves these numbers
-through its JSON block and the chronicle shows them every day.
+Every person has food, warmth and rest on a scale of 0 to 10, and health. They fall every day. A
+need at zero takes health each morning, and health at zero is death. Sick people cannot work and
+get worse until someone tends them.
+
+The valley keeps grain (in sacks), meat, fish, wood, meals, tools and herbs, and every place has a
+roof, a warmth and a filth score. All of it decays daily and nothing comes back without work. Unburied
+bodies and filth breed sickness. The season turns with the days (autumn, early winter, deep winter,
+thaw) and the weather is rolled from it each morning: cold burns wood and warmth, rain rots roofs,
+and nothing grows in winter. The engine runs all of this at dawn, before anyone speaks, and writes a
+line into the chronicle with the season, the weather, and what is low, broken, sick, or burning.
 
 ## The convener's hand
 
