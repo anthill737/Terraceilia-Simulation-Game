@@ -107,16 +107,21 @@ class Sheets(unittest.TestCase):
         self.assertIn("white-space:nowrap", CSS[CSS.index("#peoHead{"):CSS.index("}", CSS.index("#peoHead{"))])
         bio = JS[JS.index("function paneBio"):JS.index("// ---- Body")]; self.assertIn('id="b_prov"', bio); self.assertIn('id="b_model"', bio)
 
-    def test_colony_rows_are_one_line_with_four_columns(self) -> None:
+    def test_colony_tables_have_headers_plain_status_and_no_truncation(self) -> None:
         col = JS[JS.index("function renderColony"):JS.index("document.querySelectorAll('.sheetclose')")]
-        self.assertIn('class="crow colduty', col); self.assertIn('class="crow colplace', col); self.assertEqual(col.count('<div class="crow">'), 3, "the ledger rows share the row shape")
-        duty = col[col.index('class="crow colduty'):col.index("</div>`", col.index('class="crow colduty'))]
-        self.assertEqual([m for m in re.findall(r'class="(cdn|cdp|cdw|cds)', duty)], ["cdn", "cdp", "cdw", "cds"], "duty name, place, holder, status")
-        self.assertIn("done?'':x.undone_days?`undone ${x.undone_days} day", duty, "status is blank when done"); self.assertIn("'nothing to do'", duty, "a duty with nothing to do today says so")
-        row = CSS[CSS.index(".crow{"):CSS.index("}", CSS.index(".crow{"))]
-        self.assertIn("display:grid", row); self.assertIn("height:calc(var(--u) * 4)", row); self.assertIn("grid-template-columns:1.2fr 1fr 1.2fr auto", row)
-        self.assertIn(".crow>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis", CSS); self.assertIn(".crow .cdp{color:var(--muted)}", CSS); self.assertIn(".crow .cds{color:var(--rust)", CSS)
-        self.assertNotIn(".colplace{", CSS); self.assertNotIn(".colduty{", CSS)
+        self.assertIn("thead(['Duty','Where','Who','Today'])", col); self.assertIn("thead(['Good','Have','Change'])", col); self.assertIn("thead(['Place','Roof','Warmth','Filth'])", col)
+        self.assertEqual(col.count('<table class="ctab">'), 3)
+        for word in ("'done','good'", "['not done today','poor']", "`nobody's for ${since} day${since>1?'s':''}`,'poor'", "`dumped on ${esc(dumped)} today`,'poor'", "'nothing to do','quiet'"): self.assertIn(word, col)
+        self.assertIn("' (dumped)'", col, "the Who column carries the full name and (dumped) after it"); self.assertNotIn("undone ${", col); self.assertNotIn("dumped on ${esc(r.dumped_on)}</span>", col)
+        self.assertIn("${label}: ${names.length} of ${living.length}.", col, "hungry, freezing and sick are counts"); self.assertIn("title=\"${esc(names.join(', '))}\"", col, "with the names on hover")
+        self.assertNotIn("Hungry: ${R.hungry.map(esc).join(', ')}", col)
+        self.assertIn("${v} ${chg(d[k])}", col, "each place number carries today's change beside it")
+        tab = CSS[CSS.index(".ctab{"):CSS.index("@media (max-width:820px)", CSS.index(".ctab{"))] if CSS.index("@media (max-width:820px)", CSS.index(".ctab{")) > 0 else CSS[CSS.index(".ctab{"):]
+        self.assertNotIn("ellipsis", tab); self.assertNotIn("overflow:hidden", tab); self.assertIn("white-space:nowrap", tab); self.assertIn("height:calc(var(--u) * 4)", tab)
+        self.assertNotIn(".crow", CSS)
+        self.assertIn(".hgrid{display:flex;flex-wrap:wrap", CSS, "the cards sit beside each other while they fit and wrap when the sheet is narrower")
+        phone = CSS[CSS.rindex("@media (max-width:820px)"):]; self.assertIn(".colsent{white-space:normal}", phone); self.assertIn(".ctab td,.ctab th{white-space:normal", phone)
+        self.assertIn(".colsent{font-size:var(--fs-b);color:var(--ink);margin:0 0 calc(var(--u) / 2);white-space:nowrap}", CSS)
 
     def test_the_colony_header_is_the_sentence(self) -> None:
         self.assertIn('class="colsent"', JS); self.assertNotIn("nothing grows", JS); self.assertNotIn('class="colseason"', JS)
