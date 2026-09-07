@@ -384,7 +384,7 @@ function renderWorld(s){if(!worldReady){$('g_drama').oninput=()=>{$('g_dramaNote
  modelPick('g',s.world_model,$('g_wp'),$('g_wm'),$('g_wc'));$('g_map_source').value=s.map_source||'builtin';
  modelPick('gm',s.map_model||s.world_model,$('g_mp'),$('g_mm'),$('g_mc'));mapInfo(s)}
 function mapInfo(s){const info=$('g_mapInfo');if(!s||!info)return;const started=!!(s.created||(s.seats&&s.seats.length>1)||s.status==='running'||s.status==='paused');
- $('g_mapBlock').style.display=started?'none':'';if(started)return;      // the map is fixed once a game has started; the controls go away
+ $('g_mapBlock').style.display=started?'none':'';$('g_descBlock').style.display=started?'none':'';if(started)return;      // the description and the map are fixed once a game has started; the region card is the only copy
  const gen=$('g_map_source').value==='generated';$('g_mapModelRow').style.display=gen?'':'none';
  const names=Object.keys(s.map||{});const st=s.map_style||{};let t;
  if(s.map_generating)t='Drawing a new map from the description. Watch the World\u2019s terminal.';
@@ -393,8 +393,8 @@ function mapInfo(s){const info=$('g_mapInfo');if(!s||!info)return;const started=
  else t='This game plays on the built-in valley of Terraceilia.';
  info.textContent=t;const b=$('g_regen');b.style.display=gen?'':'none';b.disabled=!!(s.map_generating);b.textContent=s.map_generating?'Drawing...':(s.map_generated?'Regenerate the map':'Draw the map now')}
 function gMapModelVal(){const v=pickVal($('g_mp'),$('g_mm'),$('g_mc')),w=pickVal($('g_wp'),$('g_wm'),$('g_wc'));return (v.provider===w.provider&&v.model===w.model)?null:v}
-async function saveWorld(){const started=!!(S&&(S.created||(S.seats&&S.seats.length>1)));const d={title:$('g_title').value,world_text:$('g_world').value,max_days:+$('g_days').value,max_minutes:+($('g_mins').value||0),drama:+$('g_drama').value,world_model:pickVal($('g_wp'),$('g_wm'),$('g_wc'))};
- if(!started){d.map_source=$('g_map_source').value;d.map_model=gMapModelVal()}
+async function saveWorld(){const started=!!(S&&(S.created||(S.seats&&S.seats.length>1)));const d={title:$('g_title').value,max_days:+$('g_days').value,max_minutes:+($('g_mins').value||0),drama:+$('g_drama').value,world_model:pickVal($('g_wp'),$('g_wm'),$('g_wc'))};
+ if(!started){d.world_text=$('g_world').value;d.map_source=$('g_map_source').value;d.map_model=gMapModelVal()}
  const r=await api('/edit/game',d);$('g_state').textContent='Saved '+new Date().toLocaleTimeString();render(r);mapInfo(S)}
 function renderRegion(s){const box=$('g_region');if(!box)return;const R=s.day_report||{};const th=(s.threads||[]).slice();
  const KIND={town:'a town',castle:'a castle',village:'a village',inn:'an inn',chapel:'a chapel',mill:'a mill',forest:'a forest',fields:'fields',water:'water',ruin:'a ruin',market:'a market',farm:'a farm',tower:'a tower',cave:'a cave',road:'a road'};

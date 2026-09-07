@@ -77,13 +77,17 @@ class Sheets(unittest.TestCase):
         self.assertIn("s.world_text", JS[JS.index("function renderRegion"):]); self.assertIn("d.kind", top)
         for tok in ("map_style", "st.water", "st.sky", "map_generated", "elevation", "feature"): self.assertNotIn(tok, JS[JS.index("function renderRegion"):JS.index("regionHtml=html")])
         self.assertIn("s.calendar_rows", JS); self.assertNotIn("seasonRow", JS)
-        self.assertIn("$('g_mapBlock').style.display=started?'none':''", JS)
+        self.assertIn("$('g_mapBlock').style.display=started?'none':''", JS); self.assertIn("$('g_descBlock').style.display=started?'none':''", JS); self.assertIn('id="g_descBlock"', HTML)
+        save = JS[JS.index("async function saveWorld"):JS.index("function renderRegion")]
+        self.assertIn("if(!started){d.world_text=$('g_world').value", save); self.assertNotIn("world_text:$('g_world')", save)
         import connect, game, server
         tmp = Path(tempfile.mkdtemp(prefix="terra-ui-")); engine.GAMES = tmp; game.GAMES = tmp; server.GAMES = tmp
         st, rv = connect.start, server.refresh_versions; connect.start = lambda: None; server.refresh_versions = lambda: None
         try:
             app = server.App(); g = app.run.g; g.seats = [{"name": "World", "provider": "Claude Code", "model": "", "color": "#d0a92c"}, {"name": "Bett", "provider": "Claude Code", "model": "", "color": "#7f9a5c"}]
             app.edit_game({"map_source": "generated"}); self.assertEqual(g.map_source, "builtin", "a started game keeps its map")
+            g.world.created = True; app.edit_game({"world_text": "changed after the start"}); self.assertNotEqual(g.world_text, "changed after the start", "the description is fixed once the world is made")
+            g.world.created = False; app.edit_game({"world_text": "changed before the start"}); self.assertEqual(g.world_text, "changed before the start")
             snap = app.snapshot()
             for k in ("calendar_rows", "tomorrow", "sentence"): self.assertIn(k, snap)
             for k in ("region", "calendar", "season_days"): self.assertNotIn(k, snap)
