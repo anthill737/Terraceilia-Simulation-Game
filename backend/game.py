@@ -78,7 +78,7 @@ class Game:
             for c in sorted(w.characters.values(), key=lambda c: c["seat"]):
                 seat = next((x for x in self.seats if x["name"] == c["name"]), {})
                 md += [f"### {c['name']}, {c['trade']} ({seat.get('provider', '')} {seat.get('model', '')})",
-                       f"{'DEAD: ' + c['cause_of_death'] if not c['alive'] else 'banished' if c['banished'] else 'alive'} · at {c['location']} · home {c['home']} · standing {c['standing']}",
+                       f"{'DEAD: ' + c['cause_of_death'] if not c['alive'] else ('gone: ' + (c['gone_reason'] or 'gone')) if c['gone'] else 'alive'} · at {c['location']} · home {c['home']} · standing {c['standing']}",
                        f"STR {c['str']} SPD {c['spd']} HP {c['hp']}/{c['hp_max']} gold {c['gold']} skills {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'}",
                        f"Disposition: {', '.join(f'{k} {v}' for k, v in (c.get('traits') or {}).items())}",
                        f"Personality: {c['personality']}", f"Secret: {c['secret']}", f"Fear: {c['fear']}", f"Want: {c['want']}", "", "Ties:", w.relations_text(c["name"]).replace("You ", f"{c['name']} ").replace("you ", f"{c['name']} "), ""]
@@ -430,7 +430,7 @@ class Run:
         parts.append(f"Now: {instruction}")
         return "\n".join(parts)
 
-    def _world_prompt(self, actions: list[dict], rolls: dict[str, int], court: bool, events: list[str] | None = None) -> str:
+    def _world_prompt(self, actions: list[dict], rolls: dict[str, int], events: list[str] | None = None, settled: list[dict] | None = None) -> str:
         g = self.g; w = g.world
         from engine import trait_text
         sheets = "\n".join(f"- {c['name']} ({c['trade']}, at {c['location']}): STR {c['str']} SPD {c['spd']} HP {c['hp']}/{c['hp_max']} gold {c['gold']} skills {c['skills'] or 'none'}; standing {c['standing']}; nature: {trait_text(c.get('traits', {}))[:160]}" + (f"; today's urges: {' / '.join(self.day_urges.get(c['name'], []))[:200]}" if self.day_urges.get(c['name']) else "")
@@ -439,7 +439,9 @@ class Run:
         talk = [e for e in g.transcript if e.get("day", 0) == w.day and e["kind"] in ("speech", "convener")]
         talk_s = "\n".join(f"- {e['speaker']}: {e['text'][:300]}" for e in talk[-40:])
         L = w.ledger
-        return "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", f"It is day {w.day}. " + ("The lord's court sits today: name exactly one living character in \"banished\", the one the valley trusts least, with a reason in the narration." if court else ""),
+        settled_s = ("\nSETTLED BY THE ENGINE TODAY. These are done; the people involved have already been moved, marked, or sent away. Narrate each exactly as written, in your own plain words, and do not reverse or soften any of them:\n"
+                     + "\n".join(f"- {s['text']}" for s in settled) + "\n") if settled else ""
+        return "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", f"It is day {w.day}.",
             "\nThe people, as the engine knows them:\n" + sheets,
             "\nTheir notable ties (a -> b: type, feeling -5..5, trust -5..5; everyone also has milder opinions of everyone else, which you may assume are ordinary):\n" + "\n".join(f"- {a} -> {b}: {r['type']}, feeling {r['feeling']:+d}, trust {r['trust']:+d}" for a, rs in w.relations.items() for b, r in rs.items() if a in w.characters and b in w.characters and (r['type'] != 'none' or abs(r['feeling']) + abs(r['trust']) >= 4)),
             f"\nThe prosperity ledger: grain {L['grain_weeks']} of {L['grain_needed']} weeks needed, {L['roofs_broken']} roofs broken, road {'safe' if L['road_safe'] else 'unsafe'} after dark, {L['sick']} sick, built: {', '.join(L['built']) or 'nothing'}.",
@@ -447,15 +449,16 @@ class Run:
             "\nOPEN SITUATIONS. Every one of these is still true today; keep it alive in your narration and in what happens, until you resolve it explicitly (a body buried, a deserter caught, a merchant leaves, a fire put out). Nothing here may simply vanish:\n" + w.threads_text() + "\n"
             + ("\nFIRES BURNING NOW: " + ", ".join(f"{p} (day {d + 1} of burning)" for p, d in w.fires.items()) + ". People there are hurt each day it burns and things there are ruined; it spreads. Say what the people do about it.\n" if w.fires else ""),
             ("\nEVENTS OF THE DAY. These have already happened; the engine has applied their wounds, losses, and ruins. Narrate each one vividly, make the people at that place witness it, and let it change what happens next. They are not optional and you may not soften them:\n" + "\n".join(f"- {e}" for e in events) + "\n") if events else "",
+            settled_s,
             "\nWhat was said today (including whispers you are allowed to hear):\n" + (talk_s or "- nothing"),
             "\nActions to resolve, with the die the engine rolled for each (1 is a disaster, 6 a triumph, scaled by the character's stats):\n" + acts,
             "\nWrite the day in at most two sentences. State what happened and stop: the outcome that mattered most, and any death by name and cause. No flourish and no scene setting. Everything else goes in the block, not the narration. Then, on its own, a fenced ```json block, exactly this shape and nothing else in it:",
-            '```json\n{"results":[{"who":"Name","hp":-2,"gold":3,"location":"The mill","skill":"axe","standing":"respected","note":"why"}],'
+            '```json\n{"results":[{"who":"Name","hp":-2,"gold":3,"location":"The mill","skill":"axe","standing":-1,"note":"why"}],'
             '"events":["one line per world event"],"ledger":{"grain_weeks":1,"roofs_broken":-1,"road_safe":false,"sick":0,"built":["a granary"]},'
-            '"dead":[{"who":"Name","cause":"how"}],"banished":["Name"],'
+            '"dead":[{"who":"Name","cause":"how"}],'
             '"relations":[{"a":"Name","b":"Other","feeling":-2,"trust":-3,"type":"enemy","mutual":false,"why":"what happened today that changed it, one line"}],'
             '"threads":[{"id":3,"status":"resolved","note":"how it ended"}],"fires_out":["The mill"]}\n```',
-            "Rules for the block: hp and gold and ledger numbers are deltas (change), not totals. Relation feeling and trust are deltas too, -3..3 per day, and every meaningful interaction today must move at least one tie, and every relation entry needs a \"why\" naming the thing that happened today: a favor, an insult, a lie found out, a night together, a blow struck. Set type when a tie changes kind (a lover becomes a spouse, a friend becomes an enemy). Only include keys you are changing. Names must match exactly. Do not invent characters. Deaths must also be in narration."])
+            "Rules for the block: hp and gold and ledger numbers are deltas (change), not totals. standing is a delta too, -2 to 2, moved only by what that person did today and how the people around them took it. Relation feeling and trust are deltas, -3..3 per day, and every meaningful interaction today must move at least one tie, and every relation entry needs a \"why\" naming the thing that happened today: a favor, an insult, a lie found out, a night together, a blow struck. Set type when a tie changes kind (a lover becomes a spouse, a friend becomes an enemy). Only include keys you are changing. Names must match exactly. Do not invent characters. Nobody leaves the valley through this block. Deaths must also be in narration."])
 
     # ---- the day loop
     def _run(self) -> None:
@@ -521,7 +524,7 @@ class Run:
             if not self.prime_codex(f"priming for day {w.day}"): self._codex_refused()
             while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
             if self.stop_flag.is_set(): return
-        alive = [i for i, seat in enumerate(g.seats) if i > 0 and seat["name"] in w.characters and w.characters[seat["name"]]["alive"] and not w.characters[seat["name"]]["banished"]]
+        alive = [i for i, seat in enumerate(g.seats) if i > 0 and seat["name"] in w.characters and w.characters[seat["name"]]["alive"] and not w.characters[seat["name"]]["gone"]]
         self.day_urges = {g.seats[i]["name"]: urges(w.characters[g.seats[i]["name"]], w, self.rng) for i in alive}
         acted: set[int] = set(); reacted: set[int] = set(); queue = list(alive); threads: dict[int, threading.Thread] = {}
         name_to_i = {g.seats[i]["name"].lower(): i for i in alive}
@@ -571,13 +574,14 @@ class Run:
 
     def _world_phase(self) -> None:
         g = self.g; w = g.world
-        actions = w.pending; rolls = {a["who"]: self.rng.randint(1, 6) for a in actions}
-        court = w.day % w.court_every == 0
+        actions = list(w.pending); rolls = {a["who"]: self.rng.randint(1, 6) for a in actions}
         told_fate = list(w.fate)
         elog: list[str] = []; w.spread_fires(self.rng, elog); events = w.draw_events(g.drama, self.rng, elog)
+        settled = w.resolve_social_actions(actions, self.rng, elog)      # driven out, refused, work taken, gone: decided here, not by the World
+        if settled: self.version += 1
         if elog: g.save()
         if events: g.save()
-        prompt = self._world_prompt(actions, rolls, court, events)
+        prompt = self._world_prompt(actions, rolls, events, settled)
         res = None; out = None
         for attempt in range(2):
             if self.stop_flag.is_set(): return
@@ -588,8 +592,9 @@ class Run:
         if res is None:
             self._record("Engine", "The World gave no usable result; the day ends unchanged.", "system"); w.pending = []; w.day += 1; g.save(); return
         log: list[str] = []
-        w.pending = []; w.fate = [f for f in w.fate if f not in told_fate]; w.apply(res, log, court=court); self.version += 1
+        w.pending = []; w.fate = [f for f in w.fate if f not in told_fate]; w.apply(res, log); self.version += 1
         text = strip_json(out or "") or "The day passes."
+        if settled: text = "\n".join(f"SETTLED: {s['text']}" for s in settled) + "\n\n" + text
         if events: text = "\n".join(f"EVENT: {e}" for e in events) + "\n\n" + text
         self._record("World", text + "\n\n" + w.standings_table(), "world")
         if elog: log = elog + log
@@ -600,7 +605,7 @@ class Run:
         import telegram
         g = self.g; w = g.world
         prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "The year is over. Here is the final state:\n" + w.standings_table(),
-                            "\nWrite the chronicle's closing: what became of the valley and of each person, living, dead, and banished, in the order they mattered. No json block."])
+                            "\nWrite the chronicle's closing: what became of the valley and of each person, living, dead, and gone, in the order they mattered. No json block."])
         out = self._invoke(0, prompt, "epilogue")
         self._record("World", (out or "The chronicle ends here.") + "\n\n" + w.standings_table(), "epilogue")
         dead = [c["name"] for c in w.characters.values() if not c["alive"]]

@@ -10,7 +10,7 @@
   "t": "{who} is accused of witchcraft by a neighbor after a cow dies in the night.",
   "tier": 2,
   "effect": {
-   "standing": "hated"
+   "standing": -3
   },
   "thread": true
  },
@@ -115,7 +115,7 @@
   "thread": true
  },
  {
-  "t": "A comet hangs over the castle for three nights. The pious call it judgment; the drunk call it luck.",
+  "t": "A comet hangs over the castle for three nights. The pious call it a warning; the drunk call it luck.",
   "tier": 1,
   "thread": false
  },
@@ -244,7 +244,7 @@
   "t": "{who} is found drunk in the graveyard, digging.",
   "tier": 1,
   "effect": {
-   "standing": "pitied"
+   "standing": -2
   },
   "thread": false
  },
@@ -288,7 +288,7 @@
   "t": "{who} is named in a dying man's confession as the one who wronged him years ago.",
   "tier": 2,
   "effect": {
-   "standing": "hated"
+   "standing": -3
   },
   "thread": true
  },

@@ -7,7 +7,7 @@ from pathlib import Path
 import connect
 import telegram
 from agents import PROVIDERS, VERSIONS, refresh_versions
-from engine import GAMES, World, now_id
+from engine import GAMES, STANDING_WORDS, World, now_id, standing_score_for, standing_word
 from game import Game, Run, list_games
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
@@ -43,7 +43,7 @@ class App:
             w = g.world
             return {"id": g.id, "day": w.day, "status": g.status, "current": r.current, "created": w.created,
                     "map": w.map, "map_name": w.map_name, "map_generated": w.map_generated, "map_style": w.style, "ledger": dict(w.ledger), "pending": list(w.pending), "fires": dict(w.fires), "threads": [t for t in w.threads if t["status"] == "open"],
-                    "characters": [{k: c[k] for k in ("name", "location", "alive", "banished", "hp", "hp_max", "gold", "trade", "standing")} for c in w.characters.values()],
+                    "characters": [{k: c[k] for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing")} for c in w.characters.values()],
                     "seats": [{"name": x["name"], "color": x["color"]} for x in g.seats], "version": r.version}
 
     def snapshot(self, since: int = -1, terms: bool = False, tail: int = 120) -> dict:
@@ -162,7 +162,8 @@ class App:
             if life_changed and i is not None:
                 g.cli_sessions.pop(str(i), None)   # start the model fresh so the new life is not overruled by old context
                 c["changed"] = True
-            if d.get("standing") in ("respected", "feared", "pitied", "hated", "unknown", "loved") and d["standing"] != c["standing"]: c["standing"] = d["standing"]; notes.append(f"{name} is now {d['standing']}")
+            if d.get("standing") in STANDING_WORDS and d["standing"] != c["standing"]:
+                c["standing_score"] = standing_score_for(d["standing"]); c["standing"] = standing_word(c["standing_score"]); notes.append(f"{name} is now {c['standing']}")
             for k in ("str", "spd", "gold", "hp", "hp_max"):
                 if k in d:
                     try: v = int(d[k])
@@ -192,10 +193,10 @@ class App:
             c["hp"] = min(c["hp"], c["hp_max"])
             if c["hp"] <= 0 and c["alive"]: c["alive"] = False; c["cause_of_death"] = "struck down by fate"; notes.append(f"{name} died")
             if d.get("alive") is True and not c["alive"]: c["alive"] = True; c["hp"] = max(1, c["hp"]); c["cause_of_death"] = ""; notes.append(f"{name} lives again")
-            if "banished" in d and bool(d["banished"]) != c["banished"]:
-                c["banished"] = bool(d["banished"])
-                if not c["banished"]: c["returned_day"] = w.day; notes.append(f"{name} has returned to the valley from banishment, walking back down the east road; the lord's court has no power over that return")
-                else: notes.append(f"{name} has been banished from the valley")
+            if "gone" in d and bool(d["gone"]) != c["gone"]:
+                c["gone"] = bool(d["gone"])
+                if not c["gone"]: c["gone_reason"] = ""; notes.append(f"{name} has come back to the valley, walking in by the east road")
+                else: c["gone_reason"] = f"sent away by fate on day {w.day}"; notes.append(f"{name} is gone from the valley")
             if d.get("location"):
                 from engine import place_key
                 dest = place_key(str(d["location"]), w.map)
