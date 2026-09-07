@@ -1,4 +1,7 @@
 # runtime data: games, prompts, memories, chronicles, token, exports
+# notes in the repo root are personal and stay out; only README.md is the game's
+/*.md
+!/README.md
 games/*
 !games/.keep
 token.txt
