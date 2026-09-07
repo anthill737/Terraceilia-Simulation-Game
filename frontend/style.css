@@ -73,7 +73,9 @@ table.st{border-collapse:collapse;font-size:12.5px;margin-top:8px}table.st td,ta
 .title{fill:#F2EBD8;font:700 22px Georgia,'Times New Roman',serif;letter-spacing:.5px}.sub{fill:#c9b28a;font:12px Inter,system-ui,sans-serif}
 .node .glow{fill:rgba(52,211,153,0);transition:fill .2s}.node:hover .glow,.node.sel .glow{fill:rgba(52,211,153,.10)}.node.hot .glow{fill:rgba(52,211,153,.22)}
 .node{cursor:pointer}.node text.nm{fill:#F2EBD8;font:600 14px Inter,system-ui,sans-serif}.node text.ruin{fill:#f08b86;font:11px Inter,system-ui,sans-serif}
-.tok{cursor:grab;transition:transform 1.6s cubic-bezier(.4,0,.2,1)}.tok.drag{cursor:grabbing;transition:none}.tok .cloak{transition:filter .3s}.tok:hover .cloak{filter:brightness(1.25)}
+.tok{cursor:grab}.tok.drag{cursor:grabbing}.tok.walking .cloak{animation:bob .5s ease-in-out infinite alternate}@keyframes bob{from{transform:translateY(0)}to{transform:translateY(-1.5px)}}
+.tok text.act{fill:#d9c89a;font:italic 9.5px Georgia,serif;pointer-events:none}.tok.idle text.act{fill:#8B8B94}.tok.resting text.act{fill:#9fc7e0}
+.tok .pbar{fill:#1b1f1d;stroke:#3a4a40;stroke-width:.6}.tok .pfill{fill:#d3ad2e}.tok .cloak{transition:filter .3s}.tok:hover .cloak{filter:brightness(1.25)}
 .tok.hurt .head{fill:#d9a27e}.tok.hurt .cloak{stroke:#E5484D;stroke-width:1.8}
 .tok circle.ring{fill:none;stroke-width:2;opacity:0}.tok.thinking circle.ring{opacity:1;animation:tring 1.4s ease-out infinite}@keyframes tring{0%{r:12;opacity:.9}100%{r:26;opacity:0}}
 .tok text.ini{fill:#0a0d0b;font:700 9px Inter,system-ui,sans-serif;pointer-events:none}.tok text.lbl{fill:#E8E2D0;font:10.5px Inter,system-ui,sans-serif;pointer-events:none}
