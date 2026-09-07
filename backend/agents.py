@@ -120,7 +120,7 @@ def ensure_codex_trust(folder: str) -> str | None:
         key = str(Path(folder).resolve())
         variants = {key, key.replace("\\", "/"), key.replace("\\", "\\\\")}
         if any(f'[projects."{v}"]' in text or f"[projects.'{v}']" in text for v in variants): return None
-        if cfg.exists(): cfg.with_suffix(".toml.agora-backup").write_text(text, encoding="utf-8")
+        if cfg.exists(): cfg.with_suffix(".toml.terraceilia-backup").write_text(text, encoding="utf-8")
         esc = key.replace("\\", "\\\\")
         with cfg.open("a", encoding="utf-8") as fh:
             fh.write(f'\n[projects."{esc}"]\ntrust_level = "trusted"\n')
