@@ -114,18 +114,23 @@ function refreshSheet(name,s){if(!s)return;
 let colHtml='';
 function renderColony(s){const R=s.day_report||{};const L=s.ledger||{};const ch=R.change||{};const defs=s.duty_defs||{};const roster=(s.roster||{}).duties||{};const st=s.duty_state||{};
  if(!s.created){$('colHead').innerHTML='<div class="empty">The colony appears here once the World has rolled it.</div>';$('colDuties').innerHTML='';$('colLedger').innerHTML='';$('colPlaces').innerHTML='';$('colMorning').innerHTML='';colHtml='';return}
- const sick=(s.characters||[]).filter(c=>c.alive&&!c.gone&&c.sick).map(c=>c.name);const bodies=Object.entries(s.bodies||{});
+ const living=(s.characters||[]).filter(c=>c.alive&&!c.gone);const sick=living.filter(c=>c.sick).map(c=>c.name);const bodies=Object.entries(s.bodies||{});
+ const count=(label,names)=>names.length?`<span title="${esc(names.join(', '))}">${label}: ${names.length} of ${living.length}.</span> `:'';
  const head=`<p class="colsent">${esc(s.sentence||R.sentence||`Day ${s.day}.`)}</p>
-  <p class="small">${sick.length?`Sick and cannot work: ${sick.map(esc).join(', ')}. `:''}${bodies.length?`Unburied: ${bodies.map(([n,p])=>esc(n)+' at '+esc(p)).join(', ')}. `:''}${Object.keys(s.fires||{}).length?`Burning: ${Object.keys(s.fires).map(esc).join(', ')}. `:''}${(R.hungry||[]).length?`Hungry: ${R.hungry.map(esc).join(', ')}. `:''}${(R.freezing||[]).length?`Freezing: ${R.freezing.map(esc).join(', ')}. `:''}</p>`;
- const duties=Object.entries(defs).map(([k,d])=>{const r=roster[k]||{};const x=st[k]||{};const hs=(s.characters||[]).filter(c=>c.alive&&!c.gone&&(c.duties||[]).includes(k)).map(c=>c.name);
-  const un=!hs.length;const done=x.done_day===s.day;const sickSet=new Set(sick);const who=(hs.length?hs.map(h=>esc(h)+(sickSet.has(h)?' (sick)':'')).join(', '):'')+(r.dumped_on&&!hs.includes(r.dumped_on)?`${hs.length?', ':''}<span class="poor">dumped on ${esc(r.dumped_on)}</span>`:'')||'nobody';
-  return `<div class="crow colduty ${un?'un':''} ${done?'done':''}"><span class="cdn">${esc(d.label)}</span><span class="cdp">${esc(r.place||'')}</span><span class="cdw ${un?'poor':''}">${who}</span><span class="cds ${x.nothing_day===s.day?'quiet':''}">${x.nothing_day===s.day?'nothing to do':done?'':x.undone_days?`undone ${x.undone_days} day${x.undone_days>1?'s':''}`:''}</span></div>`}).join('');
- const chg=v=>v?`<span class="chg ${v>0?'up':'down'}">${v>0?'+':''}${v}</span>`:'<span></span>';
- const ledger=STORES.map(k=>`<div class="crow"><span class="cdn">${k}</span><span class="cdp"></span><span class="cdw ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'poor':''}">${L[k]??0}</span>${chg(ch[k])}</div>`).join('')
-  +`<div class="crow"><span class="cdn">road after dark</span><span class="cdp"></span><span class="cdw ${L.road_safe?'good':'poor'}">${L.road_safe?'safe':'unsafe'}</span><span></span></div><div class="crow"><span class="cdn">built</span><span class="cdp"></span><span class="cdw">${esc((L.built||[]).join(', ')||'nothing')}</span><span></span></div>`;
- const pc=(R.places||{});const places=Object.entries(s.upkeep||{}).map(([p,u])=>{const d=pc[p]||{};const cell=(k,v,bad)=>`<span class="cdw ${bad?'poor':''}">${k} ${v}${d[k]?` <span class="chg ${d[k]>0?'up':'down'}">${d[k]>0?'+':''}${d[k]}</span>`:''}</span>`;
+  <p class="small">${count('Sick and cannot work',sick)}${bodies.length?`Unburied: ${bodies.map(([n,p])=>esc(n)+' at '+esc(p)).join(', ')}. `:''}${Object.keys(s.fires||{}).length?`Burning: ${Object.keys(s.fires).map(esc).join(', ')}. `:''}${count('Hungry',R.hungry||[])}${count('Freezing',R.freezing||[])}</p>`;
+ const thead=cols=>`<thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>`;
+ const duties=`<table class="ctab">${thead(['Duty','Where','Who','Today'])}<tbody>`+Object.entries(defs).map(([k,d])=>{const r=roster[k]||{};const x=st[k]||{};const hs=living.filter(c=>(c.duties||[]).includes(k)).map(c=>c.name);
+  const un=!hs.length;const done=x.done_day===s.day;const sickSet=new Set(sick);const dumped=r.dumped_on&&!hs.includes(r.dumped_on)?r.dumped_on:'';
+  const who=hs.map(h=>esc(h)+(sickSet.has(h)?' (sick)':'')).concat(dumped?[esc(dumped)+' (dumped)']:[]).join(', ')||'nobody';
+  const since=x.unclaimed_day?Math.max(1,s.day-x.unclaimed_day+1):1;
+  const today=x.nothing_day===s.day?['nothing to do','quiet']:done?['done','good']:dumped?[`dumped on ${esc(dumped)} today`,'poor']:un?[`nobody's for ${since} day${since>1?'s':''}`,'poor']:['not done today','poor'];
+  return `<tr class="colduty ${un?'un':''} ${done?'done':''}"><td class="cdn">${esc(d.label)}</td><td class="cdp">${esc(r.place||'')}</td><td class="cdw ${un&&!dumped?'poor':''}">${who}</td><td class="cds ${today[1]}">${today[0]}</td></tr>`}).join('')+'</tbody></table>';
+ const chg=v=>v?`<span class="chg ${v>0?'up':'down'}">${v>0?'+':''}${v}</span>`:'';
+ const ledger=`<table class="ctab">${thead(['Good','Have','Change'])}<tbody>`+STORES.map(k=>`<tr><td class="cdn">${k}</td><td class="cdw ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'poor':''}">${L[k]??0}</td><td>${chg(ch[k])}</td></tr>`).join('')
+  +`<tr><td class="cdn">road after dark</td><td class="cdw ${L.road_safe?'good':'poor'}">${L.road_safe?'safe':'unsafe'}</td><td></td></tr><tr><td class="cdn">built</td><td class="cdw">${esc((L.built||[]).join(', ')||'nothing')}</td><td></td></tr></tbody></table>`;
+ const pc=(R.places||{});const places=`<table class="ctab">${thead(['Place','Roof','Warmth','Filth'])}<tbody>`+Object.entries(s.upkeep||{}).map(([p,u])=>{const d=pc[p]||{};const cell=(k,v,bad)=>`<td class="cdw ${bad?'poor':''}">${v} ${chg(d[k])}</td>`;
   const roofed=!['forest','fields','water','road','cave','ruin'].includes(((s.map||{})[p]||{}).kind);
-  return `<div class="crow colplace"><span class="cdn">${esc(p)}</span>${roofed?cell('roof',u.roof,u.roof<4):'<span class="cdp">no roof</span>'}${cell('warmth',u.warmth,u.warmth<=2)}${cell('filth',u.filth,u.filth>=6)}</div>`}).join('');
+  return `<tr class="colplace"><td class="cdn">${esc(p)}</td>${roofed?cell('roof',u.roof,u.roof<4):'<td class="cdp">no roof</td>'}${cell('warmth',u.warmth,u.warmth<=2)}${cell('filth',u.filth,u.filth>=6)}</tr>`}).join('')+'</tbody></table>';
  const m=(s.transcript||[]).slice().reverse().find(e=>e.kind==='morning'&&e.day===s.day);
  const morning=m?`<div class="card2"><div class="ch">This morning</div><div class="colmorn">${rich(m.text)}</div></div>`:'';
  const html=head+'|'+duties+'|'+ledger+'|'+places+'|'+morning;if(html===colHtml)return;colHtml=html;
