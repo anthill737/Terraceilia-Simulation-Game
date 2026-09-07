@@ -1,8 +1,10 @@
 """Editing a person from the character screen. Skills are the new part; the rest guards what was already there.
 Run from the repo root:  python -m pytest tests -q"""
 from __future__ import annotations
-import random, shutil, sys, tempfile, unittest
+import os, random, shutil, sys, tempfile, unittest
 from pathlib import Path
+
+os.environ["TERRACEILIA_NO_TELEGRAM"] = "1"   # a test finishes a year, and a finished year messages a real person
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
@@ -60,6 +62,13 @@ class PeopleEditTests(unittest.TestCase):
         self.assertEqual(c["traits"]["drink"], 5)
         self.assertEqual(c["want"], "a dry roof")
         self.assertTrue(c.get("changed"), "a changed life makes them play the new self")
+
+    def test_a_finished_year_in_a_test_never_messages_a_real_person(self) -> None:
+        """A test runs a year to its end, and the end of a year messages whoever set up Telegram."""
+        import telegram
+        self.assertTrue(telegram.muted(), "the tests must run with TERRACEILIA_NO_TELEGRAM set")
+        self.assertEqual(telegram.send("this must never leave the machine"), "Telegram is muted for this run.")
+        telegram.notify("nor this", "finish")
 
     def test_a_tie_can_be_set_both_ways(self) -> None:
         self.app.edit_relation({"a": "Bett", "b": "Osgar", "type": "rival", "feeling": -4, "trust": -2, "mutual": True})

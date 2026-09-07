@@ -5,7 +5,7 @@ The token is kept in telegram.json next to the game and is only ever sent to Tel
 reaches the browser.
 """
 from __future__ import annotations
-import json, threading, urllib.error, urllib.request
+import json, os, threading, urllib.error, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -112,8 +112,14 @@ def clear() -> dict:
     return {"ok": True}
 
 
+def muted() -> bool:
+    """Tests and throwaway servers set TERRACEILIA_NO_TELEGRAM so a practice year never messages a real person."""
+    return bool(os.environ.get("TERRACEILIA_NO_TELEGRAM"))
+
+
 def send(text: str) -> str:
     """Send one message. Returns a line a person can read. The token is never logged."""
+    if muted(): return "Telegram is muted for this run."
     c = config(); token = (c.get("token") or "").strip(); chat = str(c.get("chat_id") or "").strip()
     if not token or not chat: return "Telegram is not connected."
     try:
@@ -124,6 +130,7 @@ def send(text: str) -> str:
 
 def notify(text: str, kind: str = "finish") -> None:
     """Fire and forget, from the engine's own thread, only if that kind of message is switched on."""
+    if muted(): return
     c = config()
     if not (c.get("token") and c.get("chat_id")): return
     if kind == "finish" and not c.get("notify_on_finish", True): return
