@@ -60,12 +60,13 @@ threaten, bargain, ally, pray, confess, organize, remember. Only the people wher
 you. A line with @Name in it is carried to that person privately, wherever they are; a line that
 begins with WHISPER @Name: is the same. Anyone else you name who is not with you does not hear it.
 
-The valley's work is split into named duties and you hold one to three of them. Your sheet says
-which, where each is done, what it makes, and what it costs everyone if it is skipped. A duty is
+The valley's work is split into named jobs and you hold one to three of them. Your sheet says
+which, where each is done, what it makes, and what it costs everyone if it is skipped. A job is
 yours until you change it, and only you can: as your ACTION you can refuse one (people notice,
-and it goes unclaimed), hand one to someone by name, or take up one nobody holds. A duty nobody
-holds is dumped each morning on whoever is nearest and able, for that day. Fire, a bad injury,
-or an attack pulls whoever is nearest, whatever their duties.
+and it goes open), hand one to someone by name, or take up one nobody holds. A job nobody holds
+is covered each morning by whoever is nearest and able, for that day: you are covering the hunt
+today because nobody has it. Fire, a bad injury, or an attack pulls whoever is nearest, whatever
+their jobs.
 
 Nothing in this valley is decided by a group. There is no meeting that settles who stays, no show
 of hands, no lord who rules on it. If you want someone gone, you drive them out yourself, as your
@@ -82,7 +83,7 @@ elsewhere, go to them. The World's chronicle tells everyone what the whole valle
 
 A day has three parts, and in each you end your message with at most one line that reads
 ACTION: followed by what you do. MORNING is work: the ACTION line begins with WORK, or WORK and
-the name of one duty (done first, or taken up if nobody holds it), or REFUSE, and anything else
+the name of one job (done first, or taken up if nobody holds it), or REFUSE, and anything else
 skips that day's work. One skip costs you
 standing; skip the same work two mornings running and it is nobody's. REFUSE gives it up at once.
 AFTERNOON is free time, by design: if something touched you or you have a want to act on, one

@@ -73,26 +73,26 @@ with a note in the chronicle saying so. It happens once, at Start; World can dra
 and once people exist the map is fixed for that game.
 
 Press **Start the year**. The engine rolls every person's numbers, then asks the World to give each
-one a life: a trade, a home, a personality, a secret, a fear, a want, and a web of ties to the
+one a life: a trade, a home, a personality, a secret, a fear, a want, and a web of relationships to the
 others. Marriages, debts, rivalries, an unrequited love, a servant who hates a master who trusts him.
 That takes a minute or two. Then day one begins.
 
 ## How a day goes
 
 1. **Dawn.** The engine rolls the weather, spoils the stores, wears the roofs, feeds and warms the
-   people from what there is, lets sickness in, and buries nobody. Every unclaimed duty is dumped on
+   people from what there is, lets sickness in, and buries nobody. Every open job is covered by
    the nearest able person for the day; a fire, a bad injury, or an attack pulls whoever is nearest.
    A line goes into the chronicle with the season, the weather, and what is low, broken, sick, or
    burning.
-2. **Morning: duties.** Everyone able with work is given their duties with place, output, and what
-   it costs the valley if skipped. `WORK` (all of it), `WORK` and one duty's name (that one first, or
+2. **Morning: jobs.** Everyone able with work is given their jobs with place, output, and what
+   it costs the valley if skipped. `WORK` (all of it), `WORK` and one job's name (that one first, or
    taken up if nobody holds it), or `REFUSE` are read anywhere in the reply, with or without the
    `ACTION:` prefix, in any case; anything else counts as skipping. Before the morning the engine
-   marks every held duty that cannot yield today (fields in winter, a kitchen with nothing to cook, a
+   marks every held job that cannot yield today (fields in winter, a kitchen with nothing to cook, a
    burial with nobody dead, healing with nobody sick, teaching with nobody there) as nothing to do:
    not a skip, not undone, and the holder is free for other work. The engine resolves the rest:
    output rolled from skill and dice, the ledger moved, the skill nudged up. Skipping costs standing
-   and that day's work; skip the same work two mornings running and the duty goes unclaimed. REFUSE
+   and that day's work; skip the same work two mornings running and the job goes open. REFUSE
    gives it up at once. What nobody did lands its cost and goes to the World and the chronicle by
    name; after two days a neighbour complains and names whoever holds it.
 3. **Afternoon: free time.** Only the people something touched, or whose nature is pushing them,
@@ -102,12 +102,12 @@ That takes a minute or two. Then day one begins.
    person privately wherever they are, and anyone named at the same place gets a turn to answer. The
    chronicle says who heard each line, and a line that addresses someone absent and not `@named` gets
    "X is not here." from the engine. Driving someone out, refusing to share,
-   taking work, leaving, and every duty change are settled by the engine before the World sees anything.
+   taking work, leaving, and every job change are settled by the engine before the World sees anything.
 4. **The engine resolves the afternoon, the World tells it.** Every free action is read into one of
    fourteen verbs (travel, talk, give, take, steal, hit, drive out, help, tend, court, pray, trade,
-   search, wait) with a target, and settled by stats, ties and dice. An action that maps to no verb
+   search, wait) with a target, and settled by stats, relationships and dice. An action that maps to no verb
    is talk and changes nothing. The World is given only the list of resolved outcomes, with no
-   sheets, map, ledger or ties, and tells them one line each, two sentences at most. Its words are
+   sheets, map, ledger or relationships, and tells them one line each, two sentences at most. Its words are
    checked: any line naming a person, place, number or item that is not in the outcome list is
    dropped and logged, and if it gives nothing usable the engine's own lines stand.
 5. **Evening: talk.** Everyone goes home, or to the inn if it pulls them, and the people something
@@ -125,7 +125,7 @@ honesty, greed, courage, tongue, desire, piety, ambition, loyalty, cunning, and 
 are skewed away from nice. Most people are middling, a good share are hard, a few are saints.
 
 Everyone has an opinion about everyone else, as a feeling and a trust score from -5 to 5, seeded
-from their natures and then shaped by the ties the World invents and everything that happens after.
+from their natures and then shaped by the relationships the World invents and everything that happens after.
 
 ### How things go
 
@@ -148,8 +148,8 @@ Fires burn for days, wreck what is at a place, hurt the people there, and spread
 
 Every person has food, warmth and rest on a scale of 0 to 10, and health. They fall every day. A
 need at zero takes health each morning, and health at zero is death. A starving or freezing person
-spends the morning seeing to it before any duty: they eat what the stores hold or go home and burn
-wood, and the duty waits without being lost. Sick people cannot work and get worse until someone
+spends the morning seeing to it before any job: they eat what the stores hold or go home and burn
+wood, and the job waits without being lost. Sick people cannot work and get worse until someone
 tends them.
 
 The valley keeps grain (in sacks), meat, fish, wood, meals, tools and herbs, and every place has a
@@ -159,17 +159,17 @@ thaw) and the weather is rolled from it each morning: cold burns wood and warmth
 and nothing grows in winter. The engine runs all of this at dawn, before anyone speaks, and writes a
 line into the chronicle with the season, the weather, and what is low, broken, sick, or burning.
 
-### Duties
+### Jobs
 
-The valley's work is split into fifteen named duties in `data/duties.json`: mill, fields, hunt, fish,
+The valley's work is split into fifteen named jobs in `data/duties.json`: mill, fields, hunt, fish,
 wood, roofs, stores, healing, kitchen, watch, burial, cleaning, trade, teaching, fire. Each says what
 it produces, what it consumes, where it happens on this map, the skill it uses, and what breaks when
 it goes undone. Every person holds one to three, seeded from their trade and disposition when the
-world is made. Duties change through play, never by a table: a person can refuse one as their action
-(standing drops and it goes unclaimed), hand one to someone by name, or take up one nobody holds.
-Fate can set them outright in the Duties tab under People. Every morning an unclaimed duty is dumped
-on the nearest able person with room for it, who is told so, and a fire, a bad injury, or an attack
-pulls whoever is nearest regardless of duty. Work is resolved by the engine: output rolled from skill
+world is made. Jobs change through play, never by a table: a person can refuse one as their action
+(standing drops and it goes open), hand one to someone by name, or take up one nobody holds.
+Fate can set them outright in the Jobs tab under People. Every morning an open job is covered by
+the nearest able person with room for it, who is told so, and a fire, a bad injury, or an attack
+pulls whoever is nearest regardless of job. Work is resolved by the engine: output rolled from skill
 and dice, the ledger moved, the skill nudged up.
 
 ### Pastimes and spirit
@@ -186,11 +186,11 @@ halves work output and makes refusing likelier; high spirit raises output.
 ### Wants and recognition
 
 Every person's want is measured. The engine rolls it from their nature and life: gold to put by, a
-skill to reach or to be best at, a tie to win (to be liked, to be trusted, to be someone's lover),
+skill to reach or to be best at, a relationship to win (to be liked, to be trusted, to be someone's lover),
 or an evening spent somewhere. The World writes the want line in their own terms around it, and every
 prompt tells the person how close they are. When a want is reached the valley hears of it, standing
 rises, and a new want is rolled. Skill comes from work and from being taught, and whoever is best at
-a duty's skill, alone at the top, is called by it in every prompt and on the People sheet: the miller,
+a job's skill, alone at the top, is called by it in every prompt and on the People sheet: the miller,
 the healer, the woodcutter. Everyone starts as nobody and earns from there.
 
 ## The convener's hand
@@ -221,9 +221,9 @@ You are not a player, but you are not powerless.
   the valley as the player described it, the season calendar as plain rows, and today's weather.
 
 Gameplay sits in plain buttons across the header: the primary control, then Colony, People, World
-and Fate. Colony shows today's duties with who holds each and the unfilled ones in red, the
+and Fate. Colony shows today's jobs with who holds each and the unfilled ones in red, the
 ledger with today's change per line, every place's roof, warmth and filth, the season and the weather,
-and this morning's work. People carries a Duties tab and the want line under every name, and each card
+and this morning's work. People carries a Jobs tab and the want line under every name, and each card
 in the strip says what that person is doing now. The chronicle is grouped by morning, afternoon and
 evening. Everything else is behind the gear: Connections, the three exports, Display, Stop this year,
 and Quit. On a phone the tabs are Map, Chronicle, Valley, People, and More.
@@ -324,11 +324,11 @@ Every request carries the token as `?token=` or a cookie.
   request, with the time, and the version of the binary that will actually run.
 - Codex refuses folders it has not been told to trust. The engine marks the run folder as trusted
   in `~/.codex/config.toml` and keeps a backup of the file beside it.
-- A game saved before some part of the colony existed is brought up to date when it is opened: duties,
+- A game saved before some part of the colony existed is brought up to date when it is opened: jobs,
   pastimes, wants, needs, spirit, the ledger and the state of the places are seeded once, exactly as
   for a new game, and a line in the chronicle says so.
 - Situations never repeat while they are open, at most six are open at once, each expires after its
-  own number of days with a chronicle line, and the duties that can settle one do (the trader fixes
+  own number of days with a chronicle line, and the jobs that can settle one do (the trader fixes
   the bell, the healer ends the sickness, the sexton buries the body). `data/events.json` carries
   `days` and `fixed_by` for each.
 - The whole page is drawn from seven colours defined once at the top of `frontend/style.css`; the

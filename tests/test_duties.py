@@ -51,7 +51,7 @@ class SeedTests(unittest.TestCase):
 
 
 class AssignTests(unittest.TestCase):
-    def test_an_unclaimed_duty_is_dumped_on_the_nearest_able_free_person_and_they_are_told(self) -> None:
+    def test_an_open_job_is_covered_by_the_nearest_able_free_person_and_they_are_told(self) -> None:
         w = valley(n=3); w.seed_duties(random.Random(1))
         for c in w.living(): c["duties"] = []
         w.characters["P0"]["duties"] = ["stores"]; w.characters["P1"]["duties"] = ["stores"]; w.characters["P2"]["duties"] = ["stores"]
@@ -61,8 +61,8 @@ class AssignTests(unittest.TestCase):
         r = w.assign_day(random.Random(1))
         self.assertTrue(r["duties"]["mill"]["unclaimed"]); self.assertIn(r["duties"]["mill"]["dumped_on"], ("P0", "P2"))
         who = w.characters[r["duties"]["mill"]["dumped_on"]]
-        self.assertIn("mill", who["dumped"]); self.assertTrue(any("dumped on you" in x["text"] for x in who["log"]))
-        self.assertIn("the mill", w.duty_brief(who["name"]).lower()); self.assertIn("dumped on you", w.duty_brief(who["name"]))
+        self.assertIn("mill", who["dumped"]); self.assertTrue(any("You are covering" in x["text"] and "because nobody has it" in x["text"] for x in who["log"]))
+        self.assertIn("the mill", w.duty_brief(who["name"]).lower()); self.assertIn("you are covering it today because nobody has it", w.duty_brief(who["name"]))
         w.characters["P1"]["sick"] = False; w.characters["P0"]["location"] = far
         r2 = w.assign_day(random.Random(1)); self.assertEqual(r2["duties"]["mill"]["dumped_on"], "P1", "the nearest able person gets it")
 
@@ -125,7 +125,7 @@ class ChangeTests(unittest.TestCase):
 
     def test_fate_sets_duties_outright(self) -> None:
         w = self.w
-        self.assertIn("duties are now", w.set_duties("P3", ["kitchen", "fire", "nonsense", "watch", "trade"]))
+        self.assertIn("jobs are now", w.set_duties("P3", ["kitchen", "fire", "nonsense", "watch", "trade"]))
         self.assertEqual(w.characters["P3"]["duties"], ["kitchen", "fire", "watch"])
         self.assertEqual(w.set_duties("P3", ["kitchen", "fire", "watch"]), "no change")
 
@@ -174,7 +174,7 @@ class ServerTests(unittest.TestCase):
             g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in ("Bett", "Osgar")]
             app.run._sync_terms(); g.save()
             note = app.edit_character({"name": "Bett", "duties": ["mill", "fire"]})
-            self.assertIn("duties are now the mill, the fires", note); self.assertEqual(w.characters["Bett"]["duties"], ["mill", "fire"])
+            self.assertIn("jobs are now the mill, the fires", note); self.assertEqual(w.characters["Bett"]["duties"], ["mill", "fire"])
             snap = app.snapshot(); self.assertIn("duty_defs", snap); self.assertIn("mill", snap["duty_defs"]); self.assertIn("roster", snap)
         finally:
             connect.start, server.refresh_versions = st, rv; shutil.rmtree(tmp, ignore_errors=True)

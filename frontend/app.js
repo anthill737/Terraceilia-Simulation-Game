@@ -119,11 +119,11 @@ function renderColony(s){const R=s.day_report||{};const L=s.ledger||{};const ch=
  const head=`<p class="colsent">${esc(s.sentence||R.sentence||`Day ${s.day}.`)}</p>
   <p class="small">${count('Sick and cannot work',sick)}${bodies.length?`Unburied: ${bodies.map(([n,p])=>esc(n)+' at '+esc(p)).join(', ')}. `:''}${Object.keys(s.fires||{}).length?`Burning: ${Object.keys(s.fires).map(esc).join(', ')}. `:''}${count('Hungry',R.hungry||[])}${count('Freezing',R.freezing||[])}</p>`;
  const thead=cols=>`<thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>`;
- const duties=`<table class="ctab">${thead(['Duty','Where','Who','Today'])}<tbody>`+Object.entries(defs).map(([k,d])=>{const r=roster[k]||{};const x=st[k]||{};const hs=living.filter(c=>(c.duties||[]).includes(k)).map(c=>c.name);
+ const duties=`<table class="ctab">${thead(['Job','Where','Who','Today'])}<tbody>`+Object.entries(defs).map(([k,d])=>{const r=roster[k]||{};const x=st[k]||{};const hs=living.filter(c=>(c.duties||[]).includes(k)).map(c=>c.name);
   const un=!hs.length;const done=x.done_day===s.day;const sickSet=new Set(sick);const dumped=r.dumped_on&&!hs.includes(r.dumped_on)?r.dumped_on:'';
-  const who=hs.map(h=>esc(h)+(sickSet.has(h)?' (sick)':'')).concat(dumped?[esc(dumped)+' (dumped)']:[]).join(', ')||'nobody';
+  const who=hs.map(h=>esc(h)+(sickSet.has(h)?' (sick)':'')).concat(dumped?[esc(dumped)+' (covering)']:[]).join(', ')||'nobody';
   const since=x.unclaimed_day?Math.max(1,s.day-x.unclaimed_day+1):1;
-  const today=x.nothing_day===s.day?['nothing to do','quiet']:done?['done','good']:dumped?[`dumped on ${esc(dumped)} today`,'poor']:un?[`nobody's for ${since} day${since>1?'s':''}`,'poor']:['not done today','poor'];
+  const today=x.nothing_day===s.day?['nothing to do','quiet']:done?['done','good']:dumped?[`${esc(dumped)} is covering it today`,'poor']:un?[`open for ${since} day${since>1?'s':''}`,'poor']:['not done today','poor'];
   return `<tr class="colduty ${un?'un':''} ${done?'done':''}"><td class="cdn">${esc(d.label)}</td><td class="cdp">${esc(r.place||'')}</td><td class="cdw ${un&&!dumped?'poor':''}">${who}</td><td class="cds ${today[1]}">${today[0]}</td></tr>`}).join('')+'</tbody></table>';
  const chg=v=>v?`<span class="chg ${v>0?'up':'down'}">${v>0?'+':''}${v}</span>`:'';
  const ledger=`<table class="ctab">${thead(['Good','Have','Change'])}<tbody>`+STORES.map(k=>`<tr><td class="cdn">${k}</td><td class="cdw ${(L[k]||0)<=(k==='tools'||k==='herbs'?2:4)?'poor':''}">${L[k]??0}</td><td>${chg(ch[k])}</td></tr>`).join('')
@@ -134,7 +134,7 @@ function renderColony(s){const R=s.day_report||{};const L=s.ledger||{};const ch=
  const m=(s.transcript||[]).slice().reverse().find(e=>e.kind==='morning'&&e.day===s.day);
  const morning=m?`<div class="card2"><div class="ch">This morning</div><div class="colmorn">${rich(m.text)}</div></div>`:'';
  const html=head+'|'+duties+'|'+ledger+'|'+places+'|'+morning;if(html===colHtml)return;colHtml=html;
- $('colHead').innerHTML=head;$('colDuties').innerHTML=duties||'<div class="note">No duties yet.</div>';$('colLedger').innerHTML=ledger;$('colPlaces').innerHTML=places;$('colMorning').innerHTML=morning}
+ $('colHead').innerHTML=head;$('colDuties').innerHTML=duties||'<div class="note">No jobs yet.</div>';$('colLedger').innerHTML=ledger;$('colPlaces').innerHTML=places;$('colMorning').innerHTML=morning}
 document.querySelectorAll('.sheetclose').forEach(b=>b.onclick=()=>sheet(''));
 document.querySelectorAll('.sheetwrap').forEach(w=>w.onclick=e=>{if(e.target===w)sheet('')});
 document.querySelectorAll('.sheetbtn').forEach(b=>b.onclick=()=>sheet(b.dataset.sheet));
@@ -270,7 +270,7 @@ function paneDisp(s,c){const t=c.traits||{};
     ${seg(1,5,v)}
     <div class="dends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`}).join('')+`</div>`}
 
-// ---- Ties
+// ---- Relationships
 function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
  const rows=s.characters.filter(o=>o.name!==c.name).map(o=>({o,r:rs[o.name]||{type:'none',feeling:0,trust:0}}));
  if(tieSort==='name')rows.sort((a,b)=>a.o.name.localeCompare(b.o.name));
@@ -278,7 +278,7 @@ function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
  else rows.sort((a,b)=>(Math.abs(b.r.feeling)+Math.abs(b.r.trust))-(Math.abs(a.r.feeling)+Math.abs(a.r.trust))||a.o.name.localeCompare(b.o.name));
  if(!rows.length)return '<div class="empty">There is nobody else left to have an opinion about.</div>';
  return `<div class="tieHead"><span class="small">How ${esc(c.name)} feels about everyone else. Both run from -5 to 5. Click a step to set it.</span>
-   <label class="small" style="margin-left:auto">Sort <select id="t_sort">${[['strongest','strongest first'],['name','by name'],['type','by kind of tie']].map(([v,l])=>`<option value="${v}" ${v===tieSort?'selected':''}>${l}</option>`).join('')}</select></label></div>`
+   <label class="small" style="margin-left:auto">Sort <select id="t_sort">${[['strongest','strongest first'],['name','by name'],['type','by kind of relationship']].map(([v,l])=>`<option value="${v}" ${v===tieSort?'selected':''}>${l}</option>`).join('')}</select></label></div>`
   +rows.map(({o,r})=>`<div class="tie ${tieSel===o.name?'sel':''}" data-b="${esc(o.name)}">
    <span class="tn" style="color:${esc(seatColor(o.name)||'var(--ink)')}">${esc(o.name)}</span>
    <div class="cell"><select class="tt">${REL.map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select></div>
@@ -287,20 +287,20 @@ function paneTies(s,c){const rs=(s.relations||{})[c.name]||{};
    <label class="mut" title="also set the same the other way"><input type="checkbox" class="tm"> both ways</label>
    <button class="btn twhy">Why</button></div>`).join('')}
 
-// ---- Duties. What the valley's work is, who holds each piece, and this person's share of it. Fate ticks and unticks.
+// ---- Jobs. What the valley's work is, who holds each piece, and this person's share of it. Fate ticks and unticks.
 function paneDuties(s,c){const defs=s.duty_defs||{};const mine=new Set(c.duties||[]);const dumped=new Set(c.dumped||[]);
  const holdersOf=k=>(s.characters||[]).filter(o=>o.alive&&!o.gone&&(o.duties||[]).includes(k)).map(o=>o.name);
  const made=d=>Object.entries(d.produces||{}).map(([k,v])=>v+' '+k).join(', ')||Object.entries(d.effect||{}).filter(([k])=>['roof','warmth','filth'].includes(k)).map(([k,v])=>k+' '+(v>0?'+':'')+v).join(', ')||'keeps things from getting worse';
  const uses=d=>Object.entries(d.consumes||{}).map(([k,v])=>v+' '+k).join(', ');
  const em=c.emergency;
- return `<div class="note" style="margin-bottom:12px">${esc(c.name)} holds ${mine.size} of a possible 3. Tick a duty to give it to them, untick to take it away; it applies at once. A duty nobody holds is dumped each morning on whoever is nearest.</div>
-  ${em?`<div class="hsit">Emergency today: ${esc(em.text)} at ${esc(em.place)}</div>`:''}
-  ${dumped.size?`<div class="hsit">Dumped on them today: ${[...dumped].map(k=>esc((defs[k]||{}).label||k)).join(', ')}</div>`:''}
-  <div class="dutylist">${Object.entries(defs).map(([k,d])=>{const hs=holdersOf(k);const un=!hs.length;const st=((s.duty_state||{})[k])||{};
+ return `<div class="note" style="margin-bottom:12px">${esc(c.name)} holds ${mine.size} of a possible 3. Tick a job to give it to them, untick to take it away; it applies at once. A job nobody holds is covered each morning by whoever is nearest.</div>
+  ${em?`<div class="hsit">Emergency today: ${esc(em.text)}${em.place&&!String(em.text||'').includes(em.place)?' at '+esc(em.place):''}</div>`:''}
+  ${dumped.size?`<div class="hsit">Covering today: ${[...dumped].map(k=>esc((defs[k]||{}).label||k)).join(', ')}</div>`:''}
+  <div class="dutylist">${Object.entries(defs).map(([k,d])=>{const hs=holdersOf(k);const un=!hs.length;const st=((s.duty_state||{})[k])||{};const since=st.unclaimed_day?Math.max(1,s.day-st.unclaimed_day+1):0;
    return `<label class="duty ${mine.has(k)?'on':''} ${un?'un':''}"><input type="checkbox" class="dk" data-k="${k}" ${mine.has(k)?'checked':''}>
     <span class="dl"><span>${esc(d.label)}</span> <i>${esc(d.verb)} · ${esc(d.skill)}${(c.skills||{})[d.skill]?' '+(c.skills||{})[d.skill]:''}</i></span>
     <span class="dm">makes ${esc(made(d))}${uses(d)?' · uses '+esc(uses(d)):''}</span>
-    <span class="dh ${un?'poor':''}">${un?'nobody holds it'+(st.undone_days?', undone '+st.undone_days+' day(s)':''):hs.map(esc).join(', ')}</span>
+    <span class="dh ${un?'poor':''}">${un?'open'+(since?` for ${since} day${since>1?'s':''}`:''):hs.map(esc).join(', ')}</span>
     <span class="db">${esc(d.breaks)}</span></label>`}).join('')}</div>`}
 
 // ---- Log
