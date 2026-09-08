@@ -184,6 +184,15 @@ class Sheets(unittest.TestCase):
         heard = CSS[CSS.index(".msg .heard{"):CSS.index("}", CSS.index(".msg .heard{"))]
         self.assertIn("color:var(--muted)", heard); self.assertIn("font-size:var(--fs-s)", heard)
 
+    def test_a_crowded_room_is_grouped_by_knot_in_the_chronicle(self) -> None:
+        """Each knot's lines sit under their own header, quietly, and never in italics."""
+        self.assertIn("const knot=e=>e.kind==='speech'&&e.cluster?e.cluster:''", JS)
+        self.assertIn('<div class="knot">${esc(ck)}</div>', JS)
+        self.assertIn("knot(prev)!==ck", JS, "a new header only where the knot changes")
+        rule = CSS[CSS.index(".knot{"):CSS.index("}", CSS.index(".knot{"))]
+        self.assertIn("color:var(--faint)", rule); self.assertIn("font-size:var(--fs-s)", rule)
+        self.assertNotIn("italic", rule)
+
     def test_the_at_picker_belongs_to_fate_alone(self) -> None:
         """The convener is fate and can reach one person; a villager has no such control anywhere."""
         fate = HTML[HTML.index('id="sheet-fate"'):HTML.index("</div>", HTML.index('id="f_whisper"'))]

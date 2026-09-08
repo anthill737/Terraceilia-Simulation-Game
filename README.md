@@ -140,8 +140,16 @@ nobody else, and there is no message, no shout across the valley, and no `@Name`
 - **Where paths cross, people talk.** Any time two or more living people stand in the same place at
   the end of a beat, the engine runs one short round for that group: one line each to the others
   there, no action line. It happens after the morning's work, after the afternoon has resolved, and
-  in the evening, and it is capped at one round per group per beat. A seat whose place is empty of
+  in the evening, and it is capped at one round per knot per beat. A seat whose place is empty of
   others is never woken by it.
+- **A crowded room is not one conversation.** More than four people in one place are split into knots
+  of two to four before anyone speaks. Whoever came to find somebody standing there is seated with
+  them first, then whoever is fondest of whoever is left, then the rest by lot. Each knot gets its own
+  round and hears only itself: a line from one knot never reaches another, and the "heard by" under it
+  names the knot, not the room. Someone low in spirits with nobody there they wanted sits by
+  themselves, says nothing, and their own log records it. The chronicle groups the lines under a
+  header for each knot, "at The inn, by the hearth: Hesper, Thessa", with the corner taken from the
+  place's own fixtures. Twelve at the inn come out as four to six knots and at most twelve lines.
 - **`@Name` still works for the convener**, who is fate and not a person in the valley.
 
 Every villager's reply is cut to three sentences before the action line, every World outcome to two,

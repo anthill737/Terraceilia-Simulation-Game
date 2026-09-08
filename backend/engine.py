@@ -1790,6 +1790,63 @@ class World:
             if self.able(c): out.setdefault(c["location"], []).append(c["name"])
         return {p: sorted(ns, key=lambda n: self.characters[n]["seat"]) for p, ns in out.items() if len(ns) >= 2}
 
+    # ---- knots of talkers: a crowded room is not one conversation
+    CLUSTER_MAX = 4
+    LOW_SPIRIT = 3
+
+    def talk_clusters(self, place: str, names: list[str], rng: random.Random) -> list[list[str]]:
+        """Split the people at a place into knots of two to four, because a room of twelve is not one
+        conversation. Four or fewer stand together as one. Above that: whoever came to find somebody who is
+        standing here goes with them, then whoever is fondest of whoever is left, then the rest by lot.
+        Somebody low in spirits with nobody here they wanted sits by themselves and says nothing."""
+        people = [n for n in names if n in self.characters]
+        if len(people) < 2: return []
+        if len(people) <= self.CLUSTER_MAX: return [people]
+        here = set(people)
+        pressing = {n: [x["name"] for x in self.errands(n) if x["name"] in here] for n in people}
+        rest = []
+        for n in people:
+            if not pressing[n] and int(self.characters[n].get("needs", {}).get("spirit", 7)) <= self.LOW_SPIRIT:
+                note_log(self.characters[n], self.day, f"You sat by yourself at {place} and said nothing to anybody.")
+            else: rest.append(n)
+        if len(rest) < 2: return []
+        clusters: list[list[str]] = []; used: set[str] = set()
+
+        def take(seed: str, mates: list[str], size: int) -> None:
+            group = [seed]
+            for m in mates:
+                if len(group) >= size: break
+                if m != seed and m not in used: group.append(m)
+            if len(group) < 2: return
+            used.update(group); clusters.append(group)
+
+        for n in rest:                                   # 1. errands: they came here to say it to that face
+            if n in used or not pressing[n]: continue
+            take(n, [m for m in pressing[n] if m in rest], self.CLUSTER_MAX)
+        free = [n for n in rest if n not in used]
+        rng.shuffle(free)                                # 3. the lot, laid down first so fondness can sort on top of it
+        while len(free) >= 2:                            # 2. fondness: the warmest faces still free
+            n = free.pop(0)
+            warm = sorted(free, key=lambda m: -(self.rel(n, m)["feeling"] + self.rel(m, n)["feeling"]))
+            left = len(free) + 1; size = rng.randint(2, min(self.CLUSTER_MAX, left))
+            if left - size == 1:                         # never leave one person over for the sake of the roll
+                size = size + 1 if size + 1 <= min(self.CLUSTER_MAX, left) else size - 1
+            take(n, warm, max(2, size))
+            free = [x for x in free if x not in used]
+        for n in free:                                   # one over from the errands: find them a face
+            small = min((gr for gr in clusters if len(gr) < self.CLUSTER_MAX), key=len, default=None)
+            if small is not None: small.append(n); used.add(n); continue
+            big = min(clusters, key=len, default=None)   # every knot full: break the smallest open rather than strand them
+            if big is not None and len(big) > 2: clusters.append([big.pop(), n]); used.add(n); continue
+            note_log(self.characters[n], self.day, f"You sat by yourself at {place} and said nothing to anybody.")
+        return clusters
+
+    def cluster_header(self, place: str, names: list[str], spot: int | None = None) -> str:
+        """The line the chronicle puts above one knot's talk: at The inn, by the hearth: Hesper, Thessa."""
+        fx = [f for f in (self.map.get(place) or {}).get("fixtures", []) if f]
+        where = f"{place}, by {fx[spot % len(fx)]}" if spot is not None and fx else place
+        return f"at {where}: {', '.join(names)}"
+
     ERRAND_WHY = {"creditor": "you owe them", "debtor": "they owe you", "lover": "they are your lover",
                   "spouse": "they are your husband or wife", "enemy": "they are your enemy", "rival": "they are your rival"}
 
@@ -2218,6 +2275,9 @@ def visible_text(entry: dict, viewer: str, viewer_place: str | None = None) -> s
     if (entry.get("kind") == "speech" and v not in ("world", sp) and viewer_place is not None
             and bool(entry.get("place")) and entry["place"] != viewer_place):
         return None                                                               # said somewhere else; none of it travelled
+    aud = entry.get("heard")
+    if entry.get("kind") == "speech" and entry.get("cluster") and isinstance(aud, list) and v not in ("world", sp):
+        if v not in {a.lower() for a in aud}: return None                         # one knot of a crowded room; the others did not hear it
     keep = []
     for ln in entry.get("text", "").split("\n"):
         m = WHISPER_RE.match(ln)
