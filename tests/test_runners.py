@@ -96,7 +96,7 @@ class ErrorClasses(Base):
             r.start(); self.wait(lambda: g.status in ("done", "stopped"), 180, "the year")
             self.assertEqual(g.status, "done")
             moved = [x for x in g.seats[1:] if x["model"] == "stub2"]; self.assertEqual(len(moved), 1, [x["model"] for x in g.seats])
-            self.assertTrue(any("now uses stub2, the first Stub model that answered the probe" in n for n in self.notes(g)), self.notes(g))
+            self.assertTrue(any("now uses stub2, the first Stub model that answered a test" in n for n in self.notes(g)), self.notes(g))
             self.assertFalse(any("benched" in n for n in self.notes(g)))
         finally: r.stop()
         del seat
@@ -205,7 +205,7 @@ class Preflight(Base):
         g, r = self.make(); self.fail_with("auth", 9)
         try:
             r.start(); self.wait(lambda: g.status in ("done", "stopped"), 60, "the stop")
-            self.assertEqual(g.status, "stopped"); self.assertIn("Preflight failed: Stub refused the probe for want of a sign in", r.blocked)
+            self.assertEqual(g.status, "stopped"); self.assertIn("Stub refused the test for want of a sign in", r.blocked)
             self.assertFalse(g.world.created, "nothing was started")
         finally: r.stop()
 
@@ -243,7 +243,7 @@ class Preflight(Base):
         try:
             self.assertEqual(connect.state()["Stub"]["state"], "signed_in")
             connect.record_probe("Stub", "stub", True)
-            row = connect.state()["Stub"]; self.assertEqual(row["state"], "connected"); self.assertEqual(row["probe_model"], "stub"); self.assertRegex(row["probe_time"], r"\d\d:\d\d:\d\d")
+            row = connect.state()["Stub"]; self.assertEqual(row["state"], "connected"); self.assertEqual(row["probe_model"], "stub"); self.assertRegex(row["probe_time"], r"^\d\d:\d\d$")
             self.assertEqual(row["shares"], "Codex")
         finally:
             connect.PROVIDERS.pop("Stub", None)

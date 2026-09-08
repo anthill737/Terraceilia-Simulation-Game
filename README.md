@@ -28,6 +28,11 @@ showing whether it is installed and signed in, an Install button that runs the o
 a Sign in button that opens a terminal window with the tool's own login command already running. The
 row turns green by itself once the tool says it is signed in. A tool you already have is never touched.
 
+Each row carries a dot and a word. **Connected** is green: a model of that provider answered a real request,
+and the row says which model and at what time. **Signed in, not tested** is amber: the CLI says it is signed
+in, but nothing has asked it for an answer yet. **Not signed in** and **Not installed** are red. Press
+**Test** to send one real request now.
+
 Signing in is the only path. Terraceilia has no field for an API key or a token, sets none for the CLIs
 it launches, and never reads one from the environment. Each CLI owns its own credentials, and a key you
 keep in your own environment for your own reasons is nothing this app looks at or reports on. A test in
@@ -297,8 +302,8 @@ Every request carries the token as `?token=` or a cookie.
     POST /connect/refresh {provider}     ask a CLI again whether it is installed and signed in
     POST /connect/install {provider}     run the official installer, output streamed under the row
     POST /connect/login {provider}       open a terminal with the CLI's own login command
-    POST /connect/probe {provider, model}  one real request through the launcher a turn uses
-    POST /connect/dismiss {provider}    hide a finished Install or Sign in
+    POST /connect/probe {provider, model}  Test: one real request through the launcher a turn uses
+    POST /connect/dismiss {provider}    hide a finished Install, Sign in or Test
 
     POST /telegram/check {token}, /telegram/find {token}, /telegram/test {token, chat_id}
     POST /telegram/save {...}, /telegram/send {text}, /telegram/clear
@@ -312,7 +317,7 @@ Every request carries the token as `?token=` or a cookie.
 - Every CLI is launched by `backend/runner.py`, which reads the exit code and the runner's own error lines
   before anything is taken as a line of dialogue. A refusal for want of a sign in pauses the year and asks you
   to sign in and press Resume. A model that is not found or not accessible moves the seat to the first model
-  of that provider that answered the probe, with a line in the chronicle. A rate limit or a server error waits
+  of that provider that answered a test, with a line in the chronicle. A rate limit or a server error waits
   with backoff and asks again. Credentials missing from the request itself is a launcher bug: the run stops and
   shows the exact command it built. Anything else is asked again once, then the seat is benched for the turn
   with the runner's message. Two clocks kill a hung process: thirty minutes on the wall whatever it prints,
@@ -321,15 +326,20 @@ Every request carries the token as `?token=` or a cookie.
   is the only path for Claude Code, Codex, Gemini CLI and Copilot. Codex's sign in belongs to Codex.
 - There is one Codex row: the `codex` on your PATH, whatever version that is. Connections shows the version
   it found, and Install runs the official installer only when nothing is there.
-- Start runs a preflight: every seat's chosen model answers one tiny request through the same launcher and
-  environment a turn uses. A sign in refusal stops Start and says so. A model refusal does not: the seat
+- Start tests every seat first: each seat's chosen model answers one tiny request through the same launcher
+  and environment a turn uses. A sign in refusal stops Start and says so. A model refusal does not: the seat
   moves to the first model of its provider that answered, the seat is saved, the chronicle says so, and the
-  run starts. Each seat is probed once at Start and again only after a model error, never more than once a
-  day, and a model refused with a 404 is never probed again in that game. A seat with no model chosen takes
+  run starts. Each seat is tested once at Start and again only after a model error, never more than once a
+  day, and a model refused with a 404 is never tested again in that game. A seat with no model chosen takes
   the first model of its provider that answers. Codex villagers default to gpt-5.6-luna, every Codex launch
   asks for low reasoning effort, and a save whose Codex seats sit on a retired model moves them to the
   default with one chronicle line. Connections shows Connected only after a model has answered a real
   request, with the time, and the version of the binary that will actually run.
+- Nothing runs out of sight. A test is never silent and a running one is never hidden: the row carries a
+  spinner and its live line from the moment it starts, and the Test button is gone while it runs. Start puts
+  the same thing across the top of the screen, "Testing seats: 3 of 8", naming each seat as it answers.
+  While a sign in is open the row says "Waiting for you to sign in..." with the seconds so far, and it turns
+  green by itself the moment the CLI reports signed in.
 - Codex refuses folders it has not been told to trust. The engine marks the run folder as trusted
   in `~/.codex/config.toml` and keeps a backup of the file beside it.
 - A game saved before some part of the colony existed is brought up to date when it is opened: jobs,
