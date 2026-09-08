@@ -6,7 +6,7 @@ opens a real terminal window with the provider's own login command already runni
 CLIs are built for. The browser opens from there. This app then asks the CLI every fifteen seconds
 whether it is signed in yet, for ten minutes, and turns the row green by itself. Installing runs the
 provider's own installer and streams its output. A CLI that is already installed is never touched.
-API keys live in this process only and are never written to disk.
+Signing in is the only path. Terraceilia never reads, sets, or asks for an API key or a token.
 """
 from __future__ import annotations
 import json, os, re, shutil, subprocess, sys, threading, time
@@ -76,14 +76,12 @@ def run(argv: list[str], timeout: float = PROBE_TIMEOUT) -> tuple[int, str]:
 # status_json_key  read that command's json and believe this key
 # status_ok      otherwise the command must exit 0 and its output must match this
 # files          the credential the provider writes; used where there is no status command, and as a fallback
-# key_env        the vendor's own environment variable, for people who use a key instead of an account
 PROVIDERS: dict[str, dict] = {
     "Claude Code": {
         "exe": "claude", "docs": "https://docs.claude.com/en/docs/claude-code",
         "login": ["auth", "login"], "logout_hint": "claude auth logout",
         "status_cmd": ["auth", "status"], "status_json_key": "loggedIn",
         "files": [HOME / ".claude" / ".credentials.json"], "keychain": "Claude Code-credentials",
-        "key_env": "ANTHROPIC_API_KEY",
         "install_win": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm https://claude.ai/install.ps1 | iex"],
         "install_mac": ["bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"],
     },
@@ -95,19 +93,11 @@ PROVIDERS: dict[str, dict] = {
         "install_win": ["npm", "install", "-g", "@openai/codex"],
         "install_mac": ["bash", "-c", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"],
     },
-    "Codex (latest)": {
-        "exe": "npx", "docs": "https://developers.openai.com/codex", "isolated": True,
-        "version_argv": ["npx", "-y", "@openai/codex@latest", "--version"],     # the binary that will run, not the npm runner
-        "login_argv": ["npx", "-y", "@openai/codex@latest", "login"], "logout_hint": "npx -y @openai/codex@latest logout",
-        "status_cmd_argv": ["npx", "-y", "@openai/codex@latest", "login", "status"], "status_ok": r"logged in",
-        "files": [HOME / ".codex" / "auth.json"], "subscription_only": True,
-        "shares": "Codex", "install_win": None, "install_mac": None,   # nothing to install: it is fetched per run
-    },
     "Gemini CLI": {
         "exe": "gemini", "docs": "https://github.com/google-gemini/gemini-cli",
         "login": [],   # Gemini has no login subcommand; the CLI itself asks on first run
         "login_note": "Gemini CLI has no sign in command of its own. The terminal opens the CLI, which asks how you want to authenticate; choose Login with Google.",
-        "files": [HOME / ".gemini" / "oauth_creds.json"], "key_env": "GEMINI_API_KEY", "key_env_alt": ["GOOGLE_API_KEY"],
+        "files": [HOME / ".gemini" / "oauth_creds.json"],
         "install_win": ["npm", "install", "-g", "@google/gemini-cli"],
         "install_mac": ["npm", "install", "-g", "@google/gemini-cli"],
     },
@@ -122,7 +112,7 @@ PROVIDERS: dict[str, dict] = {
     "GitHub Copilot CLI": {
         "exe": "copilot", "docs": "https://docs.github.com/en/copilot/how-tos/copilot-cli",
         "login": ["login"], "logout_hint": "/logout inside copilot",
-        "files": [HOME / ".copilot" / "config.json"], "key_env": "COPILOT_GITHUB_TOKEN", "key_env_alt": ["GH_TOKEN", "GITHUB_TOKEN"],
+        "files": [HOME / ".copilot" / "config.json"],
         "needs_node": 22,
         "install_win": ["npm", "install", "-g", "@github/copilot"],
         "install_mac": ["npm", "install", "-g", "@github/copilot"],
@@ -186,22 +176,16 @@ def _keychain_has(service: str) -> bool:
     return rc == 0
 
 
-def _key_in_env(p: dict) -> str:
-    for k in ([p["key_env"]] if p.get("key_env") else []) + list(p.get("key_env_alt") or []):
-        if (os.environ.get(k) or "").strip(): return k
-    return ""
-
-
 def probe(name: str) -> dict:
     """One provider's truth right now: installed, its version, and whether it is signed in."""
     p = PROVIDERS.get(name)
     if not p: return {"state": "error", "detail": "unknown provider"}
     exe_path = which(p["exe"])
     out: dict = {"name": name, "exe": p["exe"], "installed": bool(exe_path), "path": exe_path or "", "version": "",
-                 "docs": p.get("docs", ""), "key_env": p.get("key_env", ""), "install_text": install_text(name),
+                 "docs": p.get("docs", ""), "install_text": install_text(name),
                  "login_text": login_text(name), "login_note": p.get("login_note", ""), "logout_hint": p.get("logout_hint", ""),
-                 "can_login": p.get("login") is not None or bool(p.get("login_argv")), "isolated": bool(p.get("isolated")),
-                 "can_install": bool(install_argv(name)), "node_missing": False, "by_key": False}
+                 "can_login": p.get("login") is not None or bool(p.get("login_argv")),
+                 "can_install": bool(install_argv(name)), "node_missing": False}
     if not out["installed"]:
         out["state"] = "not_installed"
         npm = which("npm")
@@ -219,14 +203,9 @@ def probe(name: str) -> dict:
         if nv and nv < p["needs_node"]:
             out["state"] = "not_signed_in"; out["detail"] = f"Node.js {nv} is too old. This CLI needs {p['needs_node']} or newer."
             return out
-    keyvar = _key_in_env(p)
-    if keyvar:
-        out["state"] = "connected"; out["by_key"] = True
-        out["detail"] = f"Using {keyvar} from this session."
-        return out
     sargv = _status_argv(name)
     if sargv:
-        rc, o = run(sargv, timeout=PROBE_TIMEOUT if not p.get("isolated") else 90)
+        rc, o = run(sargv, timeout=PROBE_TIMEOUT)
         if p.get("status_json_key"):
             m = re.search(r"\{.*\}", o or "", re.S)
             if m:
@@ -333,12 +312,10 @@ def state() -> dict:
             row = dict(hit[1]) if hit else {"name": n, "state": "checking", "detail": "Checking...", "installed": False,
                                             "exe": p["exe"], "docs": p.get("docs", ""), "version": "",
                                             "install_text": install_text(n), "login_text": login_text(n),
-                                            "can_login": True, "can_install": bool(install_argv(n)),
-                                            "key_env": p.get("key_env", ""), "isolated": bool(p.get("isolated"))}
+                                            "can_login": True, "can_install": bool(install_argv(n))}
             j = _jobs.get(n)
             if j: row["job"] = {"kind": j["kind"], "lines": j["lines"][-14:], "done": j["done"], "ok": j["ok"],
                                 "note": j.get("note", ""), "waited": j.get("waited", 0)}
-            row["key_set"] = bool(_key_in_env(p))
             # Connected means a model answered a real request; a status command alone is only Signed in
             good = last_good_probe(n); row["probes"] = probes_of(n); row["shares"] = p.get("shares", "")
             if row["state"] == "connected":
@@ -442,7 +419,6 @@ def open_terminal(argv: list[str]) -> tuple[bool, str]:
 def start_install(name: str) -> str:
     p = PROVIDERS.get(name)
     if not p: return "unknown provider"
-    if p.get("isolated"): return "Nothing to install: this one is fetched fresh on every run."
     with _lock:
         if name in _jobs and not _jobs[name]["done"]: return "Already running."
     if which(p["exe"]): return "Already installed. Terraceilia never reinstalls a CLI you already have."
@@ -487,20 +463,6 @@ def start_login(name: str) -> str:
         j["done"] = True; invalidate(name)
     threading.Thread(target=work, daemon=True).start()
     return "A terminal window is opening..."
-
-
-def set_key(name: str, key: str) -> str:
-    """An API key for this run only. It is put in this process's environment so the CLIs Terraceilia
-    launches inherit it. It is never written to disk, never logged, and never sent back to the browser."""
-    p = PROVIDERS.get(name)
-    if not p or not p.get("key_env"): return "This one has no API key option."
-    key = (key or "").strip()
-    if not key:
-        for k in [p["key_env"]] + list(p.get("key_env_alt") or []): os.environ.pop(k, None)
-        invalidate(name); return "Key cleared for this session."
-    if len(key) < 12: return "That does not look like a key."
-    os.environ[p["key_env"]] = key; invalidate(name)
-    return f"{p['key_env']} is set for this session only. It is not saved anywhere."
 
 
 def start() -> None:

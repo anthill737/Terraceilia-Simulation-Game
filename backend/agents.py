@@ -17,13 +17,6 @@ PROVIDERS = {
         "ro_cmd": 'claude -p "{ask}" --model {model} --verbose --output-format stream-json --allowedTools "Read,Grep,Glob,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git blame:*),Bash(ls:*),Bash(cat:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(head:*),Bash(tail:*)"',
         "models": ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-4"],
     },
-    "Codex (latest)": {
-        "exe": "npx", "speech": "stdout", "pkg": "@openai/codex", "isolated": True,
-        "cmd": 'npx -y @openai/codex@latest exec -c model_reasoning_effort=\"low\" --skip-git-repo-check --model {model} --dangerously-bypass-approvals-and-sandbox "{ask}"',
-        "ro_cmd": 'npx -y @openai/codex@latest exec -c model_reasoning_effort=\"low\" --skip-git-repo-check --model {model} --sandbox read-only "{ask}"',
-        "resume": "",
-        "models": ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.3-codex-spark"],
-    },
     "Codex": {
         "exe": "codex", "speech": "stdout", "pkg": "@openai/codex",
         "cmd": 'codex exec -c model_reasoning_effort=\"low\" --skip-git-repo-check --model {model} --dangerously-bypass-approvals-and-sandbox "{ask}"',
@@ -146,11 +139,10 @@ def refresh_versions() -> None:
     """Installed versions now, latest from npm in the background. Never blocks the UI."""
     def work() -> None:
         for name, prov in PROVIDERS.items():
-            if prov.get("isolated"): continue
             inst = _ver_of([prov["exe"], "--version"]) if shutil.which(prov["exe"]) else ""
             with _ver_lock: VERSIONS.setdefault(name, {})["installed"] = inst
         for name, prov in PROVIDERS.items():
-            if prov.get("isolated") or not prov.get("pkg") or not shutil.which("npm"): continue
+            if not prov.get("pkg") or not shutil.which("npm"): continue
             latest = _ver_of(["npm", "view", prov["pkg"], "version"])
             with _ver_lock: VERSIONS.setdefault(name, {})["latest"] = latest
     threading.Thread(target=work, daemon=True).start()

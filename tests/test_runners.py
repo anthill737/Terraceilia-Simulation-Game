@@ -252,21 +252,20 @@ class Preflight(Base):
     def test_defaults(self) -> None:
         """Claude seats and the World take the first model that answers; Codex villagers default to gpt-5.6-luna."""
         g = game.Game(engine.now_id()); self.assertEqual((g.model_a["model"], g.model_b["model"], g.world_model["model"]), ("", "gpt-5.6-luna", ""))
-        self.assertEqual(g.model_b["provider"], "Codex (latest)")
+        self.assertEqual(g.model_b["provider"], "Codex")
 
 
 class CodexModels(unittest.TestCase):
     def test_every_codex_launch_asks_for_low_reasoning_effort(self) -> None:
-        for p in ("Codex", "Codex (latest)"):
-            for k in ("cmd", "ro_cmd"):
-                self.assertIn('exec -c model_reasoning_effort="low" ', agents.PROVIDERS[p][k], f"{p} {k}")
+        for k in ("cmd", "ro_cmd"):
+            self.assertIn('exec -c model_reasoning_effort="low" ', agents.PROVIDERS["Codex"][k], k)
         self.assertNotIn("model_reasoning_effort", agents.PROVIDERS["Claude Code"]["cmd"])
 
     def test_a_save_on_a_retired_codex_model_moves_to_luna_with_one_line(self) -> None:
         tmp = Path(tempfile.mkdtemp(prefix="terra-mig-")); engine.GAMES = tmp; game.GAMES = tmp
         try:
-            g = game.Game(engine.now_id()); g.model_b = {"provider": "Codex (latest)", "model": "gpt-5.6"}
-            g.seats = [{"name": "World", "provider": "Claude Code", "model": "claude-haiku-4-5", "color": "#d0a92c"}, {"name": "Bett", "provider": "Codex (latest)", "model": "gpt-5.5", "color": "#7f9a5c"},
+            g = game.Game(engine.now_id()); g.model_b = {"provider": "Codex", "model": "gpt-5.6"}
+            g.seats = [{"name": "World", "provider": "Claude Code", "model": "claude-haiku-4-5", "color": "#d0a92c"}, {"name": "Bett", "provider": "Codex", "model": "gpt-5.5", "color": "#7f9a5c"},
                        {"name": "Cuthbert", "provider": "Codex", "model": "gpt-5.4", "color": "#b4553f"}, {"name": "Dimity", "provider": "Codex", "model": "gpt-6-astra", "color": "#a79d84"}]
             g.cli_sessions = {"1": "old-session"}; g.save(); r = game.Run(g)
             self.assertEqual([x["model"] for x in g.seats], ["claude-haiku-4-5", "gpt-5.6-luna", "gpt-5.6-luna", "gpt-6-astra"]); self.assertEqual(g.model_b["model"], "gpt-5.6-luna")
@@ -278,9 +277,17 @@ class CodexModels(unittest.TestCase):
         finally: shutil.rmtree(tmp, ignore_errors=True)
 
     def test_the_codex_lists(self) -> None:
-        for p in ("Codex", "Codex (latest)"):
-            self.assertEqual(agents.PROVIDERS[p]["models"], ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.3-codex-spark"])
-            self.assertNotIn("gpt-5.5", agents.PROVIDERS[p]["models"]); self.assertIn(game.CODEX_DEFAULT, agents.PROVIDERS[p]["models"])
+        self.assertEqual(agents.PROVIDERS["Codex"]["models"], ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.3-codex-spark"])
+        self.assertNotIn("gpt-5.5", agents.PROVIDERS["Codex"]["models"]); self.assertIn(game.CODEX_DEFAULT, agents.PROVIDERS["Codex"]["models"])
+
+    def test_there_is_one_codex_row_and_it_is_the_installed_one(self) -> None:
+        """No pinned copy fetched per run: the Codex a game uses is whatever version is on PATH."""
+        self.assertEqual([n for n in agents.PROVIDERS if "codex" in n.lower()], ["Codex"])
+        self.assertEqual([n for n in connect.PROVIDERS if "codex" in n.lower()], ["Codex"])
+        self.assertEqual(connect.PROVIDERS["Codex"]["exe"], "codex")
+        for prov in list(agents.PROVIDERS.values()) + list(connect.PROVIDERS.values()):
+            for v in prov.values():
+                self.assertNotIn("@openai/codex@latest", str(v))
 
 
 if __name__ == "__main__":

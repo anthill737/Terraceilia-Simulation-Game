@@ -18,7 +18,7 @@ talk, scheme, lie, and act; they cannot change a number by saying so.
 - Python 3.11 or newer. No packages to install; the standard library is enough.
 - At least one agent CLI installed and signed in:
   - `claude` ([Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code))
-  - `codex` ([Codex](https://www.npmjs.com/package/@openai/codex)), or `npx` to run the latest Codex without installing it
+  - `codex` ([Codex](https://www.npmjs.com/package/@openai/codex))
   - `opencode` ([OpenCode](https://www.npmjs.com/package/opencode-ai))
   - `gemini` ([Gemini CLI](https://www.npmjs.com/package/@google/gemini-cli))
   - `copilot` ([GitHub Copilot CLI](https://www.npmjs.com/package/@github/copilot))
@@ -27,6 +27,11 @@ You do not have to set any of that up by hand. Open the gear, then Connections: 
 showing whether it is installed and signed in, an Install button that runs the official installer, and
 a Sign in button that opens a terminal window with the tool's own login command already running. The
 row turns green by itself once the tool says it is signed in. A tool you already have is never touched.
+
+Signing in is the only path. Terraceilia has no field for an API key or a token, sets none for the CLIs
+it launches, and never reads one from the environment. Each CLI owns its own credentials, and a key you
+keep in your own environment for your own reasons is nothing this app looks at or reports on. A test in
+the suite fails the build if a key or token field ever comes back.
 
 Every agent is launched in the provider's read-only mode. They can read the prompt file the engine
 writes for them and nothing else; they are told not to touch files and the sandbox enforces it.
@@ -292,7 +297,8 @@ Every request carries the token as `?token=` or a cookie.
     POST /connect/refresh {provider}     ask a CLI again whether it is installed and signed in
     POST /connect/install {provider}     run the official installer, output streamed under the row
     POST /connect/login {provider}       open a terminal with the CLI's own login command
-    POST /connect/key {provider, key}    an API key for this session only, never written to disk
+    POST /connect/probe {provider, model}  one real request through the launcher a turn uses
+    POST /connect/dismiss {provider}    hide a finished Install or Sign in
 
     POST /telegram/check {token}, /telegram/find {token}, /telegram/test {token, chat_id}
     POST /telegram/save {...}, /telegram/send {text}, /telegram/clear
@@ -311,8 +317,10 @@ Every request carries the token as `?token=` or a cookie.
   shows the exact command it built. Anything else is asked again once, then the seat is benched for the turn
   with the runner's message. Two clocks kill a hung process: thirty minutes on the wall whatever it prints,
   and five minutes without a line.
-- Nothing in Terraceilia reads or writes any CLI's credential file. Codex's sign in belongs to Codex; the two
-  Codex installs share it, so one game uses only one of them, and Connections says so.
+- Nothing in Terraceilia reads or writes any CLI's credential file, and nothing here holds a key. Signing in
+  is the only path for Claude Code, Codex, Gemini CLI and Copilot. Codex's sign in belongs to Codex.
+- There is one Codex row: the `codex` on your PATH, whatever version that is. Connections shows the version
+  it found, and Install runs the official installer only when nothing is there.
 - Start runs a preflight: every seat's chosen model answers one tiny request through the same launcher and
   environment a turn uses. A sign in refusal stops Start and says so. A model refusal does not: the seat
   moves to the first model of its provider that answered, the seat is saved, the chronicle says so, and the
