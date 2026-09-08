@@ -1766,14 +1766,62 @@ class World:
         return (f"WHERE YOU ARE: {here}. {m['desc']}\nThings here you can use: {', '.join(m['fixtures'])}.\n"
                 f"{self.audience_line(name)}\nOne path away: {'; '.join(near)}.")
 
-    TALK_ELSEWHERE = "Nobody else knows what you say here. To talk to someone elsewhere, go there."
+    def others_here(self, name: str) -> list[str]:
+        """The living standing where this person stands, in seat order. The whole of their possible audience."""
+        c = self.characters.get(name)
+        if not c: return []
+        return sorted((x["name"] for x in self.at(c["location"]) if x["name"] != name),
+                      key=lambda n: self.characters[n]["seat"])
+
+    def alone(self, name: str) -> bool:
+        """Nobody else is standing there, so there is nobody to talk to and nothing to say aloud."""
+        return not self.others_here(name)
 
     def audience_line(self, name: str) -> str:
-        """Who hears this person: the people standing where they stand, and nobody else. There is no way to
-        reach anyone elsewhere but to walk to them."""
-        c = self.characters[name]; here = c["location"]; people = [x["name"] for x in self.at(here) if x["name"] != name]
-        head = f"You are at {here} with {', '.join(people)}. Only they can hear you." if people else f"You are at {here} alone. Nobody can hear you."
-        return head + " " + self.TALK_ELSEWHERE
+        """Where they are and who is with them. Talk is face to face, so there is nothing else to say about it."""
+        c = self.characters[name]; here = c["location"]; people = self.others_here(name)
+        return f"You are at {here} with {', '.join(people)}." if people else f"You are at {here}. Nobody else is here."
+
+    def groups_here(self) -> dict[str, list[str]]:
+        """Every place where two or more living, able people stand together: place -> names in seat order.
+        Wherever paths cross there is a group, and a group talks."""
+        out: dict[str, list[str]] = {}
+        for c in self.living():
+            if self.able(c): out.setdefault(c["location"], []).append(c["name"])
+        return {p: sorted(ns, key=lambda n: self.characters[n]["seat"]) for p, ns in out.items() if len(ns) >= 2}
+
+    ERRAND_WHY = {"creditor": "you owe them", "debtor": "they owe you", "lover": "they are your lover",
+                  "spouse": "they are your husband or wife", "enemy": "they are your enemy", "rival": "they are your rival"}
+
+    def errands(self, name: str) -> list[dict]:
+        """People this person has a reason to seek out, and where each is standing right now: a debt either
+        way, a lover or a spouse, an enemy or a rival, a grudge, or whoever their want turns on. Saying any
+        of it means being where they are, so the way to say it is to travel."""
+        c = self.characters.get(name)
+        if not c: return []
+        why_of: dict[str, str] = {}
+        goal = c.get("goal") or {}
+        if goal.get("kind") in ("feeling", "trust", "lover") and goal.get("target") in self.characters:
+            why_of[goal["target"]] = f"what you want turns on them: {goal.get('text', 'them')}"
+        for b, r in self.relations_of(name):
+            why = self.ERRAND_WHY.get(r["type"]) or ("you hold a grudge against them" if r["feeling"] <= -3 else "you are fond of them" if r["feeling"] >= 4 else "")
+            if why: why_of.setdefault(b, why)
+        rows = []
+        for b, why in why_of.items():
+            o = self.characters.get(b)
+            if not o or not o["alive"] or o.get("gone") or b == name: continue
+            rows.append({"name": b, "place": o["location"], "why": why, "here": o["location"] == c["location"]})
+        return sorted(rows, key=lambda x: self.characters[x["name"]]["seat"])
+
+    def addressed_here(self, speaker: str, text: str) -> list[str]:
+        """People standing with the speaker whom the line names, @names, or whispers to: its real audience."""
+        c = self.characters.get(speaker)
+        if not c: return []
+        called = mentions(text) | whisper_targets(text)
+        out = []
+        for n in self.others_here(speaker):
+            if n.lower() in called or re.search(r"(?<![\w@])" + re.escape(n) + r"\b", text, re.I): out.append(n)
+        return out
 
     def heard_by(self, speaker: str, text: str) -> list[str]:
         """Who a speech reaches: the living at the speaker's place, and nobody else. Naming someone who is
@@ -1786,7 +1834,7 @@ class World:
 
     def not_here(self, speaker: str, text: str) -> list[str]:
         """People the speech addresses who are not standing there: named as a vocative, @named, or whispered
-        to. The line is kept in the chronicle with "X is not here" after it, and X never receives it."""
+        to. When they are the only ones it addresses, the words reached no ear and the line is thrown away."""
         c = self.characters.get(speaker)
         if not c: return []
         here = c["location"]; called = mentions(text) | whisper_targets(text); out = []
@@ -2132,6 +2180,15 @@ def cap_outcomes(text: str, limit: int = 2) -> str:
 def action_line(text: str) -> str | None:
     m = list(re.finditer(r"^\s*ACTION:\s*(.+?)\s*$", text, re.M | re.I))
     return m[-1].group(1).strip() if m else None
+
+
+THOUGHT_RE = re.compile(r"^\s*THOUGHT:\s*(.+?)\s*$", re.M | re.I)
+
+
+def thought_line(text: str) -> str | None:
+    """The one line a person alone may add. It goes into their own log and nowhere else: nobody hears a thought."""
+    m = list(THOUGHT_RE.finditer(text or ""))
+    return m[-1].group(1).strip()[:240] if m else None
 
 
 WHISPER_RE = re.compile(r"^\s*WHISPER\s+@([A-Za-z][\w -]*?)\s*:\s*(.*)$", re.I)
