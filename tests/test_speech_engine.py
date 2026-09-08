@@ -243,10 +243,112 @@ class TouchedTests(unittest.TestCase):
             label, names, instr, reactions = rounds[0]
             self.assertEqual(names, ("Aldous", "Bett")); self.assertIn("The mill", label)
             self.assertFalse(reactions, "one round per group per beat, so nothing re-wakes them")
-            self.assertIn("You are at The mill with Bett.", instr); self.assertIn("No ACTION line.", instr)
+            self.assertIn("You are at The mill with Bett, and nobody else is close enough to hear.", instr)
+            self.assertIn("No ACTION line.", instr)
+            self.assertEqual(ran[0]["header"], "at The mill: Aldous, Bett", "four or fewer stand together as one")
             self.assertNotIn("Cuthbert", " ".join(x[1][0] for x in rounds))
             self.assertEqual(r._talk_round("after work"), [], "the same group at the same beat is not asked twice")
             self.assertEqual(len(rounds), 1)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _crowd(self, tmp: Path, n: int = 12, place: str = "The inn") -> tuple:
+        """n people at one place, all in fair spirits, so the split is the only thing under test."""
+        engine.GAMES = tmp; game.GAMES = tmp
+        w = engine.World(); rng = random.Random(4); places = list(w.map)
+        for i in range(n):
+            nm = f"P{i}"; w.characters[nm] = engine.roll_character(nm, i + 1, rng, places)
+            w.characters[nm]["location"] = place; w.characters[nm]["needs"]["spirit"] = 6
+        w.ledger = engine.starting_ledger(n, len(w.map)); w.seed_places(); w.created = True; w.day = 2
+        g = game.Game(engine.now_id()); g.world = w
+        g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": nm, "provider": "Claude Code", "model": "x", "color": "#abc"} for nm in w.characters]
+        r = game.Run(g); r.rng = random.Random(7); rounds: list[tuple] = []
+        def fake_round(seats, instruction, label, on_reply, reactions=True):
+            rounds.append((label, tuple(sorted(g.seats[i]["name"] for i in seats))))
+            for i in seats: on_reply(i, f"A word from {g.seats[i]['name']}.")
+        r._round = fake_round
+        return g, w, r, rounds
+
+    def test_twelve_at_the_inn_break_into_knots_of_two_to_four(self) -> None:
+        """Between three and six knots, at most one line each, and nobody talking across a knot."""
+        tmp = Path(tempfile.mkdtemp(prefix="terra-crowd-"))
+        try:
+            g, w, r, rounds = self._crowd(tmp)
+            before = len(g.transcript)
+            ran = r._talk_round("evening")
+            self.assertGreaterEqual(len(ran), 3); self.assertLessEqual(len(ran), 6)
+            self.assertEqual(len(rounds), len(ran), "one round per knot")
+            sizes = [len(x["names"]) for x in ran]
+            self.assertTrue(all(2 <= n <= 4 for n in sizes), sizes)
+            self.assertEqual(sum(sizes), 12, "everybody is in exactly one knot")
+            self.assertEqual(len({n for x in ran for n in x["names"]}), 12, "and nobody is in two")
+            lines = g.transcript[before:]
+            self.assertLessEqual(len(lines), 12, f"at most one line each, got {len(lines)}")
+            for x in ran:
+                heard = {n for e in lines if e["cluster"] == x["header"] for n in e["heard"]}
+                self.assertTrue(heard <= set(x["names"]), "nobody talks across a knot")
+            self.assertEqual(len({x["header"] for x in ran}), len(ran), "each knot gets its own header")
+            for x in ran:
+                self.assertTrue(x["header"].startswith("at The inn, by "), x["header"])
+                self.assertTrue(x["header"].endswith(": " + ", ".join(x["names"])), x["header"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_the_split_puts_errands_first_then_fondness(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="terra-knot-"))
+        try:
+            g, w, r, rounds = self._crowd(tmp)
+            w.set_rel("P0", "P7", typ="debtor", why="four gold at the harvest")     # P0 came to find P7
+            w.set_rel("P1", "P9", feeling=5, trust=5, why="thick as thieves")       # P1 is fondest of P9
+            w.set_rel("P9", "P1", feeling=5, trust=5, why="thick as thieves")
+            knots = w.talk_clusters("The inn", [f"P{i}" for i in range(12)], random.Random(7))
+            find = lambda n: next(k for k in knots if n in k)  # noqa: E731
+            self.assertIn("P7", find("P0"), "the errand seats them together")
+            self.assertIn("P9", find("P1"), "and fondness seats the rest")
+            self.assertTrue(all(2 <= len(k) <= 4 for k in knots), knots)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_low_spirits_and_nobody_to_see_means_sitting_it_out(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="terra-sitout-"))
+        try:
+            g, w, r, rounds = self._crowd(tmp)
+            gold = {"kind": "gold", "target": 20, "text": "to have 20 gold put by"}   # a want that turns on nobody
+            w.characters["P3"]["goal"] = dict(gold); w.characters["P3"]["needs"]["spirit"] = 2
+            w.characters["P4"]["goal"] = dict(gold); w.characters["P4"]["needs"]["spirit"] = 2
+            w.set_rel("P4", "P5", typ="lover", why="quietly, for a year")             # P4 is low too, but their lover is here
+            self.assertEqual(w.errands("P3"), [], "nothing pressing for P3")
+            knots = w.talk_clusters("The inn", [f"P{i}" for i in range(12)], random.Random(7))
+            seated = {n for k in knots for n in k}
+            self.assertNotIn("P3", seated, "low, with nobody here they wanted")
+            self.assertIn("P4", seated, "low, but their lover is in the room")
+            self.assertTrue(any("sat by yourself at The inn" in x["text"] for x in w.characters["P3"]["log"]))
+            self.assertFalse(any("sat by yourself" in x["text"] for x in w.characters["P4"]["log"]))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_nobody_in_good_spirits_is_left_without_a_face(self) -> None:
+        """Whatever the roll, every knot holds two to four and no one in fair spirits is stranded."""
+        tmp = Path(tempfile.mkdtemp(prefix="terra-knots-"))
+        try:
+            for n in (5, 6, 7, 9, 11, 13, 20):
+                g, w, r, rounds = self._crowd(tmp, n=n)
+                for seed in range(25):
+                    knots = w.talk_clusters("The inn", [f"P{i}" for i in range(n)], random.Random(seed))
+                    seated = [x for k in knots for x in k]
+                    self.assertEqual(sorted(seated), sorted(f"P{i}" for i in range(n)), f"{n} people, seed {seed}: {knots}")
+                    self.assertTrue(all(2 <= len(k) <= 4 for k in knots), f"{n} people, seed {seed}: {knots}")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_four_or_fewer_are_one_knot_with_a_plain_header(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="terra-four-"))
+        try:
+            g, w, r, rounds = self._crowd(tmp, n=4)
+            knots = w.talk_clusters("The inn", ["P0", "P1", "P2", "P3"], random.Random(1))
+            self.assertEqual(knots, [["P0", "P1", "P2", "P3"]])
+            self.assertEqual(w.cluster_header("The inn", knots[0]), "at The inn: P0, P1, P2, P3")
+            self.assertEqual(w.talk_clusters("The inn", ["P0"], random.Random(1)), [], "one person is no conversation")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

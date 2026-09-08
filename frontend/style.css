@@ -84,6 +84,7 @@ input[type=range]{height:auto;padding:0;accent-color:var(--accent)}
 .act{display:inline-block;margin-top:calc(var(--u) / 2);color:var(--accent);font-size:var(--fs-b)}
 table.st{border-collapse:collapse;font-size:var(--fs-b);margin-top:var(--u)}table.st td,table.st th{border:1px solid var(--line);padding:calc(var(--u) / 4) var(--u);text-align:left}
 .typing{color:var(--muted);font-size:var(--fs-b);padding:calc(var(--u) / 4) 0 calc(var(--u) * 1.5)}
+.knot{margin:calc(var(--u) * 1.5) 0 calc(var(--u) / 2);font-size:var(--fs-s);color:var(--faint)}
 .daypart{margin:calc(var(--u) * 2) 0 var(--u);font-size:var(--fs-s);letter-spacing:1.2px;text-transform:uppercase;color:var(--faint);display:flex;align-items:center;gap:var(--u)}.daypart:after{content:"";flex:1;border-top:1px solid var(--line)}
 #composer{border-top:1px solid var(--line);background:var(--panel);padding:calc(var(--u) * 1.5) 0}#composer .inner{display:flex;gap:var(--u);align-items:flex-end;position:relative}
 #composer .tawrap{flex:1;position:relative;min-width:0}#composer textarea{width:100%;min-height:44px;height:44px;max-height:160px;resize:none;position:relative;background:transparent;color:transparent;caret-color:var(--ink)}

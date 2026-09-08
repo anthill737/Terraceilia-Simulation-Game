@@ -459,13 +459,16 @@ class Run:
             if i >= len(self.terms): return
             for ln in text.split("\n"): self.terms[i]["lines"].append(ln); self.terms[i]["count"] += 1
 
-    def _record(self, speaker: str, text: str, kind: str) -> None:
+    def _record(self, speaker: str, text: str, kind: str, cluster: str = "", audience: list | None = None) -> None:
         with self.lock:
             g = self.g; g.turn += 1; w = g.world
             color = next((x.get("color") for x in g.seats if x["name"] == speaker), None)
             place = w.characters.get(speaker, {}).get("location") if kind == "speech" else None
-            heard = w.heard_by(speaker, text) if kind == "speech" else None
-            e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": w.day, "phase": w.phase, "color": color, "place": place, "heard": heard}
+            heard = None
+            if kind == "speech":
+                # a knot in a crowded room is heard by the knot, not by the room
+                heard = sorted((n for n in audience if n != speaker and n in w.characters), key=lambda n: w.characters[n]["seat"]) if audience is not None else w.heard_by(speaker, text)
+            e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "cluster": cluster, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": w.day, "phase": w.phase, "color": color, "place": place, "heard": heard}
             g.transcript.append(e); self.version += 1
             seats = list(enumerate(g.seats)); locs = {n: c.get("location") for n, c in g.world.characters.items()}
         for i, seat in seats:   # file writes outside the lock
@@ -704,7 +707,7 @@ class Run:
         """What a person said, without their ACTION line or their private THOUGHT line."""
         return "\n".join(ln for ln in text.split("\n") if not re.match(r"^\s*(ACTION|THOUGHT):", ln, re.I)).strip()
 
-    def _say(self, i: int, text: str) -> bool:
+    def _say(self, i: int, text: str, cluster: str = "", audience: list | None = None) -> bool:
         """Put what a person said into the chronicle, if there was an ear for it. Talk is face to face: a
         person standing alone is heard by nobody, and so is a person who addresses only people who are not
         there. Those words are dropped and the fact is written in their own log, nowhere else."""
@@ -724,7 +727,7 @@ class Run:
             if said: self._term(i, f"(you spoke to nobody at {here}; the words were dropped)")
             return False
         if not said: return False
-        self._record(me, said, "speech"); return True
+        self._record(me, said, "speech", cluster=cluster, audience=audience); return True
 
     def _speech_clause(self, me: str) -> str:
         """What the prompt asks for besides the ACTION line. With people standing there, a word to them. Alone,
@@ -737,7 +740,8 @@ class Run:
 
     def _talk_round(self, beat: str) -> list[dict]:
         """Wherever two or more people are standing together, one short round: each says one line to the others
-        there. One round per group per beat, and a seat whose place is empty of others is never woken."""
+        there. A crowded room is split into knots of two to four first, and nobody talks across a knot. One
+        round per knot per beat, and a seat whose place is empty of others is never woken."""
         g = self.g; w = g.world
         with self.lock:
             groups = w.groups_here(); seat_of = {g.seats[i]["name"]: i for i in self._able_seats()}
@@ -745,16 +749,21 @@ class Run:
         for place in sorted(groups):
             names = [n for n in groups[place] if n in seat_of]
             if len(names) < 2: continue
-            key = f"{w.day}|{beat}|{place}|{','.join(names)}"
-            with self.lock:
-                if key in self.talked: continue
-                self.talked.add(key)
-            ran.append({"day": w.day, "phase": w.phase, "beat": beat, "place": place, "names": list(names)})
-            def instr_for(i: int, names: tuple = tuple(names), place: str = place) -> str:
-                me = g.seats[i]["name"]; others = [n for n in names if n != me]
-                return (f"You are at {place} with {', '.join(others)}. Say one thing to them, in one to three sentences, "
-                        "or reply exactly PASS. No ACTION line.")
-            self._round([seat_of[n] for n in names], instr_for, f"{beat}, {place}", lambda i, t: t and self._say(i, t), reactions=False)
+            with self.lock: clusters = w.talk_clusters(place, names, self.rng)
+            for ci, knot in enumerate(clusters):
+                key = f"{w.day}|{beat}|{place}|{','.join(knot)}"
+                with self.lock:
+                    if key in self.talked: continue
+                    self.talked.add(key)
+                head = w.cluster_header(place, knot, ci if len(clusters) > 1 else None)
+                ran.append({"day": w.day, "phase": w.phase, "beat": beat, "place": place, "names": list(knot), "header": head})
+                def instr_for(i: int, knot: tuple = tuple(knot), head: str = head) -> str:
+                    me = g.seats[i]["name"]; others = [n for n in knot if n != me]
+                    return (f"You are {head.split(':')[0]} with {', '.join(others)}, and nobody else is close enough to hear. "
+                            "Say one thing to them, in one to three sentences, or reply exactly PASS. No ACTION line.")
+                self._round([seat_of[n] for n in knot], instr_for, f"{beat}, {head}",
+                            lambda i, t, head=head, knot=list(knot): t and self._say(i, t, cluster=head, audience=knot), reactions=False)
+                if self.stop_flag.is_set(): break
             if self.stop_flag.is_set(): break
         with self.lock: self.talks.extend(ran); self.version += 1
         self.g.save()
