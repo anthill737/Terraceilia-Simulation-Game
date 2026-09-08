@@ -374,7 +374,6 @@ def make_handler(app: App, token: str):
              "/connect/refresh": lambda: connect.invalidate(data.get("provider") or None),
              "/connect/install": lambda: setattr(app, "last_conn", connect.start_install(data.get("provider", ""))),
              "/connect/login": lambda: setattr(app, "last_conn", connect.start_login(data.get("provider", ""))),
-             "/connect/key": lambda: setattr(app, "last_conn", connect.set_key(data.get("provider", ""), data.get("key", ""))),
              "/connect/dismiss": lambda: connect.clear_job(data.get("provider", "")),
              "/connect/probe": lambda: setattr(app, "last_conn", app.probe(data.get("provider", ""), data.get("model", ""))),
              "/telegram/send": lambda: setattr(app, "last_tg", telegram.send(data.get("text") or app.phone_url or "Terraceilia says hello.")),

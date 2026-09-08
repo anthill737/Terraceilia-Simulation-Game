@@ -433,9 +433,8 @@ function renderFate(s){const alive=(s.characters||[]).filter(c=>c.alive&&!c.gone
 // ---------- Connections
 const CONN_LABEL={connected:'Connected',signed_in:'Signed in, not probed',not_installed:'Not installed',not_signed_in:'Not signed in',checking:'Checking',error:'Error'};
 function renderConn(s){const root=$('connList');if(typing(root))return;const c=s.connections||{};const used=new Set((s.seats||[]).map(x=>x.provider).concat([(s.world_model||{}).provider,(s.model_a||{}).provider,(s.model_b||{}).provider]));
- const keep={};root.querySelectorAll('.keyin').forEach(i=>keep[i.dataset.p]=i.value);
  root.innerHTML=Object.entries(c).map(([k,p])=>{const st=p.state==='connected'?'ok':(p.state==='checking'||p.state==='signed_in')?'unk':'bad';
-  const job=p.job;const showKey=p.key_env&&p.state!=='connected';
+  const job=p.job;
   return `<div class="conn" data-p="${esc(k)}">
    <div class="hd"><span><span>${esc(k)}</span>${used.has(k)?' <span class="note">\u00b7 this game uses it</span>':''}${p.version?` <span class="note">\u00b7 ${esc(p.version)}</span>`:''}</span>
     <span class="st ${st}">${esc(CONN_LABEL[p.state]||p.state)}</span></div>
@@ -443,8 +442,6 @@ function renderConn(s){const root=$('connList');if(typing(root))return;const c=s
    <div class="row" style="margin-top:8px">
     ${p.state==='not_installed'&&p.can_install?`<button class="btn act" data-do="install">Install</button>`:''}
     ${p.state==='not_signed_in'&&p.can_login?`<button class="btn act" data-do="login">Sign in</button>`:''}
-    ${p.state==='not_installed'&&!p.can_install?`<span class="note">Nothing to install: it is fetched fresh on every run.</span>`:''}
-    ${showKey?`<input class="keyin" type="password" data-p="${esc(k)}" placeholder="${esc(p.key_env)} (this session only)" autocomplete="off"><button class="btn act" data-do="key">Use key</button>`:''}
     ${(p.state==='connected'||p.state==='signed_in')?`<button class="btn act" data-do="probe">Probe</button>`:''}
     ${p.shares?`<span class="note">Shares one account with ${esc(p.shares)}; a game uses only one of them.</span>`:''}
     ${p.docs?`<a class="note" href="${esc(p.docs)}" target="_blank" rel="noopener" style="margin-left:auto">docs</a>`:''}
@@ -454,11 +451,9 @@ function renderConn(s){const root=$('connList');if(typing(root))return;const c=s
    ${job?`<div class="res">${job.note?esc(job.note)+'\n':''}${esc((job.lines||[]).join('\n'))}${!job.done&&job.kind==='login'?'\nWaiting for the sign in to finish... '+Math.round((job.waited||0))+'s':''}</div>
      ${job.done?`<div class="row"><button class="btn sm act" data-do="dismiss">Hide this</button></div>`:''}`:''}
   </div>`}).join('');
- root.querySelectorAll('.keyin').forEach(i=>{if(keep[i.dataset.p])i.value=keep[i.dataset.p]});
  root.querySelectorAll('.act').forEach(b=>b.onclick=async()=>{const box=b.closest('.conn'),k=box.dataset.p,d=b.dataset.do;
   b.disabled=true;
-  if(d==='key'){const inp=box.querySelector('.keyin');const r=await api('/connect/key',{provider:k,key:inp.value});inp.value='';render(r)}
-  else if(d==='install')render(await api('/connect/install',{provider:k}));
+  if(d==='install')render(await api('/connect/install',{provider:k}));
   else if(d==='login')render(await api('/connect/login',{provider:k}));
   else if(d==='probe')render(await api('/connect/probe',{provider:k}))
   else if(d==='dismiss')render(await api('/connect/dismiss',{provider:k}))})}

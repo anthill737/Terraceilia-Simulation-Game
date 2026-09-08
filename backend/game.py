@@ -12,9 +12,9 @@ import runner
 import connect
 
 TAIL = 400
-# Both Codex installs read one sign in, so a game never mixes them. Nothing here reads or writes that sign in: a refusal pauses
-# the run and asks the convener to sign in again; the CLI owns its own credentials.
-CODEX_PROVIDERS = ("Codex", "Codex (latest)")
+# Nothing here reads or writes any sign in: a refusal pauses the run and asks the convener to sign in
+# again; the CLI owns its own credentials.
+CODEX_PROVIDER = "Codex"
 CODEX_DEFAULT = "gpt-5.6-luna"
 PROBE_PROMPT = "Reply with exactly the single word: ready"
 
@@ -29,7 +29,7 @@ class Game:
         self.players = d.get("players", 20)
         # an empty model means the first model of that provider that answers the probe; nothing is hardcoded
         self.model_a = d.get("model_a", {"provider": "Claude Code", "model": ""})
-        self.model_b = d.get("model_b", {"provider": "Codex (latest)", "model": CODEX_DEFAULT})   # Codex villagers default to luna
+        self.model_b = d.get("model_b", {"provider": CODEX_PROVIDER, "model": CODEX_DEFAULT})   # Codex villagers default to luna
         self.world_model = d.get("world_model", {"provider": "Claude Code", "model": ""})
         self.map_source = d.get("map_source") if d.get("map_source") in ("builtin", "generated") else "builtin"
         self.map_model = d.get("map_model") if isinstance(d.get("map_model"), dict) else None     # None: the World's model draws it
@@ -158,7 +158,7 @@ class Run:
         """A save whose Codex seats sit on a retired model moves them to the default, once, with one chronicle line."""
         g = self.g; moved: list[tuple[str, str]] = []
         def retired(m: dict) -> bool:
-            return m.get("provider") in CODEX_PROVIDERS and bool(m.get("model")) and m["model"] not in PROVIDERS[m["provider"]]["models"]
+            return m.get("provider") == CODEX_PROVIDER and bool(m.get("model")) and m["model"] not in PROVIDERS[m["provider"]]["models"]
         for x in g.seats:
             if retired(x): moved.append((x["name"], x["model"])); x["model"] = CODEX_DEFAULT; g.cli_sessions.pop(str(g.seats.index(x)), None)
         changed = bool(moved)
@@ -188,24 +188,6 @@ class Run:
         while len(self.terms) < n: self.terms.append({"lines": collections.deque(maxlen=TAIL), "state": "waiting", "count": 0})
 
     def busy(self) -> bool: return self.g.status == "running"
-
-    # ---- Codex, whose sign in rotates under everyone
-    def codex_provider(self) -> str | None:
-        """The one Codex install this game uses, or None if it uses none."""
-        names = [s["provider"] for s in self.g.seats if s["provider"] in CODEX_PROVIDERS]
-        return collections.Counter(names).most_common(1)[0][0] if names else None
-
-    def one_codex(self) -> None:
-        """Both Codex installs share one sign in, so a game never mixes them; every Codex seat gets the same one."""
-        keep = self.codex_provider()
-        if not keep: return
-        moved = [s["name"] for s in self.g.seats if s["provider"] in CODEX_PROVIDERS and s["provider"] != keep]
-        if not moved: return
-        for s in self.g.seats:
-            if s["provider"] in CODEX_PROVIDERS and s["provider"] != keep:
-                s["provider"] = keep; self.g.cli_sessions.pop(str(self.g.seats.index(s)), None)
-        self.g.save()
-        self._record("Engine", f"{', '.join(moved)} moved to {keep}. The two Codex installs share one sign in, so one game uses only one of them.", "system")
 
     # ---- what a failed call means, and what to do about it
     def _auth_refused(self, provider: str) -> None:
@@ -410,7 +392,7 @@ class Run:
             w.ledger = starting_ledger(len(names), len(w.map)); w.seed_places()
             self._sync_terms(); self.version += 1
         for i in range(len(g.seats)): g.seat_dir(i)
-        self.one_codex(); g.save()
+        g.save()
 
     # ---- controls
     def start(self) -> None:
