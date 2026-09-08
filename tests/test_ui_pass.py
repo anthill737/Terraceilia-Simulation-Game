@@ -109,10 +109,10 @@ class Sheets(unittest.TestCase):
 
     def test_colony_tables_have_headers_plain_status_and_no_truncation(self) -> None:
         col = JS[JS.index("function renderColony"):JS.index("document.querySelectorAll('.sheetclose')")]
-        self.assertIn("thead(['Duty','Where','Who','Today'])", col); self.assertIn("thead(['Good','Have','Change'])", col); self.assertIn("thead(['Place','Roof','Warmth','Filth'])", col)
+        self.assertIn("thead(['Job','Where','Who','Today'])", col); self.assertIn("thead(['Good','Have','Change'])", col); self.assertIn("thead(['Place','Roof','Warmth','Filth'])", col)
         self.assertEqual(col.count('<table class="ctab">'), 3)
-        for word in ("'done','good'", "['not done today','poor']", "`nobody's for ${since} day${since>1?'s':''}`,'poor'", "`dumped on ${esc(dumped)} today`,'poor'", "'nothing to do','quiet'"): self.assertIn(word, col)
-        self.assertIn("' (dumped)'", col, "the Who column carries the full name and (dumped) after it"); self.assertNotIn("undone ${", col); self.assertNotIn("dumped on ${esc(r.dumped_on)}</span>", col)
+        for word in ("'done','good'", "['not done today','poor']", "`open for ${since} day${since>1?'s':''}`,'poor'", "`${esc(dumped)} is covering it today`,'poor'", "'nothing to do','quiet'"): self.assertIn(word, col)
+        self.assertIn("' (covering)'", col, "the Who column carries the full name and (covering) after it"); self.assertNotIn("' (dumped)'", col); self.assertNotIn("undone ${", col); self.assertNotIn("dumped on ${esc(r.dumped_on)}</span>", col)
         self.assertIn("${label}: ${names.length} of ${living.length}.", col, "hungry, freezing and sick are counts"); self.assertIn("title=\"${esc(names.join(', '))}\"", col, "with the names on hover")
         self.assertNotIn("Hungry: ${R.hungry.map(esc).join(', ')}", col)
         self.assertIn("${v} ${chg(d[k])}", col, "each place number carries today's change beside it")
@@ -122,6 +122,32 @@ class Sheets(unittest.TestCase):
         self.assertIn(".hgrid{display:flex;flex-wrap:wrap", CSS, "the cards sit beside each other while they fit and wrap when the sheet is narrower")
         phone = CSS[CSS.rindex("@media (max-width:820px)"):]; self.assertIn(".colsent{white-space:normal}", phone); self.assertIn(".ctab td,.ctab th{white-space:normal", phone)
         self.assertIn(".colsent{font-size:var(--fs-b);color:var(--ink);margin:0 0 calc(var(--u) / 2);white-space:nowrap}", CSS)
+
+    def test_the_new_words_everywhere_and_the_old_ones_nowhere(self) -> None:
+        """Jobs, relationships, covering and open in every user-facing place; dump, unclaimed and ties in none. Data keys stay."""
+        import prompts
+        self.assertIn('<button data-p="ties">Relationships</button><button data-p="duties">Jobs</button>', HTML); self.assertIn("Today's Jobs", HTML)
+        self.assertNotIn(">Ties<", HTML); self.assertNotIn(">Duties<", HTML); self.assertNotIn("Today's duties", HTML)
+        jobs = JS[JS.index("function paneDuties"):JS.index("// ---- Log")]
+        self.assertIn("Covering today:", jobs); self.assertIn("'open'+(since?` for ${since} day", jobs); self.assertIn("A job nobody holds is covered each morning", jobs)
+        self.assertIn("${em.place&&!String(em.text||'').includes(em.place)?' at '+esc(em.place):''}", jobs, "the emergency prints its place once")
+        for old in ("Dumped on", "dumped on", "nobody holds it", "undone '+", "Tick a duty", "kind of tie", "No duties yet"): self.assertNotIn(old, JS)
+        for text in (prompts.PLAYER_RULES, prompts.WORLD_RULES):
+            for old in ("dump", "unclaimed", "duty", "duties", " ties", "a tie "): self.assertNotIn(old, text.lower(), old)
+        flat = " ".join(prompts.PLAYER_RULES.split()); self.assertIn("you are covering the hunt today because nobody has it", flat); self.assertIn("named jobs", flat)
+        w = engine.World(); rng = random.Random(1); places = list(w.map)
+        for i in range(3): w.characters[f"P{i}"] = engine.roll_character(f"P{i}", i + 1, rng, places)
+        w.ledger = engine.starting_ledger(3, len(w.map)); w.seed_places(); w.created = True; w.day = 1; w.seed_duties(rng)
+        for c in w.living(): c["duties"] = []
+        w.characters["P0"]["duties"] = ["mill"]; w.assign_day(rng)
+        covering = [c for c in w.living() if c.get("dumped")][0]
+        self.assertTrue(any(x["text"].startswith("You are covering ") and x["text"].endswith("because nobody has it; you were nearest.") for x in covering["log"]))
+        self.assertIn("(you are covering it today because nobody has it)", w.duty_brief(covering["name"])); self.assertNotIn("dump", w.duty_brief(covering["name"]).lower())
+        self.assertIn("is covering it today", w.duties_text()); self.assertNotIn("UNCLAIMED", w.duties_text()); self.assertNotIn("dumped", w.duties_text())
+        self.assertIn("; it is open", w.refuse_duty("P0", "mill")); self.assertIn("jobs are now", w.set_duties("P0", ["mill"]))
+        self.assertIn("no relationships worth the name", w.relations_text("P0")); self.assertIn('"YOUR JOBS: "', (ROOT / "backend" / "game.py").read_text(encoding="utf-8"))
+        readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
+        for old in ("dumped", "unclaimed", "### duties", "duties tab", "web of ties"): self.assertNotIn(old, readme, old)
 
     def test_the_colony_header_is_the_sentence(self) -> None:
         self.assertIn('class="colsent"', JS); self.assertNotIn("nothing grows", JS); self.assertNotIn('class="colseason"', JS)

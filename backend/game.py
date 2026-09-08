@@ -82,7 +82,7 @@ class Game:
                        f"{'DEAD: ' + c['cause_of_death'] if not c['alive'] else ('gone: ' + (c['gone_reason'] or 'gone')) if c['gone'] else 'alive'} · at {c['location']} · home {c['home']} · standing {c['standing']}",
                        f"STR {c['str']} SPD {c['spd']} HP {c['hp']}/{c['hp_max']} gold {c['gold']} skills {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'}",
                        f"Disposition: {', '.join(f'{k} {v}' for k, v in (c.get('traits') or {}).items())}",
-                       f"Personality: {c['personality']}", f"Secret: {c['secret']}", f"Fear: {c['fear']}", f"Want: {c['want']}", "", "Ties:", w.relations_text(c["name"]).replace("You ", f"{c['name']} ").replace("you ", f"{c['name']} "), ""]
+                       f"Personality: {c['personality']}", f"Secret: {c['secret']}", f"Fear: {c['fear']}", f"Want: {c['want']}", "", "Relationships:", w.relations_text(c["name"]).replace("You ", f"{c['name']} ").replace("you ", f"{c['name']} "), ""]
         if what == "everything":
             md += ["## Situations", ""] + [f"- #{t['id']} (day {t['day']}{', ' + t['place'] if t.get('place') else ''}) {t['text']} · {t['status']}{(' on day ' + str(t.get('resolved_day')) + ': ' + t.get('note', '')) if t['status'] != 'open' else ''}" for t in w.threads] + [""]
             ruins = [f"- {p}: {', '.join(d.get('destroyed', []))}" for p, d in w.map.items() if d.get("destroyed")]; pres = [f"- {p}: {', '.join(d.get('present', []))}" for p, d in w.map.items() if d.get("present")]
@@ -531,7 +531,7 @@ class Run:
         new = [(e, touched_text(e, me, my_place, ties)) for e in g.transcript[seen:]]; new = [(e, v) for e, v in new if v]
         parts = [PLAYER_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP, known to everyone (the only places and things that exist):\n" + map_text(w.map) + "\n",
                  f"Day {w.day}, {season_of(w.day)}, {w.weather}. Everyone who lives in the valley: " + ", ".join(w.titled(c["name"]) for c in w.living() if c["name"] != me) + ".\n",
-                 w.sheet(me), "\n" + (w.duty_brief(me) if w.phase == "morning" else "YOUR DUTIES: " + (", ".join(DUTIES[k]["label"] for k in w.characters[me].get("duties", [])) or "none") + ".") + "\n", "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
+                 w.sheet(me), "\n" + (w.duty_brief(me) if w.phase == "morning" else "YOUR JOBS: " + (", ".join(DUTIES[k]["label"] for k in w.characters[me].get("duties", [])) or "none") + ".") + "\n", "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
         u = self.day_urges.get(me) or []
         if u: parts.append("YOUR URGES TODAY, which are your nature and not a suggestion; act on at least one of them, in words or in your ACTION, and do not apologize for it:\n" + "\n".join(f"- {x}" for x in u) + "\n")
         if new:
@@ -587,8 +587,8 @@ class Run:
             '```json\n{"people":[{"name":"Name","trade":"miller","home":"The mill","personality":"one line","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything, in their own terms, built around the plain want the engine rolled for them"}],'
             '"relations":[{"a":"Name","b":"OtherName","type":"spouse","feeling":3,"trust":2,"mutual":true,"why":"married twelve years; he drinks, she keeps the ledger"}]}\n```',
             "One entry per name, every name, names exact. Make them different from each other: some rich, some poor, some liked, some feared, some with dangerous secrets that touch other people in this list. "
-            "Then give the valley a web of ties in \"relations\": at least eight, each with a \"why\" (one line of history: how they met, what happened, what is owed), using types spouse, lover, kin, friend, rival, enemy, creditor, debtor, master, servant; feeling and trust run from -5 (hate, would knife them) to 5 (love, trust with their life). "
-            "Make some ties one-sided (mutual false, then a second entry the other way with different numbers): an unrequited love, a servant who hates a master who trusts him, a debtor who smiles at a creditor he loathes."])
+            "Then give the valley a web of relationships in \"relations\": at least eight, each with a \"why\" (one line of history: how they met, what happened, what is owed), using types spouse, lover, kin, friend, rival, enemy, creditor, debtor, master, servant; feeling and trust run from -5 (hate, would knife them) to 5 (love, trust with their life). "
+            "Make some relationships one-sided (mutual false, then a second entry the other way with different numbers): an unrequited love, a servant who hates a master who trusts him, a debtor who smiles at a creditor he loathes."])
         self._term(0, "creating the world...")
         people: dict = {}; out = None
         for attempt in range(2):
@@ -610,8 +610,8 @@ class Run:
         w.seed_all_relations(self.rng); w.seed_duties(self.rng); w.seed_pastimes(self.rng)
         for rr in data.get("relations", []) or []:
             if isinstance(rr, dict):
-                w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old tie"))
-                if rr.get("mutual", True): w.set_rel(str(rr.get("b", "")), str(rr.get("a", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old tie"))
+                w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
+                if rr.get("mutual", True): w.set_rel(str(rr.get("b", "")), str(rr.get("a", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
         w.created = True; w.day = 1
         self._record("World", (strip_dashes(strip_json(out or "The valley wakes.")) + "\n\n" + w.standings_table()), "world")
 
@@ -622,8 +622,8 @@ class Run:
             w.seed_missing(self.rng)                                                       # anyone or anything still unseeded
             rep = w.dawn(self.rng); roster = w.assign_day(self.rng); self.version += 1
         lines = list(rep["lines"])
-        dumped = [f"{DUTIES[k]['label']} (dumped on {r['dumped_on']})" if r.get("dumped_on") else DUTIES[k]["label"] for k, r in roster["duties"].items() if r["unclaimed"]]
-        if dumped: lines.append("Nobody holds: " + ", ".join(dumped) + ".")
+        opened = [f"{DUTIES[k]['label']} ({r['dumped_on']} is covering it today)" if r.get("dumped_on") else DUTIES[k]["label"] for k, r in roster["duties"].items() if r["unclaimed"]]
+        if opened: lines.append("Open: " + ", ".join(opened) + ".")
         for e in roster.get("emergencies", []):
             if e.get("pulled"): lines.append(f"Emergency, {e['text']}: {', '.join(e['pulled'])} pulled to it.")
         rep["lines"] = lines
@@ -705,8 +705,8 @@ class Run:
                 if said: self._record(me, said, "speech")
             with self.lock: outcomes[me] = w.resolve_morning(me, text or "", self.rng); self.version += 1
 
-        instr = ("It is morning. Your ACTION line must begin with WORK (do all your work today), WORK followed by one duty's name (do that one first, then the rest, or take it up if nobody holds it), "
-                 "REFUSE (give up your duties; they go unclaimed and people notice), or anything else, which counts as skipping your work today and costs the same. "
+        instr = ("It is morning. Your ACTION line must begin with WORK (do all your work today), WORK followed by one job's name (do that one first, then the rest, or take it up if nobody holds it), "
+                 "REFUSE (give up your jobs; they go open and people notice), or anything else, which counts as skipping your work today and costs the same. "
                  "The engine does the work and says what came of it; never describe the outcome yourself. Speak only if something touched you; otherwise give the ACTION line alone.")
         self._round(working, instr, "morning", on_reply, reactions=False)
         if self.stop_flag.is_set(): return

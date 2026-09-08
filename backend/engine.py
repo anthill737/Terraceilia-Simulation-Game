@@ -835,7 +835,7 @@ class World:
 
     def relations_text(self, name: str) -> str:
         rs = self.relations_of(name)
-        if not rs: return "You have no ties worth the name yet; that will change."
+        if not rs: return "You have no relationships worth the name yet; that will change."
         return "\n".join(f"- {b}{(' (your ' + r['type'] + ')') if r['type'] != 'none' else ''}: you {self.FEEL2[r['feeling'] + 5]} them ({r['feeling']:+d}) and {self.TRUST2[r['trust'] + 5]} them ({r['trust']:+d})." + (f" Why: {r['why'][-1]['note']}" if r.get('why') else "") for b, r in rs)
 
     # ---- the convener's hand
@@ -1114,19 +1114,19 @@ class World:
 
     def refuse_duty(self, name: str, key: str) -> str:
         c = self.characters.get(name)
-        if not c or key not in DUTIES: return "no such person or duty"
+        if not c or key not in DUTIES: return "no such person or job"
         if key not in c.get("duties", []): return f"{name} does not hold {DUTIES[key]['label']}"
         c["duties"].remove(key); bump_standing(c, -1); st = self.duty_state(key)
         if not self.holders(key): st["unclaimed_day"] = self.day
         note_log(c, self.day, f"You refused {DUTIES[key]['label']}. People noticed.")
-        return f"{name} refused {DUTIES[key]['label']}" + ("; it is unclaimed" if not self.holders(key) else "")
+        return f"{name} refused {DUTIES[key]['label']}" + ("; it is open" if not self.holders(key) else "")
 
     def hand_duty(self, name: str, to: str, key: str) -> str:
         c = self.characters.get(name); t = self.characters.get(to)
-        if not c or not t or key not in DUTIES: return "no such person or duty"
+        if not c or not t or key not in DUTIES: return "no such person or job"
         if key not in c.get("duties", []): return f"{name} does not hold {DUTIES[key]['label']}"
         if not self.able(t): return f"{to} cannot take it on"
-        if len(t.setdefault("duties", [])) >= MAX_DUTIES: return f"{to} already holds {MAX_DUTIES} duties"
+        if len(t.setdefault("duties", [])) >= MAX_DUTIES: return f"{to} already holds {MAX_DUTIES} jobs"
         c["duties"].remove(key)
         if key not in t["duties"]: t["duties"].append(key)
         note_log(c, self.day, f"You handed {DUTIES[key]['label']} to {to}."); note_log(t, self.day, f"{name} handed you {DUTIES[key]['label']}.")
@@ -1134,10 +1134,10 @@ class World:
 
     def claim_duty(self, name: str, key: str) -> str:
         c = self.characters.get(name)
-        if not c or key not in DUTIES: return "no such person or duty"
+        if not c or key not in DUTIES: return "no such person or job"
         if key in c.get("duties", []): return f"{name} already holds {DUTIES[key]['label']}"
         if self.holders(key): return f"{DUTIES[key]['label']} is held by {', '.join(self.holders(key))}; it must be taken from them or handed over"
-        if len(c.setdefault("duties", [])) >= MAX_DUTIES: return f"{name} already holds {MAX_DUTIES} duties"
+        if len(c.setdefault("duties", [])) >= MAX_DUTIES: return f"{name} already holds {MAX_DUTIES} jobs"
         c["duties"].append(key); self.duty_state(key)["unclaimed_day"] = None; bump_standing(c, 1)
         note_log(c, self.day, f"You took up {DUTIES[key]['label']}, which nobody held.")
         return f"{name} took up {DUTIES[key]['label']}"
@@ -1157,7 +1157,7 @@ class World:
             st = self.duty_state(k)
             if not self.holders(k) and st["unclaimed_day"] is None: st["unclaimed_day"] = self.day
             elif self.holders(k): st["unclaimed_day"] = None
-        return f"{name}'s duties are now {', '.join(DUTIES[k]['label'] for k in new) or 'none'}"
+        return f"{name}'s jobs are now {', '.join(DUTIES[k]['label'] for k in new) or 'none'}"
 
     def transfer_duty(self, frm: str, to: str) -> str | None:
         """The contest's prize: one duty moves from the loser to the winner. Returns its label, or None if there was nothing to take."""
@@ -1211,7 +1211,7 @@ class World:
                 if cands:
                     pick = min(cands, key=lambda c: (self.distance(c["location"], place), len(c.get("duties", [])) + len(c["dumped"]), rng.random()))
                     pick["dumped"].append(k); hs = [pick["name"]]
-                    note_log(pick, self.day, f"{DUTIES[k]['label'].capitalize()} was dumped on you today: nobody holds it and you were nearest.")
+                    note_log(pick, self.day, f"You are covering {DUTIES[k]['label']} today because nobody has it; you were nearest.")
             roster[k] = {"holders": hs, "place": place, "unclaimed": not self.holders(k), "dumped_on": hs[0] if hs and k in self.characters[hs[0]].get("dumped", []) else None,
                          "undone_days": st.get("undone_days", 0)}
         # emergencies
@@ -1271,11 +1271,11 @@ class World:
             e = c["emergency"]; lines.append(f"EMERGENCY, before anything else: {e['text']}. Go to {e['place']} and deal with it.")
         for k in list(c.get("duties", [])) + list(c.get("dumped", [])):
             d = DUTIES[k]; place = self.duty_place(k, name); dumped = k in c.get("dumped", [])
-            if self.nothing_today(k): lines.append(f"- {d['label'].upper()}: nothing to do today, {self.duty_state(k).get('nothing_why', '')}. You are free for your other work or an unclaimed duty (WORK and its name)."); continue
+            if self.nothing_today(k): lines.append(f"- {d['label'].upper()}: nothing to do today, {self.duty_state(k).get('nothing_why', '')}. You are free for your other work or an open job (WORK and its name)."); continue
             prod = ", ".join(f"{v} {s}" for s, v in d.get("produces", {}).items()) or ", ".join(f"{k2} {v:+d}" for k2, v in d.get("effect", {}).items() if k2 in ("roof", "warmth", "filth")) or "keeps things from getting worse"
             cost = ", ".join(f"{v} {s}" for s, v in d.get("consumes", {}).items())
-            lines.append(f"- {d['label'].upper()}{' (dumped on you today, nobody holds it)' if dumped else ''}: {d['verb']} at {place}. Makes {prod}" + (f"; uses {cost}" if cost else "") + f". If skipped: {d['breaks']}.")
-        if not lines: return "YOUR WORK TODAY: nothing is yours to do. Take up something unclaimed, or do as you like."
+            lines.append(f"- {d['label'].upper()}{' (you are covering it today because nobody has it)' if dumped else ''}: {d['verb']} at {place}. Makes {prod}" + (f"; uses {cost}" if cost else "") + f". If skipped: {d['breaks']}.")
+        if not lines: return "YOUR WORK TODAY: nothing is yours to do. Take up an open job, or do as you like."
         return "YOUR WORK TODAY:\n" + "\n".join(lines)
 
     def do_duty(self, name: str, key: str, rng: random.Random) -> dict:
@@ -1708,7 +1708,7 @@ class World:
 
     def undone_text(self) -> str:
         m = self.morning if (self.morning or {}).get("day") == self.day else {}
-        if not m or not m.get("undone"): return "- every duty was done today"
+        if not m or not m.get("undone"): return "- every job was done today"
         return "\n".join(f"- {u['text']}" + (f" ({u['days']} days running)" if u["days"] > 1 else "") for u in m["undone"]) + ("\n" + "\n".join(f"- {c}" for c in m.get("complaints", [])) if m.get("complaints") else "")
 
     def evening_places(self, rng: random.Random) -> dict[str, str]:
@@ -1726,11 +1726,11 @@ class World:
         return moves
 
     def duties_text(self) -> str:
-        """The roster for the World: who holds what, what is unclaimed, and what has gone undone and for how long."""
+        """The roster: who holds what, what is open, and what has gone undone and for how long."""
         out = []
         for k, d in DUTIES.items():
             hs = self.holders(k); st = self.duty_state(k); r = (self.roster or {}).get("duties", {}).get(k, {})
-            who = ", ".join(hs) if hs else ("dumped on " + r["dumped_on"] + " today" if r.get("dumped_on") else "UNCLAIMED, nobody did it")
+            who = ", ".join(hs) if hs else (r["dumped_on"] + " is covering it today" if r.get("dumped_on") else "open, nobody did it")
             out.append(f"- {d['label']}: {who}" + (f"; undone {st['undone_days']} day(s) running" if st.get("undone_days") else ""))
         return "\n".join(out)
 
