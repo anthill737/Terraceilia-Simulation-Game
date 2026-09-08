@@ -60,9 +60,11 @@ class Sheets(unittest.TestCase):
     def test_the_situations_sheet_and_button_are_gone(self) -> None:
         self.assertNotIn('data-sheet="situations"', HTML); self.assertNotIn('id="sheet-situations"', HTML); self.assertNotIn("renderSituations", JS); self.assertNotIn("['situations','Situations']", JS)
 
-    def test_people_has_six_tabs_and_a_body_tab(self) -> None:
+    def test_people_has_six_tabs_and_the_words_on_them(self) -> None:
+        """The keys behind the tabs are data and stay; the words on them are the convener's."""
         tabs = re.findall(r'<div class="ptabs">(.*?)</div>', HTML)[0]
         self.assertEqual(re.findall(r'data-p="(\w+)"', tabs), ["bio", "body", "disp", "ties", "duties", "log"])
+        self.assertEqual(re.findall(r'>([A-Za-z]+)</button>', tabs), ["Bio", "Health", "Personality", "Relationships", "Jobs", "Log"])
         self.assertIn("function paneBody", JS); self.assertNotIn("function paneHealth", JS); self.assertNotIn("function paneStats", JS)
         self.assertIn('class="needbars"', JS); self.assertNotIn("Where they stand", JS)
 
@@ -146,8 +148,34 @@ class Sheets(unittest.TestCase):
         self.assertIn("is covering it today", w.duties_text()); self.assertNotIn("UNCLAIMED", w.duties_text()); self.assertNotIn("dumped", w.duties_text())
         self.assertIn("; it is open", w.refuse_duty("P0", "mill")); self.assertIn("jobs are now", w.set_duties("P0", ["mill"]))
         self.assertIn("no relationships worth the name", w.relations_text("P0")); self.assertIn('"YOUR JOBS: "', (ROOT / "backend" / "game.py").read_text(encoding="utf-8"))
+        held = {c["name"]: list(c["duties"]) for c in w.living()}
+        for c in w.living(): c["duties"] = []
+        self.assertIn("jobs", w.needs_seeding(), "the line an old save gets names jobs")
+        self.assertNotIn("duties", w.needs_seeding())
+        for c in w.living(): c["duties"] = held[c["name"]]
         readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
-        for old in ("dumped", "unclaimed", "### duties", "duties tab", "web of ties"): self.assertNotIn(old, readme, old)
+        for old in ("dumped", "unclaimed", "### duties", "duties tab", "web of ties", "disposition"): self.assertNotIn(old, readme, old)
+
+    def test_health_and_personality_are_the_words_for_the_body_and_the_dials(self) -> None:
+        """Body is Health and Disposition is Personality wherever a person reads them: the tabs, the valley
+        card, the sheet an agent is given, the rules it plays by, and the export. The keys stay."""
+        import prompts
+        self.assertIn(">Health</button>", HTML); self.assertIn(">Personality</button>", HTML)
+        self.assertNotIn(">Body</button>", HTML); self.assertNotIn(">Disposition</button>", HTML)
+        self.assertIn("'Personality: '", JS); self.assertNotIn("'Disposition: '", JS)
+        w = engine.World(); rng = random.Random(3); places = list(w.map)
+        w.characters["P0"] = engine.roll_character("P0", 1, rng, places)
+        w.ledger = engine.starting_ledger(1, len(w.map)); w.seed_places(); w.created = True
+        sheet = w.sheet("P0")
+        self.assertIn("Your personality, which you play without softening:", sheet)
+        self.assertNotIn("disposition", sheet.lower())
+        for text in (prompts.PLAYER_RULES, prompts.WORLD_RULES):
+            self.assertNotIn("disposition", text.lower())
+        self.assertIn("your personality below tells you your measure", " ".join(prompts.PLAYER_RULES.split()))
+        exporter = (ROOT / "backend" / "game.py").read_text(encoding="utf-8")
+        self.assertIn("""f"Personality: {', '.join(""", exporter, "the export labels the dials Personality")
+        self.assertIn("""f"Character: {c['personality']}\"""", exporter, "and the prose keeps its own label, so there are not two")
+        self.assertNotIn('f"Disposition:', exporter)
 
     def test_the_colony_header_is_the_sentence(self) -> None:
         self.assertIn('class="colsent"', JS); self.assertNotIn("nothing grows", JS); self.assertNotIn('class="colseason"', JS)

@@ -479,10 +479,10 @@ class World:
         if what not in self.migrated: self.migrated.append(what)
 
     def needs_seeding(self) -> list[str]:
-        """What a loaded game still lacks that a new game would have: duties, pastimes, wants, upkeep for its places."""
+        """What a loaded game still lacks that a new game would have: jobs, pastimes, wants, upkeep for its places."""
         if not self.created or not self.living(): return []
         out = []
-        if not any(c.get("duties") for c in self.living()): out.append("duties")
+        if not any(c.get("duties") for c in self.living()): out.append("jobs")
         if any(not c.get("pastime") for c in self.living()): out.append("pastimes")
         if any(not c.get("goal") for c in self.living()): out.append("wants")
         if any(p not in self.upkeep for p in self.map): out.append("the state of the places")
@@ -492,7 +492,7 @@ class World:
         """Seed whatever needs_seeding names, exactly as a new game would, and return what was done."""
         done = []
         for what in self.needs_seeding():
-            if what == "duties": self.seed_duties(rng)
+            if what == "jobs": self.seed_duties(rng)
             elif what == "pastimes": self.seed_pastimes(rng)
             elif what == "wants": self.seed_wants(rng)
             elif what == "the state of the places": self.seed_places()
@@ -1795,7 +1795,7 @@ class World:
     def sheet(self, name: str) -> str:
         c = self.characters[name]
         head = ("WHO YOU ARE NOW. This is the truth about you today; if it differs from how you have spoken before, you have changed, and you play the new you without comment.\n" if c.get("changed") else "")
-        return (head + f"You are {c['name']}, {c['trade']}, living at {c['home']}. Your character: {c['personality']}\nYour disposition, which you play without softening: {trait_text(c.get('traits', {}))}\n"
+        return (head + f"You are {c['name']}, {c['trade']}, living at {c['home']}. Your character: {c['personality']}\nYour personality, which you play without softening: {trait_text(c.get('traits', {}))}\n"
                 f"Strength {c['str']}, Speed {c['spd']}, Health {c['hp']} of {c['hp_max']}, Gold {c['gold']}, "
                 f"Skills {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'}. You are at {c['location']}.\n"
                 f"{self.needs_text(name)}\n"

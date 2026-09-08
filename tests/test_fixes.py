@@ -44,7 +44,7 @@ class OldSaves(unittest.TestCase):
         self.assertTrue(all(p in w.upkeep for p in w.map))
         self.assertGreaterEqual(sum(len(c["duties"]) for c in w.living()), 3 * 1)   # three people cannot hold fifteen duties; each holds their share
         notes = [e for e in g.transcript if e["kind"] == "system" and "saved before the colony rules changed" in e["text"]]
-        self.assertEqual(len(notes), 1); self.assertIn("duties", notes[0]["text"]); self.assertIn("the ledger", notes[0]["text"])
+        self.assertEqual(len(notes), 1); self.assertIn("jobs", notes[0]["text"]); self.assertNotIn("duties", notes[0]["text"]); self.assertIn("the ledger", notes[0]["text"])
         # loading it again seeds nothing and says nothing
         g2 = game.Game.load("oldgame"); game.Run(g2)
         self.assertEqual(len([e for e in g2.transcript if "saved before the colony rules changed" in e["text"]]), 1)

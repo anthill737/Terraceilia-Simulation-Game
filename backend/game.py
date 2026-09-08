@@ -81,8 +81,8 @@ class Game:
                 md += [f"### {c['name']}, {c['trade']} ({seat.get('provider', '')} {seat.get('model', '')})",
                        f"{'DEAD: ' + c['cause_of_death'] if not c['alive'] else ('gone: ' + (c['gone_reason'] or 'gone')) if c['gone'] else 'alive'} · at {c['location']} · home {c['home']} · standing {c['standing']}",
                        f"STR {c['str']} SPD {c['spd']} HP {c['hp']}/{c['hp_max']} gold {c['gold']} skills {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'}",
-                       f"Disposition: {', '.join(f'{k} {v}' for k, v in (c.get('traits') or {}).items())}",
-                       f"Personality: {c['personality']}", f"Secret: {c['secret']}", f"Fear: {c['fear']}", f"Want: {c['want']}", "", "Relationships:", w.relations_text(c["name"]).replace("You ", f"{c['name']} ").replace("you ", f"{c['name']} "), ""]
+                       f"Personality: {', '.join(f'{k} {v}' for k, v in (c.get('traits') or {}).items())}",
+                       f"Character: {c['personality']}", f"Secret: {c['secret']}", f"Fear: {c['fear']}", f"Want: {c['want']}", "", "Relationships:", w.relations_text(c["name"]).replace("You ", f"{c['name']} ").replace("you ", f"{c['name']} "), ""]
         if what == "everything":
             md += ["## Situations", ""] + [f"- #{t['id']} (day {t['day']}{', ' + t['place'] if t.get('place') else ''}) {t['text']} · {t['status']}{(' on day ' + str(t.get('resolved_day')) + ': ' + t.get('note', '')) if t['status'] != 'open' else ''}" for t in w.threads] + [""]
             ruins = [f"- {p}: {', '.join(d.get('destroyed', []))}" for p, d in w.map.items() if d.get("destroyed")]; pres = [f"- {p}: {', '.join(d.get('present', []))}" for p, d in w.map.items() if d.get("present")]
