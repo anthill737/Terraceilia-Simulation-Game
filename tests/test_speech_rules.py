@@ -62,8 +62,10 @@ class SpeechRuleTests(unittest.TestCase):
         self.assertIn("ACTION:", prompts.PLAYER_RULES)
         self.assertIn("WHISPER @Name:", prompts.PLAYER_RULES)
         flat = " ".join(prompts.PLAYER_RULES.split())
-        self.assertIn("There is no way to send word to someone elsewhere", flat)
-        self.assertIn("To talk to someone elsewhere, go there.", flat)
+        self.assertIn("Talk is face to face and nothing else is talk.", flat)
+        self.assertIn("there is nobody to talk to, so say nothing: give the ACTION line alone", flat)
+        self.assertIn("Words aimed at someone who is not there reach no one and are thrown away.", flat)
+        self.assertIn("your ACTION is to go to them, and you say it when you arrive", flat)
         self.assertNotIn("carried to that person privately", flat)
 
     def test_the_map_prompt_still_asks_for_the_world_described(self) -> None:

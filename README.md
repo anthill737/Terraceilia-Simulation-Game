@@ -106,16 +106,12 @@ That takes a minute or two. Then day one begins.
    gives it up at once. What nobody did lands its cost and goes to the World and the chronicle by
    name; after two days a neighbour complains and names whoever holds it.
 3. **Afternoon: free time.** Only the people something touched, or whose nature is pushing them,
-   are asked, and they may act. Everyone else spends the afternoon on their pastime, on the map, and
-   people whose pastimes put them in the same place are company and get a turn to talk. A person can
-   speak only to whoever is standing with them. Every prompt says so in as many words: "You are at
-   The mill with Bett. Only they can hear you. Nobody else knows what you say here. To talk to
-   someone elsewhere, go there." There is no way for a villager to send word anywhere: `@Name` from a
-   villager names the person and carries nothing, and only someone standing there gets a turn to
-   answer. The chronicle says under every line who heard it, "heard by Bett" or "heard by nobody", and
-   a line that addresses someone who is not there is kept with "X is not here." after it while X never
-   receives a word of it. `@Name` still reaches one person when the convener uses it, because the
-   convener is fate. Driving someone out, refusing to share,
+   are asked, and they may act. Everyone else spends the afternoon on their pastime, on the map.
+   The afternoon prompt also lists the people this one has a reason to find, with where each of them
+   is standing right now: a debt either way, a lover, a spouse, an enemy, a rival, a grudge, or
+   whoever their want turns on. Since nothing they say reaches anyone they are not standing with,
+   the way to have it out with someone is to travel to them, and the talk happens on arrival.
+   Driving someone out, refusing to share,
    taking work, leaving, and every job change are settled by the engine before the World sees anything.
 4. **The engine resolves the afternoon, the World tells it.** Every free action is read into one of
    fourteen verbs (travel, talk, give, take, steal, hit, drive out, help, tend, court, pray, trade,
@@ -124,8 +120,29 @@ That takes a minute or two. Then day one begins.
    sheets, map, ledger or relationships, and tells them one line each, two sentences at most. Its words are
    checked: any line naming a person, place, number or item that is not in the outcome list is
    dropped and logged, and if it gives nothing usable the engine's own lines stand.
-5. **Evening: talk.** Everyone goes home, or to the inn if it pulls them, and the people something
-   touched talk where they are. No actions. Then the day ends.
+5. **Evening: talk.** Everyone goes home, or to the inn if it pulls them, and whoever is under the
+   same roof talks. No actions. Then the day ends.
+
+### Talk is face to face
+
+Nothing said in this valley travels. A person is heard by the people standing with them and by
+nobody else, and there is no message, no shout across the valley, and no `@Name` that changes that.
+
+- **Alone means no speech.** When nobody else is at a person's place, the prompt does not offer them
+  speech at all: the ACTION line, and one optional line beginning `THOUGHT:` that goes into their own
+  log and no further. Nothing in that prompt mentions talking to anyone.
+- **With someone, the prompt names them.** "You are at The mill with Bett. Say what you say to them,
+  in one to three sentences, before your ACTION line." That is the whole of it.
+- **Words with no ear are dropped.** A reply that addresses only people who are not there, by name,
+  by `@Name`, or by `WHISPER @Name:`, keeps its ACTION and loses its speech. Nothing goes into the
+  chronicle and the person's own log says they spoke to nobody. The chronicle says under every line
+  that did land who heard it: "heard by Bett", or "heard by nobody".
+- **Where paths cross, people talk.** Any time two or more living people stand in the same place at
+  the end of a beat, the engine runs one short round for that group: one line each to the others
+  there, no action line. It happens after the morning's work, after the afternoon has resolved, and
+  in the evening, and it is capped at one round per group per beat. A seat whose place is empty of
+  others is never woken by it.
+- **`@Name` still works for the convener**, who is fate and not a person in the valley.
 
 Every villager's reply is cut to three sentences before the action line, every World outcome to two,
 and every dash a model writes is replaced on the way in. Quiet days are allowed: a person with nothing

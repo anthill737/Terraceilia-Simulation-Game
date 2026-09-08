@@ -116,16 +116,62 @@ class TouchedTests(unittest.TestCase):
             g = game.Game(engine.now_id()); g.world = self.w; w = g.world; w.created = True; w.day = 2
             g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
             r = game.Run(g)
-            p = r._player_prompt(1, "speak")
-            self.assertIn("You are at The mill with Bett. Only they can hear you. Nobody else knows what you say here. To talk to someone elsewhere, go there.", p)
-            self.assertIn("You are at The castle alone. Nobody can hear you. Nobody else knows what you say here. To talk to someone elsewhere, go there.", r._player_prompt(4, "speak"))
-            r._record("Bett", "Dimity, come down.\nACTION: I wait.", "speech"); e = g.transcript[-1]
-            self.assertEqual(e["heard"], ["Aldous"]); self.assertTrue(e["text"].endswith("Dimity is not here."), e["text"])
+            self.assertIn("You are at The mill with Bett.", r._player_prompt(1, "speak"))
+            self.assertIn("You are at The castle. Nobody else is here.", r._player_prompt(4, "speak"))
+            for gone in ("Only they can hear you", "Nobody can hear you", "to talk to someone elsewhere, go there",
+                         "To talk to someone elsewhere, go there", "is not here"):
+                self.assertNotIn(gone, r._player_prompt(1, "speak")); self.assertNotIn(gone, r._player_prompt(4, "speak"))
+            r._record("Bett", "Aldous, the sack is short.\nACTION: I wait.", "speech"); e = g.transcript[-1]
+            self.assertEqual(e["heard"], ["Aldous"]); self.assertNotIn("is not here", e["text"], "nothing is appended any more")
             r._record("Dimity", "Nobody up here but the wind.", "speech"); self.assertEqual(g.transcript[-1]["heard"], [])
-            r._record("Dimity", "@Cuthbert bring ale up.", "speech"); e2 = g.transcript[-1]
-            self.assertEqual(e2["heard"], [], "she is alone at the castle; the @ carries nothing to the inn")
-            self.assertTrue(e2["text"].endswith("Cuthbert is not here."), e2["text"])
-            self.assertIsNone(g.transcript[-1].get("note")); self.assertIsNone(r._record("World", "The day ends.", "world")); self.assertIsNone(g.transcript[-1]["heard"])
+            self.assertIsNone(r._record("World", "The day ends.", "world")); self.assertIsNone(g.transcript[-1]["heard"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_a_prompt_with_nobody_there_offers_no_speech_at_all(self) -> None:
+        """Alone: the ACTION line and an optional private THOUGHT, and not one word about talking."""
+        tmp = Path(tempfile.mkdtemp(prefix="terra-alone-")); engine.GAMES = tmp; game.GAMES = tmp
+        try:
+            g = game.Game(engine.now_id()); g.world = self.w; w = g.world; w.created = True; w.day = 2
+            g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
+            r = game.Run(g)
+            self.assertTrue(w.alone("Dimity")); self.assertFalse(w.alone("Bett"))
+            solo = r._speech_clause("Dimity")
+            self.assertIn("Nobody else is at The castle.", solo)
+            self.assertIn("say nothing aloud: give your ACTION line and nothing more", solo)
+            self.assertIn("THOUGHT:", solo)
+            for gone in ("Say what you say", "Only they", "elsewhere"): self.assertNotIn(gone, solo)
+            together = r._speech_clause("Bett")
+            self.assertIn("You are at The mill with Aldous. Say what you say to them", together)
+            for gone in ("THOUGHT:", "elsewhere", "Nobody"): self.assertNotIn(gone, together)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_words_with_no_ear_are_dropped_and_only_the_log_says_so(self) -> None:
+        """A line to someone who is not there, and a line said by someone standing alone, never reach the chronicle."""
+        tmp = Path(tempfile.mkdtemp(prefix="terra-drop-")); engine.GAMES = tmp; game.GAMES = tmp
+        try:
+            g = game.Game(engine.now_id()); g.world = self.w; w = g.world; w.created = True; w.day = 2
+            g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
+            r = game.Run(g); idx = {s["name"]: i for i, s in enumerate(g.seats)}
+            before = len(g.transcript)
+            self.assertFalse(r._say(idx["Bett"], "Dimity, come down from there.\nACTION: I wait."))
+            self.assertEqual(len(g.transcript), before, "the speech is dropped, not annotated")
+            log = [x["text"] for x in w.characters["Bett"]["log"]]
+            self.assertTrue(any("spoke to nobody" in t and "Dimity" in t for t in log), log)
+            self.assertFalse(any("is not here" in e["text"] for e in g.transcript))
+
+            self.assertFalse(r._say(idx["Dimity"], "Anyone up here?\nACTION: I wait."), "she is alone at the castle")
+            self.assertEqual(len(g.transcript), before)
+            self.assertTrue(any("spoke to nobody at The castle" in x["text"] for x in w.characters["Dimity"]["log"]))
+
+            self.assertFalse(r._say(idx["Dimity"], "ACTION: I wait.\nTHOUGHT: the wall is thinner than it looks."))
+            self.assertTrue(any("You thought: the wall is thinner than it looks." == x["text"] for x in w.characters["Dimity"]["log"]))
+            self.assertEqual(len(g.transcript), before, "a thought is nobody else's business")
+
+            self.assertTrue(r._say(idx["Bett"], "Aldous, the sack is short.\nACTION: I wait."), "he is standing right there")
+            self.assertEqual(g.transcript[-1]["heard"], ["Aldous"])
+            self.assertEqual(g.transcript[-1]["text"], "Aldous, the sack is short.")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -145,6 +191,87 @@ class TouchedTests(unittest.TestCase):
                          "Dimity, come down.", "@Dimity come down."):
                 self.assertEqual(r._reactors(speaker, line, n2i), [], line)
             self.assertEqual(r._reactors(speaker, "Nobody in particular.", n2i), [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_the_afternoon_prompt_says_where_to_find_the_people_who_matter(self) -> None:
+        """A grudge, a debt, a lover, or the person a want turns on, each with the place they are standing."""
+        tmp = Path(tempfile.mkdtemp(prefix="terra-errand-")); engine.GAMES = tmp; game.GAMES = tmp
+        try:
+            g = game.Game(engine.now_id()); g.world = self.w; w = g.world; w.created = True; w.day = 2; w.phase = "afternoon"
+            g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
+            r = game.Run(g)
+            w.set_rel("Aldous", "Cuthbert", typ="debtor", why="four gold at the harvest")
+            w.set_rel("Aldous", "Bett", feeling=-4, why="she took the sack")
+            w.characters["Aldous"]["goal"] = {"kind": "lover", "target": "Dimity", "text": "to be Dimity's lover, or more"}
+            rows = {x["name"]: x for x in w.errands("Aldous")}
+            self.assertEqual(rows["Cuthbert"]["place"], "The inn"); self.assertEqual(rows["Cuthbert"]["why"], "they owe you")
+            self.assertEqual(rows["Bett"]["why"], "you hold a grudge against them"); self.assertTrue(rows["Bett"]["here"], "she is at the mill with him")
+            self.assertEqual(rows["Dimity"]["place"], "The castle"); self.assertIn("what you want turns on them", rows["Dimity"]["why"])
+            p = r._player_prompt(1, "act")
+            self.assertIn("PEOPLE YOU HAVE A REASON TO FIND", p)
+            self.assertIn("- Cuthbert is at The inn: they owe you.", p)
+            self.assertIn("- Bett is at The mill (here, with you): you hold a grudge against them.", p)
+            self.assertIn("your ACTION can be to travel there, and you talk when you arrive", p)
+            w.phase = "morning"
+            self.assertNotIn("PEOPLE YOU HAVE A REASON TO FIND", r._player_prompt(1, "work"), "the morning is for work")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _run_for_talk(self, tmp: Path) -> tuple:
+        engine.GAMES = tmp; game.GAMES = tmp
+        g = game.Game(engine.now_id()); g.world = self.w; w = g.world; w.created = True; w.day = 2
+        g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
+        r = game.Run(g); rounds: list[tuple] = []
+        def fake_round(seats, instruction, label, on_reply, reactions=True):
+            rounds.append((label, tuple(sorted(g.seats[i]["name"] for i in seats)),
+                           instruction(seats[0]) if callable(instruction) else instruction, reactions))
+        r._round = fake_round
+        return g, w, r, rounds
+
+    def test_two_people_arriving_at_the_same_place_get_one_talk_round(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="terra-talk-"));
+        try:
+            g, w, r, rounds = self._run_for_talk(tmp)
+            c = w.characters
+            c["Aldous"]["location"] = c["Bett"]["location"] = "The mill"
+            c["Cuthbert"]["location"] = "The inn"; c["Dimity"]["location"] = "The castle"
+            ran = r._talk_round("after work")
+            self.assertEqual(len(ran), 1, ran); self.assertEqual(ran[0]["place"], "The mill")
+            self.assertEqual(ran[0]["names"], ["Aldous", "Bett"])
+            self.assertEqual(len(rounds), 1)
+            label, names, instr, reactions = rounds[0]
+            self.assertEqual(names, ("Aldous", "Bett")); self.assertIn("The mill", label)
+            self.assertFalse(reactions, "one round per group per beat, so nothing re-wakes them")
+            self.assertIn("You are at The mill with Bett.", instr); self.assertIn("No ACTION line.", instr)
+            self.assertNotIn("Cuthbert", " ".join(x[1][0] for x in rounds))
+            self.assertEqual(r._talk_round("after work"), [], "the same group at the same beat is not asked twice")
+            self.assertEqual(len(rounds), 1)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_nobody_standing_alone_is_ever_woken(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="terra-solo-"))
+        try:
+            g, w, r, rounds = self._run_for_talk(tmp)
+            for i, n in enumerate(("Aldous", "Bett", "Cuthbert", "Dimity")):
+                w.characters[n]["location"] = list(w.map)[i]
+            self.assertEqual(r._talk_round("evening"), []); self.assertEqual(rounds, [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_three_beats_in_the_same_place_give_three_rounds_and_no_more(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="terra-beats-"))
+        try:
+            g, w, r, rounds = self._run_for_talk(tmp)
+            for n in ("Aldous", "Bett", "Cuthbert", "Dimity"): w.characters[n]["location"] = "The inn"
+            for beat in ("after work", "after the afternoon", "evening"):
+                self.assertEqual(len(r._talk_round(beat)), 1, beat)
+                self.assertEqual(r._talk_round(beat), [], f"{beat} twice is still one round")
+            self.assertEqual(len(rounds), 3, [x[0] for x in rounds])
+            self.assertEqual([x["beat"] for x in r.talks], ["after work", "after the afternoon", "evening"])
+            w.day += 1
+            self.assertEqual(len(r._talk_round("after work")), 1, "tomorrow is a new day and a new round")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

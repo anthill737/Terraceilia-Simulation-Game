@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,  # noqa: F401
-                    whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES, PASTIMES)
+                    thought_line, note_log, whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 import runner
@@ -143,6 +143,8 @@ class Run:
         self.g = g; self.lock = threading.RLock()
         self.terms: list[dict] = []; self.current: str | None = None
         self.testing: dict = {}                 # while Start is testing the seats: done, total, now, names
+        self.talked: set[str] = set()           # groups already talked, one round per group per beat
+        self.talks: list[dict] = []             # every talk round run this game: day, phase, beat, place, names
         self.procs: dict[int, subprocess.Popen] = {}; self.speaking: set[int] = set()
         self.thread: threading.Thread | None = None
         self.stop_flag, self.pause_flag = threading.Event(), threading.Event()
@@ -463,9 +465,6 @@ class Run:
             color = next((x.get("color") for x in g.seats if x["name"] == speaker), None)
             place = w.characters.get(speaker, {}).get("location") if kind == "speech" else None
             heard = w.heard_by(speaker, text) if kind == "speech" else None
-            if kind == "speech":
-                absent = w.not_here(speaker, text)
-                if absent: text = text.rstrip() + "\n" + " ".join(f"{n} is not here." for n in absent)
             e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": w.day, "phase": w.phase, "color": color, "place": place, "heard": heard}
             g.transcript.append(e); self.version += 1
             seats = list(enumerate(g.seats)); locs = {n: c.get("location") for n, c in g.world.characters.items()}
@@ -531,6 +530,11 @@ class Run:
                  w.sheet(me), "\n" + (w.duty_brief(me) if w.phase == "morning" else "YOUR JOBS: " + (", ".join(DUTIES[k]["label"] for k in w.characters[me].get("duties", [])) or "none") + ".") + "\n", "\n" + w.surroundings(me), "\nWHAT IS GOING ON IN THE VALLEY (unresolved, everyone has heard):\n" + w.threads_text() + "\n", f"\nYour memory of everything you have witnessed is in {g.seat_dir(i) / 'memory.md'} (yours alone).\n"]
         u = self.day_urges.get(me) or []
         if u: parts.append("YOUR URGES TODAY, which are your nature and not a suggestion; act on at least one of them, in words or in your ACTION, and do not apologize for it:\n" + "\n".join(f"- {x}" for x in u) + "\n")
+        er = w.errands(me) if w.phase == "afternoon" else []
+        if er:
+            parts.append("PEOPLE YOU HAVE A REASON TO FIND, and where each of them is standing right now. Nothing you say reaches anyone you are not standing with, "
+                         "so the way to have it out with someone is to go to them: your ACTION can be to travel there, and you talk when you arrive.\n"
+                         + "\n".join(f"- {x['name']} is at {x['place']}{' (here, with you)' if x['here'] else ''}: {x['why']}." for x in er) + "\n")
         if new:
             parts.append("WHAT TOUCHED YOU since your last turn. Only this reached you: words spoken where you stand, things done to you or named you, and what the people you are tied to did. Do not repeat any of it back. React to it, or ignore it, as you would:\n")
             for e, v in new: parts.append(f"--- {e['speaker']} (day {e.get('day', 0)}) ---\n{v}\n")
@@ -566,6 +570,8 @@ class Run:
                 self._afternoon_phase()
                 if self.stop_flag.is_set(): break
                 self._world_phase()
+                if self.stop_flag.is_set(): break
+                self._talk_round("after the afternoon")   # travel has resolved; whoever arrived together talks
                 if self.stop_flag.is_set(): break
                 self._evening_phase()
                 if self.stop_flag.is_set(): break
@@ -695,8 +701,64 @@ class Run:
             time.sleep(0.5)
 
     def _speech_part(self, text: str) -> str:
-        """What a person said, without their ACTION line."""
-        return "\n".join(ln for ln in text.split("\n") if not re.match(r"^\s*ACTION:", ln, re.I)).strip()
+        """What a person said, without their ACTION line or their private THOUGHT line."""
+        return "\n".join(ln for ln in text.split("\n") if not re.match(r"^\s*(ACTION|THOUGHT):", ln, re.I)).strip()
+
+    def _say(self, i: int, text: str) -> bool:
+        """Put what a person said into the chronicle, if there was an ear for it. Talk is face to face: a
+        person standing alone is heard by nobody, and so is a person who addresses only people who are not
+        there. Those words are dropped and the fact is written in their own log, nowhere else."""
+        g = self.g; w = g.world; me = g.seats[i]["name"]
+        said = self._speech_part(text); thought = thought_line(text)
+        with self.lock:
+            c = w.characters.get(me)
+            if not c: return False
+            here = c["location"]; alone = w.alone(me)
+            absent = [] if alone else w.not_here(me, said)
+            dropped = alone or bool(absent and not w.addressed_here(me, said))
+            if thought: note_log(c, w.day, f"You thought: {thought}")
+            if dropped and said:
+                note_log(c, w.day, f"You spoke to nobody at {here}." + (f" {', '.join(absent)} {'is' if len(absent) == 1 else 'are'} not here." if absent else ""))
+            if thought or (dropped and said): self.version += 1
+        if dropped:
+            if said: self._term(i, f"(you spoke to nobody at {here}; the words were dropped)")
+            return False
+        if not said: return False
+        self._record(me, said, "speech"); return True
+
+    def _speech_clause(self, me: str) -> str:
+        """What the prompt asks for besides the ACTION line. With people standing there, a word to them. Alone,
+        nothing aloud at all: there is no one to hear it, so the prompt does not offer it."""
+        w = self.g.world; others = w.others_here(me); here = w.characters[me]["location"]
+        if not others:
+            return (f"Nobody else is at {here}. There is nobody to talk to, so say nothing aloud: give your ACTION line and nothing more. "
+                    "You may add one line beginning THOUGHT: and it goes into your own memory and no further.")
+        return f"You are at {here} with {', '.join(others)}. Say what you say to them, in one to three sentences, before your ACTION line."
+
+    def _talk_round(self, beat: str) -> list[dict]:
+        """Wherever two or more people are standing together, one short round: each says one line to the others
+        there. One round per group per beat, and a seat whose place is empty of others is never woken."""
+        g = self.g; w = g.world
+        with self.lock:
+            groups = w.groups_here(); seat_of = {g.seats[i]["name"]: i for i in self._able_seats()}
+        ran: list[dict] = []
+        for place in sorted(groups):
+            names = [n for n in groups[place] if n in seat_of]
+            if len(names) < 2: continue
+            key = f"{w.day}|{beat}|{place}|{','.join(names)}"
+            with self.lock:
+                if key in self.talked: continue
+                self.talked.add(key)
+            ran.append({"day": w.day, "phase": w.phase, "beat": beat, "place": place, "names": list(names)})
+            def instr_for(i: int, names: tuple = tuple(names), place: str = place) -> str:
+                me = g.seats[i]["name"]; others = [n for n in names if n != me]
+                return (f"You are at {place} with {', '.join(others)}. Say one thing to them, in one to three sentences, "
+                        "or reply exactly PASS. No ACTION line.")
+            self._round([seat_of[n] for n in names], instr_for, f"{beat}, {place}", lambda i, t: t and self._say(i, t), reactions=False)
+            if self.stop_flag.is_set(): break
+        with self.lock: self.talks.extend(ran); self.version += 1
+        self.g.save()
+        return ran
 
     def _morning_phase(self) -> None:
         """Duties. Everyone able with work is asked for WORK, REFUSE, or a free action, which is a skip. The engine settles all of it,
@@ -709,15 +771,13 @@ class Run:
 
         def on_reply(i: int, text: str | None) -> None:
             me = g.seats[i]["name"]
-            if text:
-                said = self._speech_part(text)
-                if said: self._record(me, said, "speech")
+            if text: self._say(i, text)
             with self.lock: outcomes[me] = w.resolve_morning(me, text or "", self.rng); self.version += 1
 
-        instr = ("It is morning. Your ACTION line must begin with WORK (do all your work today), WORK followed by one job's name (do that one first, then the rest, or take it up if nobody holds it), "
-                 "REFUSE (give up your jobs; they go open and people notice), or anything else, which counts as skipping your work today and costs the same. "
-                 "The engine does the work and says what came of it; never describe the outcome yourself. Speak only if something touched you; otherwise give the ACTION line alone.")
-        self._round(working, instr, "morning", on_reply, reactions=False)
+        base = ("It is morning. Your ACTION line must begin with WORK (do all your work today), WORK followed by one job's name (do that one first, then the rest, or take it up if nobody holds it), "
+                "REFUSE (give up your jobs; they go open and people notice), or anything else, which counts as skipping your work today and costs the same. "
+                "The engine does the work and says what came of it; never describe the outcome yourself. ")
+        self._round(working, lambda i: base + self._speech_clause(g.seats[i]["name"]), "morning", on_reply, reactions=False)
         if self.stop_flag.is_set(): return
         with self.lock:
             for i in self._able_seats():
@@ -733,6 +793,8 @@ class Run:
         if undone: text += "\n\nUNDONE: " + " ".join(undone)
         if m["complaints"]: text += "\n\n" + "\n".join(m["complaints"])
         self._record("The valley", text, "morning"); g.save()
+        if self.stop_flag.is_set(): return
+        self._talk_round("after work")            # the work put people side by side; they talk about it
 
     def _afternoon_phase(self) -> None:
         """Free actions, from the people something touched or whose nature is pushing them. Quiet days are allowed."""
@@ -743,7 +805,7 @@ class Run:
 
         def on_reply(i: int, text: str | None) -> None:
             if not text: return
-            me = g.seats[i]["name"]; self._record(me, text, "speech")
+            me = g.seats[i]["name"]; self._say(i, text)
             a = action_line(text)
             if a and i not in acted:
                 with self.lock:
@@ -751,11 +813,11 @@ class Run:
                     if not w.start_walk(me, a): w.set_activity(me, "acting", a[:48], [{"place": w.characters[me]["location"], "what": a[:48], "dur": 8}])
                     self.version += 1
 
-        instr = ("It is afternoon, your free time. If something touched you today or you have a want to act on, act on it now: speak if you must, then one ACTION line. "
-                 "If nothing presses, reply exactly PASS and you will spend the afternoon on your pastime.")
-        self._round(seats, instr, "afternoon", on_reply, reactions=True)
+        base = ("It is afternoon, your free time. If something touched you today or you have a want to act on, act on it now, with one ACTION line. "
+                "To say anything to someone who is not standing with you, your ACTION is to travel to them. If nothing presses, reply exactly PASS and you will spend the afternoon on your pastime. ")
+        self._round(seats, lambda i: base + self._speech_clause(g.seats[i]["name"]), "afternoon", on_reply, reactions=True)
         if self.stop_flag.is_set(): return
-        # everyone else spends the afternoon on their pastime, on the map; the same place makes company, and company talks
+        # everyone else spends the afternoon on their pastime, on the map; who ended up together is a line in the chronicle
         with self.lock:
             done = [w.do_pastime(g.seats[i]["name"], self.rng) for i in self._able_seats() if i not in acted]
             groups = w.pastime_groups(); self.version += 1
@@ -763,20 +825,9 @@ class Run:
             lines = [d["text"] for d in done]
             for pl, ns in groups.items(): lines.append(f"At {pl}: {', '.join(ns)} together.")
             self._record("The valley", "\n".join(lines), "afternoon"); g.save()
-        if groups:
-            name_seat = {g.seats[i]["name"]: i for i in self._able_seats()}
-            talkers = [name_seat[n] for ns in groups.values() for n in ns if n in name_seat]
-            def instr_for(i: int) -> str:
-                me = g.seats[i]["name"]; pl = w.characters[me]["location"]; others = [n for n in groups.get(pl, []) if n != me]
-                return (f"You are {PASTIMES[w.characters[me]['pastime']]['verb']} at {pl} with {', '.join(others)}. Say something to them if you have anything to say, in one to three sentences, or reply exactly PASS. No ACTION line.")
-            def on_talk(i: int, text: str | None) -> None:
-                if not text: return
-                said = self._speech_part(text)
-                if said: self._record(g.seats[i]["name"], said, "speech")
-            self._round(talkers, instr_for, "afternoon company", on_talk, reactions=True)
 
     def _evening_phase(self) -> None:
-        """Dusk. Everyone goes home, or to the inn if it pulls them, and the people something touched talk where they are. No actions."""
+        """Dusk. Everyone goes home, or to the inn if it pulls them, and whoever is under the same roof talks. No actions."""
         g = self.g; w = g.world
         with self.lock:
             w.phase = "evening"; moves = w.evening_places(self.rng); self.version += 1
@@ -784,16 +835,7 @@ class Run:
         at_inn = [c["name"] for c in w.living() if inn and c["location"] == inn]
         with self.lock: got = w.check_wants(self.rng)
         self._record("The valley", f"Evening. " + (f"At {inn}: {', '.join(at_inn)}. " if at_inn else "") + "Everyone else is at home." + ("".join(" " + x["text"] for x in got)), "evening")
-        seats = [i for i in self._able_seats() if self._touched(i)]
-
-        def on_reply(i: int, text: str | None) -> None:
-            if not text: return
-            me = g.seats[i]["name"]; said = self._speech_part(text)
-            if action_line(text): self._term(i, "(no actions in the evening; only what you said was kept)")
-            if said: self._record(me, said, "speech")
-
-        instr = "It is evening. You are where you are for the night, with whoever is there. Say something to them if you have something to say, in one to three sentences, or reply exactly PASS. No ACTION line tonight."
-        self._round(seats, instr, "evening", on_reply, reactions=True)
+        self._talk_round("evening")               # whoever is under the same roof for the night talks
         g.save()
 
     def _world_phase(self) -> None:
