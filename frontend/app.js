@@ -48,7 +48,7 @@ function renderValley(s){if(!s.created){$('valley').innerHTML='<div class="empty
  h+=Object.entries(byPlace).map(([pl,cs])=>`<div class="place">${esc(pl)}</div>`+cs.map(c=>`<div class="card ${c.alive?'':'dead'}" style="--c:${esc(seatColor(c.name)||'var(--faint)')}"><span class="nm">${esc(c.name)}</span> <span class="st">${esc(c.trade)} &middot; ${esc(c.location)} &middot; ${esc(c.standing)}${c.gone?' &middot; gone':''}${c.alive?'':' &middot; dead: '+esc(c.cause_of_death)}</span>
   <div class="bar"><i style="width:${Math.round(100*c.hp/c.hp_max)}%"></i></div>HP ${c.hp}/${c.hp_max} &middot; STR ${c.str} SPD ${c.spd} &middot; gold ${c.gold} &middot; ${Object.keys(c.skills).length?Object.entries(c.skills).map(([k,v])=>k+' '+v).join(', '):'no skills'}
   ${relChips(s,c.name)}
-  <details data-k="p:${esc(c.name)}"><summary>${esc(c.personality)}</summary>${c.traits?'Disposition: '+Object.entries(c.traits).map(([k,v])=>k+' '+v).join(', ')+'<br>':''}Secret: ${esc(c.secret)}<br>Fear: ${esc(c.fear)}<br>Want: ${esc(c.want)}</details></div>`).join('')).join('');
+  <details data-k="p:${esc(c.name)}"><summary>${esc(c.personality)}</summary>${c.traits?'Personality: '+Object.entries(c.traits).map(([k,v])=>k+' '+v).join(', ')+'<br>':''}Secret: ${esc(c.secret)}<br>Fear: ${esc(c.fear)}<br>Want: ${esc(c.want)}</details></div>`).join('')).join('');
  const html=h;if($('valley').dataset.html!==html){$('valley').innerHTML=html;$('valley').dataset.html=html;$('valley').querySelectorAll('details').forEach(d=>{if(wasOpen.has(d.dataset.k))d.open=true});$('valley').scrollTop=scroll;$('valley').querySelectorAll('.rel').forEach(ch=>ch.onclick=e=>{e.stopPropagation();showWhy(ch.dataset.a,ch.dataset.b)})}}
 function renderTerms(s){if(!s.terms.length){$('terms').innerHTML='<div class="empty">Terminals appear after Start.</div>';termKey='';return}if(!wantTerms())return;
  const key=s.id+':'+s.terms.length;if(termKey!==key){termKey=key;$('terms').innerHTML=s.terms.map((t,i)=>`<div class="term" id="t${i}"><div class="tb"><span class="nm"></span><span class="st"></span></div><pre></pre></div>`).join('')}
@@ -244,7 +244,7 @@ function paneBio(s,c){const places=s.places||[];const f=(id,label,inner)=>`<div 
  </div>
  <div class="row end">${(c.items||[]).length?`<span class="small" title="Things they made or found">Keeps: ${c.items.map(esc).join(', ')}</span>`:''}<button type="button" class="btn" id="b_reroll" title="Roll a new measured want for them">New want</button><span class="small">A changed life or model starts them fresh on their next turn.</span><button class="primary" id="b_save">Save</button></div>`}
 
-// ---- Body. Condition and wounds, the four needs as equal bars, then the numbers as one aligned list. What a word means is in its tooltip.
+// ---- Body, shown as Health. Condition and wounds, the four needs as equal bars, then the numbers as one aligned list. What a word means is in its tooltip.
 const CONDITION=p=>p>=100?['Unhurt','good']:p>=75?['Scratched','good']:p>=50?['Hurt','fair']:p>=25?['Badly hurt','poor']:p>0?['Dying','poor']:['Dead','poor'];
 const WOUNDS=p=>p>=100?'none':p>=75?'minor':p>=50?'serious':p>=25?'severe':p>0?'mortal':'past helping';
 function row(label,value,cls,tip){return `<div class="srow" ${tip?`title="${esc(tip)}"`:''}><span class="lbl">${label}</span><span class="val ${cls||''}">${value}</span></div>`}
@@ -265,7 +265,7 @@ function paneBody(s,c){const pct=Math.max(0,Math.min(100,Math.round(100*c.hp/Mat
   </div>
   <div class="row end"><button class="primary" id="b2_save">Save</button></div></div>`}
 
-// ---- Disposition
+// ---- Disposition, shown as Personality. The twelve dials keep their names.
 let dialSel='',tieSel='';
 function paneDisp(s,c){const t=c.traits||{};
  return `<p class="small">Their nature, which they play without softening. A step takes effect at once and starts them fresh on their next turn.</p><div class="dgrid">`

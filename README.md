@@ -174,7 +174,7 @@ line into the chronicle with the season, the weather, and what is low, broken, s
 The valley's work is split into fifteen named jobs in `data/duties.json`: mill, fields, hunt, fish,
 wood, roofs, stores, healing, kitchen, watch, burial, cleaning, trade, teaching, fire. Each says what
 it produces, what it consumes, where it happens on this map, the skill it uses, and what breaks when
-it goes undone. Every person holds one to three, seeded from their trade and disposition when the
+it goes undone. Every person holds one to three, seeded from their trade and personality when the
 world is made. Jobs change through play, never by a table: a person can refuse one as their action
 (standing drops and it goes open), hand one to someone by name, or take up one nobody holds.
 Fate can set them outright in the Jobs tab under People. Every morning an open job is covered by
@@ -184,7 +184,7 @@ and dice, the ledger moved, the skill nudged up.
 
 ### Pastimes and spirit
 
-Everyone has a pastime, rolled from `data/pastimes.json` by their disposition: carving, fishing for
+Everyone has a pastime, rolled from `data/pastimes.json` by their personality: carving, fishing for
 fun, singing at the inn, dice, drinking, wandering the ridge, gossip, tending a garden, sparring,
 telling stories, praying, collecting things. Fate can change it under People. A free afternoon goes
 to it by default, on the map, with a label. Some have side effects: fishing for fun brings a little
@@ -233,8 +233,8 @@ You are not a player, but you are not powerless.
 Gameplay sits in plain buttons across the header: the primary control, then Colony, People, World
 and Fate. Colony shows today's jobs with who holds each and the unfilled ones in red, the
 ledger with today's change per line, every place's roof, warmth and filth, the season and the weather,
-and this morning's work. People carries a Jobs tab and the want line under every name, and each card
-in the strip says what that person is doing now. The chronicle is grouped by morning, afternoon and
+and this morning's work. People carries six tabs, Bio, Health, Personality, Relationships, Jobs and
+Log, and the want line under every name, and each card in the strip says what that person is doing now. The chronicle is grouped by morning, afternoon and
 evening. Everything else is behind the gear: Connections, the three exports, Display, Stop this year,
 and Quit. On a phone the tabs are Map, Chronicle, Valley, People, and More.
 
