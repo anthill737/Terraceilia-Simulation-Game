@@ -177,6 +177,23 @@ class Sheets(unittest.TestCase):
         self.assertIn("""f"Character: {c['personality']}\"""", exporter, "and the prose keeps its own label, so there are not two")
         self.assertNotIn('f"Disposition:', exporter)
 
+    def test_every_speech_line_says_who_heard_it_in_muted_text(self) -> None:
+        """Under each thing a person said: heard by Bett, or heard by nobody, quieter than the line itself."""
+        self.assertIn("heard by ${e.heard.length?esc(e.heard.join(', ')):'nobody'}", JS)
+        self.assertIn("e.kind==='speech'&&Array.isArray(e.heard)", JS, "only a person's speech carries an audience")
+        heard = CSS[CSS.index(".msg .heard{"):CSS.index("}", CSS.index(".msg .heard{"))]
+        self.assertIn("color:var(--muted)", heard); self.assertIn("font-size:var(--fs-s)", heard)
+
+    def test_the_at_picker_belongs_to_fate_alone(self) -> None:
+        """The convener is fate and can reach one person; a villager has no such control anywhere."""
+        fate = HTML[HTML.index('id="sheet-fate"'):HTML.index("</div>", HTML.index('id="f_whisper"'))]
+        self.assertIn('id="f_whisper_who"', fate); self.assertIn('id="f_whisper"', fate)
+        self.assertEqual(HTML.count('id="f_whisper_who"'), 1)
+        people = HTML[HTML.index('id="sheet-people"'):HTML.index('id="sheet-world"')]
+        self.assertIn('data-p="ties"', people, "this really is the People sheet")
+        for tok in ("f_whisper", "@Name"): self.assertNotIn(tok, people, "the People sheet offers no way to message anyone")
+        self.assertIn("Speak as fate to everyone, or @Name to speak to one person alone.", HTML, "the composer is the convener's")
+
     def test_the_colony_header_is_the_sentence(self) -> None:
         self.assertIn('class="colsent"', JS); self.assertNotIn("nothing grows", JS); self.assertNotIn('class="colseason"', JS)
 

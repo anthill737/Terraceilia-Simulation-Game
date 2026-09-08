@@ -638,9 +638,25 @@ class Run:
         seen = int(g.last_seen.get(str(i), 0)); ties = w.ties_of(me)
         return any(touched_text(e, me, c["location"], ties) for e in g.transcript[seen:])
 
+    def _reactors(self, i: int, text: str, name_to_i: dict[str, int]) -> list[int]:
+        """Who gets a turn to answer what seat i just said: the seats standing where the speaker stands whom the
+        line names or whispers to. Being named from somewhere else wakes nobody, because nothing said here
+        reaches anyone there. Call it holding the lock."""
+        g = self.g; w = g.world
+        wts = whisper_targets(text) | mentions(text)
+        here = w.characters[g.seats[i]["name"]]["location"]
+        out = []
+        for nm, j in name_to_i.items():
+            if j == i: continue
+            other = g.seats[j]["name"]
+            if w.characters[other]["location"] != here: continue
+            if nm in wts or re.search(r"(?<![\w@])" + re.escape(other) + r"\b", text, re.I): out.append(j)
+        return out
+
     def _round(self, seats: list[int], instruction, label: str, on_reply, reactions: bool = True) -> None:
-        """One round of prompts to the given seats, in parallel. With reactions on, anyone named or whispered to at the same place
-        gets a turn to answer, and the convener's @mentions wake people. on_reply(i, text) takes each answer that is not PASS."""
+        """One round of prompts to the given seats, in parallel. With reactions on, anyone named or whispered to who is
+        standing there gets a turn to answer; being named from somewhere else wakes nobody. The convener speaks as fate,
+        so their @mentions do wake people. on_reply(i, text) takes each answer that is not PASS."""
         g = self.g; w = g.world
         reacted: set[int] = set(); queue = list(seats); threads: dict[int, threading.Thread] = {}
         name_to_i = {g.seats[i]["name"].lower(): i for i in self._able_seats()}
@@ -655,14 +671,10 @@ class Run:
             text = cap_speech(strip_dashes(text))         # one to three sentences, no dashes, the ACTION line kept whole
             on_reply(i, text)
             if not reactions: return
-            wts = whisper_targets(text) | mentions(text)
             with self.lock:
-                here = w.characters[g.seats[i]["name"]]["location"]
-                for nm, j in name_to_i.items():
-                    if j == i or j in reacted or j in threads: continue
-                    same = w.characters[g.seats[j]["name"]]["location"] == here
-                    if nm in wts or (same and re.search(r"(?<![\w@])" + re.escape(g.seats[j]["name"]) + r"\b", text, re.I)):
-                        reacted.add(j); queue.append(j)
+                for j in self._reactors(i, text, name_to_i):
+                    if j in reacted or j in threads: continue
+                    reacted.add(j); queue.append(j)
 
         seen_len = len(g.transcript)
         while not self.stop_flag.is_set():

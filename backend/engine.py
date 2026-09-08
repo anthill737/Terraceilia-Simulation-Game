@@ -1766,29 +1766,34 @@ class World:
         return (f"WHERE YOU ARE: {here}. {m['desc']}\nThings here you can use: {', '.join(m['fixtures'])}.\n"
                 f"{self.audience_line(name)}\nOne path away: {'; '.join(near)}.")
 
+    TALK_ELSEWHERE = "Nobody else knows what you say here. To talk to someone elsewhere, go there."
+
     def audience_line(self, name: str) -> str:
-        """Who hears this person: the people at their place. Anyone elsewhere is reached by @Name, carried privately, or by walking."""
+        """Who hears this person: the people standing where they stand, and nobody else. There is no way to
+        reach anyone elsewhere but to walk to them."""
         c = self.characters[name]; here = c["location"]; people = [x["name"] for x in self.at(here) if x["name"] != name]
-        head = f"You are at {here} with {', '.join(people)}. Only they hear what you say." if people else f"You are at {here} alone. Nobody hears what you say here."
-        return head + " To reach someone elsewhere, write @Name and it is carried to them privately, or travel."
+        head = f"You are at {here} with {', '.join(people)}. Only they can hear you." if people else f"You are at {here} alone. Nobody can hear you."
+        return head + " " + self.TALK_ELSEWHERE
 
     def heard_by(self, speaker: str, text: str) -> list[str]:
-        """Who a speech reaches: everyone living at the speaker's place, plus anyone @named or whispered to, wherever they are."""
+        """Who a speech reaches: the living at the speaker's place, and nobody else. Naming someone who is
+        elsewhere, with @ or without, does not carry a word to them."""
         c = self.characters.get(speaker)
         if not c: return []
-        here = c["location"]; names = {x["name"] for x in self.living() if x["name"] != speaker and x["location"] == here}
-        called = mentions(text) | whisper_targets(text)
-        names |= {x["name"] for x in self.living() if x["name"] != speaker and x["name"].lower() in called}
-        return sorted(names, key=lambda n: self.characters[n]["seat"])
+        here = c["location"]
+        return sorted((x["name"] for x in self.living() if x["name"] != speaker and x["location"] == here),
+                      key=lambda n: self.characters[n]["seat"])
 
     def not_here(self, speaker: str, text: str) -> list[str]:
-        """People the speech addresses by name, as a vocative, who are not at the place and not @named: the engine says they are not here."""
+        """People the speech addresses who are not standing there: named as a vocative, @named, or whispered
+        to. The line is kept in the chronicle with "X is not here" after it, and X never receives it."""
         c = self.characters.get(speaker)
         if not c: return []
         here = c["location"]; called = mentions(text) | whisper_targets(text); out = []
         for x in self.living():
             n = x["name"]
-            if n == speaker or x["location"] == here or n.lower() in called: continue
+            if n == speaker or x["location"] == here: continue
+            if n.lower() in called: out.append(n); continue
             if re.search(r"(?:^|[.!?]\s+|\n)" + re.escape(n) + r"\s*[,!?:]", text) or re.search(r",\s*" + re.escape(n) + r"\s*(?:[.!?,;]|$)", text, re.M): out.append(n)
         return out
 
@@ -2145,19 +2150,21 @@ def mentions(text: str) -> set[str]:
 
 def visible_text(entry: dict, viewer: str, viewer_place: str | None = None) -> str | None:
     """What `viewer` may see of a message. The World's chronicle and engine notes reach everyone.
-    The convener's words reach everyone unless they @mention someone, then only those people (and the World).
-    A person's words reach the people standing where they spoke (and themselves, and the World).
-    WHISPER lines reach only their target, at the same place."""
+    The convener speaks as fate, so their words reach everyone unless they @mention someone, and then only
+    those people (and the World). A person's words reach the people standing where they spoke and nobody
+    else: @Name names someone, it carries no word to them. A WHISPER line reaches only its target, and only
+    if the target is standing there to hear it."""
     v = viewer.lower(); sp = entry.get("speaker", "").lower()
     if entry.get("kind") == "convener":
         ms = mentions(entry.get("text", ""))
         if ms and v != "world" and v not in ms: return None
-    away = entry.get("kind") == "speech" and v not in ("world", sp) and viewer_place is not None and bool(entry.get("place")) and entry["place"] != viewer_place
+    if (entry.get("kind") == "speech" and v not in ("world", sp) and viewer_place is not None
+            and bool(entry.get("place")) and entry["place"] != viewer_place):
+        return None                                                               # said somewhere else; none of it travelled
     keep = []
     for ln in entry.get("text", "").split("\n"):
-        m = WHISPER_RE.match(ln); called = ({m.group(1).strip().lower()} if m else set()) | (mentions(ln) if entry.get("kind") == "speech" else set())
-        if called and v not in called and v not in ("world", sp): continue       # carried privately to the people named, wherever they are
-        if away and v not in called: continue                                     # the rest is heard only where it was said
+        m = WHISPER_RE.match(ln)
+        if m and v not in (m.group(1).strip().lower(), "world", sp): continue      # a whisper is for one pair of ears
         keep.append(ln)
     out = "\n".join(keep).strip()
     return out or None

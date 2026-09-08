@@ -60,7 +60,11 @@ class SpeechRuleTests(unittest.TestCase):
     def test_the_villager_rules_still_carry_the_action_line(self) -> None:
         """Shortening the speech must not lose the one line the engine parses."""
         self.assertIn("ACTION:", prompts.PLAYER_RULES)
-        self.assertIn("WHISPER @Name:", prompts.PLAYER_RULES); self.assertIn("carried to that person privately, wherever they are", prompts.PLAYER_RULES)
+        self.assertIn("WHISPER @Name:", prompts.PLAYER_RULES)
+        flat = " ".join(prompts.PLAYER_RULES.split())
+        self.assertIn("There is no way to send word to someone elsewhere", flat)
+        self.assertIn("To talk to someone elsewhere, go there.", flat)
+        self.assertNotIn("carried to that person privately", flat)
 
     def test_the_map_prompt_still_asks_for_the_world_described(self) -> None:
         self.assertIn("must read as the world described", prompts.MAP_RULES)
