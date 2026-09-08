@@ -142,6 +142,7 @@ class Run:
     def __init__(self, g: Game) -> None:
         self.g = g; self.lock = threading.RLock()
         self.terms: list[dict] = []; self.current: str | None = None
+        self.testing: dict = {}                 # while Start is testing the seats: done, total, now, names
         self.procs: dict[int, subprocess.Popen] = {}; self.speaking: set[int] = set()
         self.thread: threading.Thread | None = None
         self.stop_flag, self.pause_flag = threading.Event(), threading.Event()
@@ -235,7 +236,7 @@ class Run:
                 if better and better != seat["model"]:
                     old = seat["model"]
                     with self.lock: seat["model"] = better; g.cli_sessions.pop(str(i), None); self.version += 1; g.save()
-                    self._record("Engine", f"{seat['name']}'s model {old or '(none)'} was refused ({msg}); {seat['name']} now uses {better}, the first {seat['provider']} model that answered the probe.", "system")
+                    self._record("Engine", f"{seat['name']}'s model {old or '(none)'} was refused ({msg}); {seat['name']} now uses {better}, the first {seat['provider']} model that answered a test.", "system")
                     continue
             if not retried:
                 retried = True; self._term(i, f"[asking again once: {msg}]"); continue
@@ -248,7 +249,7 @@ class Run:
     def probe_model(self, provider: str, model: str, i: int = 0) -> tuple[bool, str]:
         """One tiny request through the same launcher and environment a turn uses. Records the result for Connections, and a
         model error marks that model bad for the rest of this game."""
-        text = self._invoke(i if i < len(self.g.seats) else 0, PROBE_PROMPT, f"probe {provider} {model}", provider=provider, model=model)
+        text = self._invoke(i if i < len(self.g.seats) else 0, PROBE_PROMPT, f"test {provider} {model}", provider=provider, model=model)
         err = self.last_error.get(i if i < len(self.g.seats) else 0) or {}
         ok = text is not None; msg = "" if ok else err.get("message", "no answer")
         connect.record_probe(provider, model, ok, msg)
@@ -290,34 +291,48 @@ class Run:
         fresh game the three chosen models stand in for the seats not yet built."""
         g = self.g
         if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
-        with self.lock: self.current = "preflight"; self.version += 1
         targets: list[tuple[dict, int | str, str]] = [(x, i, x["name"]) for i, x in enumerate(g.seats)]
         if len(g.seats) <= 1:
             for m, key, who in ((g.model_a, "a", "the first villagers' model"), (g.model_b, "b", "the second villagers' model"), (g.world_model, "w", "the World's model")):
                 if not any(m is t[0] for t in targets): targets.append((m, key, who))
+        with self.lock:
+            self.current = "preflight"; self.testing = {"done": 0, "total": len(targets), "now": "", "names": []}; self.version += 1
         seen: dict[tuple[str, str], tuple[bool, str, str]] = {}      # (provider, model) -> (ok, message, kind) this preflight
-        for ref, i, who in targets:
-            if self.stop_flag.is_set(): return False
-            prov, model = ref["provider"], ref.get("model", ""); msg = ""; si = i if isinstance(i, int) else 0
-            if model and not self.is_bad(prov, model):
-                if (prov, model) in seen: ok, msg, kind = seen[(prov, model)]
-                elif not self.can_probe(i): ok, msg, kind = True, "", ""      # probed today already; the record stands
-                else:
-                    self.note_probed(i); ok, msg = self.probe_model(prov, model, si); kind = "" if ok else (self.last_error.get(si if si < len(g.seats) else 0) or {}).get("kind", "other")
-                    seen[(prov, model)] = (ok, msg, kind)
-                if ok: continue
-                if kind == "auth": self._stop_with(f"Preflight failed: {prov} refused the probe for want of a sign in ({msg}). Open the gear, then Connections, and sign in. Nothing was started."); return False
-                if kind == "launcher": self._stop_with(f"A launcher bug stopped the run before it began: {msg}. Nothing was started."); return False
-                if kind != "model": self._stop_with(f"Preflight failed: {prov} {model} did not answer ({msg}). Nothing was started."); return False
-            better = self.find_model(i, prov, exclude=model)
-            if not better: self._stop_with(f"Preflight failed: no {prov} model answered the probe. Nothing was started."); return False
-            with self.lock:
-                ref["model"] = better
-                if isinstance(i, int): g.cli_sessions.pop(str(i), None)
-                g.save()
-            if model: self._record("Engine", f"{who[0].upper() + who[1:]}'s model {model} was refused at Start ({msg}); {who} now plays on {better}, the first {prov} model that answered.", "system")
-        with self.lock: self.current = None; self.version += 1; g.save()
-        return True
+        try:
+            for ref, i, who in targets:
+                with self.lock: self.testing["now"] = who; self.version += 1
+                if self.stop_flag.is_set(): return False
+                prov, model = ref["provider"], ref.get("model", ""); msg = ""; si = i if isinstance(i, int) else 0
+                if model and not self.is_bad(prov, model):
+                    if (prov, model) in seen: ok, msg, kind = seen[(prov, model)]
+                    elif not self.can_probe(i): ok, msg, kind = True, "", ""      # probed today already; the record stands
+                    else:
+                        self.note_probed(i); ok, msg = self.probe_model(prov, model, si); kind = "" if ok else (self.last_error.get(si if si < len(g.seats) else 0) or {}).get("kind", "other")
+                        seen[(prov, model)] = (ok, msg, kind)
+                    if ok: self._tested(who); continue
+                    if kind == "auth": self._stop_with(f"{prov} refused the test for want of a sign in ({msg}). Open the gear, then Connections, and sign in. Nothing was started."); return False
+                    if kind == "launcher": self._stop_with(f"A launcher bug stopped the run before it began: {msg}. Nothing was started."); return False
+                    if kind != "model": self._stop_with(f"{prov} {model} did not answer: {msg}. Nothing was started."); return False
+                better = self.find_model(i, prov, exclude=model)
+                if not better: self._stop_with(f"No {prov} model answered a test. Nothing was started."); return False
+                with self.lock:
+                    ref["model"] = better
+                    if isinstance(i, int): g.cli_sessions.pop(str(i), None)
+                    g.save()
+                if model: self._record("Engine", f"{who[0].upper() + who[1:]}'s model {model} was refused at Start ({msg}); {who} now plays on {better}, the first {prov} model that answered.", "system")
+                self._tested(who)
+            with self.lock: g.save()
+            return True
+        finally:                       # however Start ends, the line stops claiming a test is still running
+            with self.lock: self.current = None; self.testing = {}; self.version += 1
+
+    def _tested(self, who: str) -> None:
+        """One more seat has an answer. The Start screen counts them and names them as they finish."""
+        with self.lock:
+            if not self.testing: return
+            self.testing["done"] += 1; self.testing["now"] = ""
+            if who not in self.testing["names"]: self.testing["names"].append(who)
+            self.version += 1
 
     # ---- setup: the map, then the people
     def world_seat(self) -> dict:
@@ -479,8 +494,8 @@ class Run:
             self._term(i, f"[runner error] '{prov['exe']}' is not installed or not on PATH"); return None
         use_model = self.resolve_model(prov_name, model or seat.get("model", ""))
         if not use_model:
-            self.last_error[i] = {"kind": "model", "message": f"no {prov_name} model is chosen and none has answered the probe", "cmd": prov["ro_cmd"], "model": ""}
-            self._term(i, f"[runner error] no {prov_name} model is chosen and none has answered the probe"); return None
+            self.last_error[i] = {"kind": "model", "message": f"no {prov_name} model is chosen and none has answered a test", "cmd": prov["ro_cmd"], "model": ""}
+            self._term(i, f"[runner error] no {prov_name} model is chosen and none has answered a test"); return None
         pfile = g.seat_dir(i) / f"prompt_{g.turn + 1:03d}_{int(time.time() * 1000) % 100000}.md"; pfile.write_text(prompt, encoding="utf-8")
         cmd = prov["ro_cmd"].format(ask=ASK.format(prompt_file=pfile), model=use_model)
         sid = g.cli_sessions.get(str(i)) if provider is None else None

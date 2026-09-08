@@ -37,6 +37,9 @@ header .sheetbtn{font-size:var(--fs-b);padding:0 calc(var(--u) * 1.5)}
 .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}.pill.live .dot{background:var(--accent)}.pill b{color:var(--ink)}
 #startErr{display:none;grid-column:1/4;background:color-mix(in srgb,var(--rust) 15%,var(--bg));border-bottom:1px solid var(--rust);color:var(--rust);padding:var(--u) calc(var(--u) * 2);font-size:var(--fs-b)}
 #startErr.on{display:block}#startErr a{color:var(--rust)}
+#startTest{display:none;grid-column:1/4;background:var(--sunk);border-bottom:1px solid var(--line);color:var(--ink);padding:var(--u) calc(var(--u) * 2);font-size:var(--fs-b)}
+#startTest.on{display:block}#startTest .note{margin-top:calc(var(--u) / 2)}
+.conn.busy{border-color:var(--accent)}.conn .st .spin.sm{border-top-color:currentColor}
 .menu{position:relative}.menu .list{display:none;position:absolute;right:0;top:44px;min-width:300px;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-card);padding:calc(var(--u) / 2);z-index:20;box-shadow:0 12px 30px var(--shade);white-space:nowrap}.menu.open .list{display:block}.menu .list button{display:block;width:100%;text-align:left;border-color:transparent}
 .menu .list .sep{font-size:var(--fs-s);letter-spacing:.5px;text-transform:uppercase;color:var(--faint);padding:var(--u) var(--u) calc(var(--u) / 2);border-top:1px solid var(--line);margin-top:calc(var(--u) / 2)}
 .menu .list .sep:first-of-type{border-top:0;margin-top:0}
@@ -124,6 +127,7 @@ table.st{border-collapse:collapse;font-size:var(--fs-b);margin-top:var(--u)}tabl
 #placePanel .fx{display:flex;justify-content:space-between;align-items:center;padding:calc(var(--u) / 2) 0;border-top:1px solid var(--line)}#placePanel .fx.gone span{text-decoration:line-through;color:var(--faint)}
 #placePanel .fx button{height:26px;padding:0 var(--u);font-size:var(--fs-s)}
 #making{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;z-index:5;background:var(--shade)}
+.spin.sm{display:inline-block;width:11px;height:11px;border-width:2px;margin:0 calc(var(--u) / 2) -1px 0;vertical-align:baseline}
 .spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;margin:0 auto calc(var(--u) * 1.5);animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 
 /* ---------- sheets ---------- */

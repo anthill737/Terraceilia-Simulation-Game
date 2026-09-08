@@ -17,7 +17,7 @@ IS_MACOS = sys.platform == "darwin"
 HOME = Path.home()
 TTL = 60.0                      # a probe is trusted for a minute, and any action clears it at once
 PROBE_TIMEOUT = 20.0
-LOGIN_POLL = 15.0               # while a sign in is open, ask the CLI this often whether it worked
+LOGIN_POLL = 5.0                # while a sign in is open, ask the CLI this often whether it worked
 LOGIN_WAIT = 600.0              # and keep asking for this long
 
 
@@ -304,7 +304,7 @@ def invalidate(name: str | None = None) -> None:
 
 
 def state() -> dict:
-    """What the Connections rows show. A provider not yet probed is Checking, never red."""
+    """What the Connections rows show. A provider not yet tested is Checking, never red."""
     out = {}
     with _lock:
         for n, p in PROVIDERS.items():
@@ -316,14 +316,14 @@ def state() -> dict:
             j = _jobs.get(n)
             if j: row["job"] = {"kind": j["kind"], "lines": j["lines"][-14:], "done": j["done"], "ok": j["ok"],
                                 "note": j.get("note", ""), "waited": j.get("waited", 0)}
-            # Connected means a model answered a real request; a status command alone is only Signed in
+            # Connected means a model answered a real request; a status command alone is only Signed in, not tested
             good = last_good_probe(n); row["probes"] = probes_of(n); row["shares"] = p.get("shares", "")
             if row["state"] == "connected":
                 if good:
-                    row["probe_model"] = good["model"]; row["probe_time"] = time.strftime("%H:%M:%S", time.localtime(good["when"]))
+                    row["probe_model"] = good["model"]; row["probe_time"] = time.strftime("%H:%M", time.localtime(good["when"]))
                     row["detail"] = f"{good['model']} answered at {row['probe_time']}." + (" " + row["detail"] if row.get("detail") else "")
                 else:
-                    row["state"] = "signed_in"; row["detail"] = "Signed in, by its own status. Not yet probed with a real request; Start probes every seat, or press Probe."
+                    row["state"] = "signed_in"; row["detail"] = "Signed in, by its own status. No model has answered a test yet; press Test, or Start tests every seat."
             out[n] = row
     return out
 
@@ -352,6 +352,28 @@ def job(name: str) -> dict | None:
 
 def clear_job(name: str) -> None:
     with _lock: _jobs.pop(name, None)
+
+
+def begin_test(name: str) -> dict:
+    """A test is never silent. From the moment it starts the row carries a job, so the spinner and the
+    live line are there whether the convener pressed Test or Start did it for them."""
+    return _new_job(name, "test")
+
+
+def test_line(name: str, text: str) -> None:
+    """One more line under the row, as it happens."""
+    j = job(name)
+    if j and not j["done"]: _say(j, text)
+
+
+def end_test(name: str, ok: bool) -> None:
+    j = job(name)
+    if j: j["ok"] = bool(ok); j["done"] = True
+
+
+def testing(name: str) -> bool:
+    j = job(name)
+    return bool(j and j["kind"] == "test" and not j["done"])
 
 
 def _new_job(name: str, kind: str) -> dict:
@@ -456,10 +478,10 @@ def start_login(name: str) -> str:
         deadline = time.time() + LOGIN_WAIT      # ten minutes of asking the CLI whether it is signed in yet
         while time.time() < deadline:
             time.sleep(LOGIN_POLL)
-            invalidate(name); time.sleep(2.5)    # let the fresh probe land before reading it
+            invalidate(name); time.sleep(2.5)    # let the fresh answer land before reading it
             j["waited"] = int(time.time() - j["started"])
             if connected(name): j["ok"] = True; break
-        _say(j, "signed in." if j["ok"] else "[still not signed in. Press Sign in again once you have finished in the terminal.]")
+        _say(j, "Signed in." if j["ok"] else "[Still not signed in. Press Sign in again once you have finished in the terminal.]")
         j["done"] = True; invalidate(name)
     threading.Thread(target=work, daemon=True).start()
     return "A terminal window is opening..."

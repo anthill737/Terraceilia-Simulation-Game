@@ -6,6 +6,7 @@ const $=id=>document.getElementById(id);
 async function api(p,b){const r=await fetch(p,{method:b?'POST':'GET',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):null});return r.json()}
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const STATUS={idle:'Not started',running:'Running',paused:'Paused',done:'The year is over',stopped:'Stopped'};
+const hhmm=t=>{const d=new Date((t||0)*1000);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
 const mobile=()=>window.matchMedia('(max-width:820px)').matches;
 // the poll redraws every sheet; never redraw the one someone is typing into
 const typing=root=>!!root&&root.contains(document.activeElement)&&/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
@@ -62,7 +63,11 @@ function renderRail(s){const live=new Set(s.live||[]);$('railCount').textContent
 function render(s){const first=!S||S.id!==s.id;if(first){T=[];lastTurn=-1}mergeTranscript(s);S=s;providers=s.providers;
  const busy=s.status==='running';const started=s.created||s.transcript.length>0||busy||s.status==='paused';
  $('hdrTitle').textContent=s.title||'';const who=s.current?s.current.split(', '):[];
- $('statusText').innerHTML=s.current?(who.length>2?`<b>${who.length} people</b> are speaking`:`<b>${esc(s.current)}</b> ${who.length>1?'are':'is'} speaking`):`Day ${s.day}${s.status==='running'&&s.phase?' \u00b7 '+s.phase:''} \u00b7 ${STATUS[s.status]||s.status}`;
+ const tst=(s.testing&&s.testing.total)?s.testing:null;
+ // a test at Start is never silent: the pill counts the seats, the banner names each one as it answers
+ $('startTest').classList.toggle('on',!!tst);
+ if(tst)$('startTest').innerHTML=`<span class="spin sm"></span><b>Testing seats: ${tst.done} of ${tst.total}</b>${tst.now?' \u00b7 testing '+esc(tst.now):''}${tst.names.length?`<div class="note">answered: ${esc(tst.names.join(', '))}</div>`:''}`;
+ $('statusText').innerHTML=tst?`Testing seats: ${tst.done} of ${tst.total}`:s.current?(who.length>2?`<b>${who.length} people</b> are speaking`:`<b>${esc(s.current)}</b> ${who.length>1?'are':'is'} speaking`):`Day ${s.day}${s.status==='running'&&s.phase?' \u00b7 '+s.phase:''} \u00b7 ${STATUS[s.status]||s.status}`;
  $('status').classList.toggle('live',busy);
  const prim=$('primary');prim.textContent=busy?'Pause':s.status==='paused'?'Resume':started?(s.status==='done'?'Continue (6 more days)':'Continue'):'Start';
  prim.className=busy?'btn':'primary';
@@ -431,24 +436,25 @@ function renderFate(s){const alive=(s.characters||[]).filter(c=>c.alive&&!c.gone
   $('f_smite').onclick=async()=>{const n=$('f_smite_who').value;if(!confirm('Strike '+n+' down? They die at once.'))return;const r=await api('/god/smite',{name:n});say(r.last_god);render(r)}}}
 
 // ---------- Connections
-const CONN_LABEL={connected:'Connected',signed_in:'Signed in, not probed',not_installed:'Not installed',not_signed_in:'Not signed in',checking:'Checking',error:'Error'};
+const CONN_LABEL={connected:'Connected',signed_in:'Signed in, not tested',not_installed:'Not installed',not_signed_in:'Not signed in',checking:'Checking',error:'Error'};
 function renderConn(s){const root=$('connList');if(typing(root))return;const c=s.connections||{};const used=new Set((s.seats||[]).map(x=>x.provider).concat([(s.world_model||{}).provider,(s.model_a||{}).provider,(s.model_b||{}).provider]));
  root.innerHTML=Object.entries(c).map(([k,p])=>{const st=p.state==='connected'?'ok':(p.state==='checking'||p.state==='signed_in')?'unk':'bad';
-  const job=p.job;
-  return `<div class="conn" data-p="${esc(k)}">
+  const job=p.job;const running=!!(job&&!job.done);
+  const doing=running?(job.kind==='login'?'Waiting for you to sign in...':job.kind==='test'?((job.lines||[]).slice(-1)[0]||'Testing...'):'Installing...'):'';
+  return `<div class="conn${running?' busy':''}" data-p="${esc(k)}">
    <div class="hd"><span><span>${esc(k)}</span>${used.has(k)?' <span class="note">\u00b7 this game uses it</span>':''}${p.version?` <span class="note">\u00b7 ${esc(p.version)}</span>`:''}</span>
-    <span class="st ${st}">${esc(CONN_LABEL[p.state]||p.state)}</span></div>
-   <div class="note" style="margin-top:4px">${esc(p.detail||'')}</div>
+    <span class="st ${st}">${running?'<span class="spin sm"></span>':''}${esc(CONN_LABEL[p.state]||p.state)}</span></div>
+   <div class="note" style="margin-top:4px">${running?`<b>${esc(doing)}</b>`:esc(p.detail||'')}</div>
    <div class="row" style="margin-top:8px">
     ${p.state==='not_installed'&&p.can_install?`<button class="btn act" data-do="install">Install</button>`:''}
     ${p.state==='not_signed_in'&&p.can_login?`<button class="btn act" data-do="login">Sign in</button>`:''}
-    ${(p.state==='connected'||p.state==='signed_in')?`<button class="btn act" data-do="probe">Probe</button>`:''}
+    ${(p.state==='connected'||p.state==='signed_in')&&!running?`<button class="btn act" data-do="probe">Test</button>`:''}
     ${p.shares?`<span class="note">Shares one account with ${esc(p.shares)}; a game uses only one of them.</span>`:''}
     ${p.docs?`<a class="note" href="${esc(p.docs)}" target="_blank" rel="noopener" style="margin-left:auto">docs</a>`:''}
    </div>
-   ${Object.keys(p.probes||{}).length?`<div class="note" style="margin-top:6px">${Object.entries(p.probes).map(([m,r])=>`${esc(m||'(default)')}: ${r.ok?'answered':'refused'}${r.message?' ('+esc(r.message.slice(0,80))+')':''}`).join(' \u00b7 ')}</div>`:''}
+   ${Object.keys(p.probes||{}).length?`<div class="note" style="margin-top:6px">${Object.entries(p.probes).map(([m,r])=>r.ok?`${esc(m||'(default)')} answered at ${esc(hhmm(r.when))}`:`${esc(m||'(default)')} did not answer${r.message?': '+esc(r.message.slice(0,80)):''}`).join(' \u00b7 ')}</div>`:''}
    ${p.node_missing?`<div class="note" style="margin-top:6px">Node.js is needed first. <a href="https://nodejs.org" target="_blank" rel="noopener">Get Node.js</a>, then press Install.</div>`:''}
-   ${job?`<div class="res">${job.note?esc(job.note)+'\n':''}${esc((job.lines||[]).join('\n'))}${!job.done&&job.kind==='login'?'\nWaiting for the sign in to finish... '+Math.round((job.waited||0))+'s':''}</div>
+   ${job?`<div class="res">${job.note?esc(job.note)+'\n':''}${esc((job.lines||[]).join('\n'))}${!job.done&&job.kind==='login'?'\nWaiting for you to sign in... '+Math.round((job.waited||0))+'s':''}</div>
      ${job.done?`<div class="row"><button class="btn sm act" data-do="dismiss">Hide this</button></div>`:''}`:''}
   </div>`}).join('');
  root.querySelectorAll('.act').forEach(b=>b.onclick=async()=>{const box=b.closest('.conn'),k=box.dataset.p,d=b.dataset.do;

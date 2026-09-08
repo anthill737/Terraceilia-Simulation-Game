@@ -69,11 +69,12 @@ class App:
             tr = [e for e in g.transcript if e["turn"] > since] if since >= 0 else list(g.transcript)
             chars = [dict(c) for c in w.characters.values()]; ledger = dict(w.ledger); pending = list(w.pending); mp = w.map
             seats = list(g.seats); status = g.status; current = r.current; day = w.day; created = w.created; total = len(g.transcript); last_turn = g.turn
+            testing = dict(r.testing); testing["names"] = list(testing.get("names", []))
             tstates = [{"state": t["state"], "count": t["count"], "lines": list(t["lines"])[-tail:] if terms else []} for t in r.terms]
             return {"id": g.id, "title": g.title, "world_text": g.world_text, "players": g.players, "model_a": g.model_a, "model_b": g.model_b,
                     "world_model": g.world_model, "max_days": g.max_days, "max_minutes": g.max_minutes, "drama": g.drama, "repo": g.repo, "status": status,
                     "map_source": g.map_source, "map_model": g.map_model, "map_name": w.map_name, "map_generated": w.map_generated, "map_generating": r.map_generating, "map_style": w.style,
-                    "seats": seats, "transcript": tr, "transcript_total": total, "last_turn": last_turn, "current": current, "day": day, "created": created,
+                    "seats": seats, "transcript": tr, "transcript_total": total, "last_turn": last_turn, "current": current, "testing": testing, "day": day, "created": created,
                     "characters": chars, "ledger": ledger, "pending": pending, "map": mp, "relations": json.loads(json.dumps(w.relations)),
                     "threads": list(w.threads), "fires": dict(w.fires),
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies),
@@ -97,20 +98,28 @@ class App:
         return sorted(need)
 
     def probe(self, provider: str, model: str = "") -> str:
-        """Probe one provider now, through the launcher a turn uses: the model given, or its models in order until one answers."""
+        """Test one provider now, through the launcher a turn uses: the model given, or its models in order
+        until one answers. Never silent: the row carries a spinner and every line as it happens."""
         r = self.run
         if provider not in PROVIDERS: return "unknown provider"
-        if r.busy(): return "a game is running; it probes as it goes"
+        if r.busy(): return "a game is running; it tests as it goes"
+        if connect.testing(provider): return f"{provider} is being tested already."
         if not r.g.seats: r.g.seats = [r.world_seat()]; r._sync_terms()
+        connect.begin_test(provider)
         def work() -> None:
             cands = [model] if model else list(PROVIDERS[provider]["models"])
-            for m in cands:
-                ok, msg = r.probe_model(provider, m)
-                if ok: self.last_conn = f"{provider} {m} answered."; break
-                self.last_conn = f"{provider} {m} did not answer: {msg}"
-            r.version += 1
+            ok = False
+            try:
+                for m in cands:
+                    self.last_conn = f"Testing {m}..."; connect.test_line(provider, self.last_conn); r.version += 1
+                    ok, msg = r.probe_model(provider, m)
+                    self.last_conn = f"{m} answered at {time.strftime('%H:%M')}" if ok else f"{m} did not answer: {msg}"
+                    connect.test_line(provider, self.last_conn)
+                    if ok: break
+            finally:
+                connect.end_test(provider, ok); r.version += 1
         threading.Thread(target=work, daemon=True).start()
-        return f"Probing {provider}..."
+        return f"Testing {provider}..."
 
     def start_game(self) -> None:
         """Nothing starts until every agent this game needs is connected. One line says which one is not."""
