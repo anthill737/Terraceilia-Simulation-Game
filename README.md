@@ -107,11 +107,15 @@ That takes a minute or two. Then day one begins.
    name; after two days a neighbour complains and names whoever holds it.
 3. **Afternoon: free time.** Only the people something touched, or whose nature is pushing them,
    are asked, and they may act. Everyone else spends the afternoon on their pastime, on the map, and
-   people whose pastimes put them in the same place are company and get a turn to talk. Every prompt
-   says who is at the speaker's place and that only they hear; a line with `@Name` is carried to that
-   person privately wherever they are, and anyone named at the same place gets a turn to answer. The
-   chronicle says who heard each line, and a line that addresses someone absent and not `@named` gets
-   "X is not here." from the engine. Driving someone out, refusing to share,
+   people whose pastimes put them in the same place are company and get a turn to talk. A person can
+   speak only to whoever is standing with them. Every prompt says so in as many words: "You are at
+   The mill with Bett. Only they can hear you. Nobody else knows what you say here. To talk to
+   someone elsewhere, go there." There is no way for a villager to send word anywhere: `@Name` from a
+   villager names the person and carries nothing, and only someone standing there gets a turn to
+   answer. The chronicle says under every line who heard it, "heard by Bett" or "heard by nobody", and
+   a line that addresses someone who is not there is kept with "X is not here." after it while X never
+   receives a word of it. `@Name` still reaches one person when the convener uses it, because the
+   convener is fate. Driving someone out, refusing to share,
    taking work, leaving, and every job change are settled by the engine before the World sees anything.
 4. **The engine resolves the afternoon, the World tells it.** Every free action is read into one of
    fourteen verbs (travel, talk, give, take, steal, hit, drive out, help, tend, court, pray, trade,

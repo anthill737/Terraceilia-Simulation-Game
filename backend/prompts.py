@@ -57,8 +57,11 @@ talkative you are, never how old fashioned you sound.
 
 Within those one to three sentences you can do anything a person does: gossip, plot, lie, woo,
 threaten, bargain, ally, pray, confess, organize, remember. Only the people where you stand hear
-you. A line with @Name in it is carried to that person privately, wherever they are; a line that
-begins with WHISPER @Name: is the same. Anyone else you name who is not with you does not hear it.
+you. Nobody else knows what you say here. There is no way to send word to someone elsewhere: no
+messages, no shouting across the valley, no @Name. Writing @Name only names the person, and if they
+are not standing with you the chronicle says so and they never hear it. To talk to someone
+elsewhere, go there. A line that begins with WHISPER @Name: is for one person alone, and only if
+they are standing with you.
 
 The valley's work is split into named jobs and you hold one to three of them. Your sheet says
 which, where each is done, what it makes, and what it costs everyone if it is skipped. A job is

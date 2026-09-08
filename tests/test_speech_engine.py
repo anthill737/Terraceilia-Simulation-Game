@@ -82,16 +82,33 @@ class TouchedTests(unittest.TestCase):
         away = {"kind": "speech", "speaker": "Cuthbert", "place": "The inn", "text": "Another cup.\nACTION: I drink."}
         self.assertTrue(touched_text(here, "Aldous", "The mill", ties)); self.assertIsNone(touched_text(away, "Aldous", "The mill", ties))
 
-    def test_an_at_name_line_is_carried_privately_anywhere(self) -> None:
+    def test_an_at_name_carries_nowhere_and_names_the_person_only(self) -> None:
+        """A villager can reach nobody but the people standing with them. @Name is a name, not a message."""
         w = self.w; ties = w.ties_of("Aldous")
         e = {"kind": "speech", "speaker": "Bett", "place": "The mill", "text": "Cold, isn't it.\n@Cuthbert the roof is yours.\nACTION: I wait."}
-        self.assertEqual(touched_text(e, "Cuthbert", "The inn", ties), "@Cuthbert the roof is yours.", "the @ line reaches him at the inn and nothing else does")
-        self.assertEqual(touched_text(e, "Aldous", "The mill", ties), "Cold, isn't it.\nACTION: I wait.", "the people at the mill hear the rest, not the private line")
+        self.assertIsNone(touched_text(e, "Cuthbert", "The inn", ties), "the @ line does not reach him at the inn")
+        self.assertEqual(touched_text(e, "Aldous", "The mill", ties), e["text"], "the people at the mill hear all of it, @ line included")
         self.assertIsNone(touched_text(e, "Dimity", "The castle", ties))
-        self.assertEqual(w.heard_by("Bett", e["text"]), ["Aldous", "Cuthbert"]); self.assertEqual(w.heard_by("Dimity", "Anyone?"), [])
-        self.assertEqual(w.not_here("Bett", "Dimity, come down from there."), ["Dimity"]); self.assertEqual(w.not_here("Bett", "@Dimity come down."), [])
+        self.assertEqual(w.heard_by("Bett", e["text"]), ["Aldous"], "only the mill hears it")
+        self.assertEqual(w.heard_by("Dimity", "Anyone?"), [])
+        self.assertEqual(w.not_here("Bett", "Dimity, come down from there."), ["Dimity"])
+        self.assertEqual(w.not_here("Bett", "@Dimity come down."), ["Dimity"], "@ names her, and she is not here")
+        self.assertEqual(w.not_here("Bett", "WHISPER @Cuthbert: bring ale."), ["Cuthbert"], "a whisper to someone elsewhere reaches nobody either")
         self.assertEqual(w.not_here("Bett", "Dimity owes me two coins."), [], "talking about someone is not addressing them")
         self.assertEqual(w.not_here("Bett", "Aldous, pass the sack."), [], "Aldous is here")
+
+    def test_a_whisper_is_for_one_pair_of_ears_at_the_place(self) -> None:
+        w = self.w; ties = w.ties_of("Aldous")
+        e = {"kind": "speech", "speaker": "Bett", "place": "The mill", "text": "WHISPER @Aldous: the sack is short.\nACTION: I wait."}
+        self.assertIn("the sack is short", touched_text(e, "Aldous", "The mill", ties) or "")
+        self.assertIsNone(touched_text(e, "Cuthbert", "The inn", ties), "not at the mill, so none of it")
+        w.characters["Cuthbert"]["location"] = "The mill"
+        try:
+            got = touched_text(e, "Cuthbert", "The mill", ties) or ""
+            self.assertNotIn("the sack is short", got, "standing there, but the whisper was not for him")
+            self.assertIn("ACTION: I wait.", got)
+        finally:
+            w.characters["Cuthbert"]["location"] = "The inn"
 
     def test_the_prompt_states_the_audience_and_the_chronicle_says_who_heard(self) -> None:
         tmp = Path(tempfile.mkdtemp(prefix="terra-aud-")); engine.GAMES = tmp; game.GAMES = tmp
@@ -100,13 +117,34 @@ class TouchedTests(unittest.TestCase):
             g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
             r = game.Run(g)
             p = r._player_prompt(1, "speak")
-            self.assertIn("You are at The mill with Bett. Only they hear what you say. To reach someone elsewhere, write @Name and it is carried to them privately, or travel.", p)
-            self.assertIn("You are at The castle alone. Nobody hears what you say here. To reach someone elsewhere, write @Name and it is carried to them privately, or travel.", r._player_prompt(4, "speak"))
+            self.assertIn("You are at The mill with Bett. Only they can hear you. Nobody else knows what you say here. To talk to someone elsewhere, go there.", p)
+            self.assertIn("You are at The castle alone. Nobody can hear you. Nobody else knows what you say here. To talk to someone elsewhere, go there.", r._player_prompt(4, "speak"))
             r._record("Bett", "Dimity, come down.\nACTION: I wait.", "speech"); e = g.transcript[-1]
             self.assertEqual(e["heard"], ["Aldous"]); self.assertTrue(e["text"].endswith("Dimity is not here."), e["text"])
             r._record("Dimity", "Nobody up here but the wind.", "speech"); self.assertEqual(g.transcript[-1]["heard"], [])
-            r._record("Dimity", "@Cuthbert bring ale up.", "speech"); self.assertEqual(g.transcript[-1]["heard"], ["Cuthbert"])
+            r._record("Dimity", "@Cuthbert bring ale up.", "speech"); e2 = g.transcript[-1]
+            self.assertEqual(e2["heard"], [], "she is alone at the castle; the @ carries nothing to the inn")
+            self.assertTrue(e2["text"].endswith("Cuthbert is not here."), e2["text"])
             self.assertIsNone(g.transcript[-1].get("note")); self.assertIsNone(r._record("World", "The day ends.", "world")); self.assertIsNone(g.transcript[-1]["heard"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_only_the_people_standing_there_are_woken_to_answer(self) -> None:
+        """Naming someone reaches them only if they are there. @ and WHISPER wake nobody who is elsewhere."""
+        tmp = Path(tempfile.mkdtemp(prefix="terra-react-")); engine.GAMES = tmp; game.GAMES = tmp
+        try:
+            g = game.Game(engine.now_id()); g.world = self.w; w = g.world; w.created = True; w.day = 2
+            g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
+            r = game.Run(g)
+            idx = {s["name"]: i for i, s in enumerate(g.seats)}
+            n2i = {n.lower(): i for n, i in idx.items() if n != "World"}
+            speaker = idx["Bett"]                                   # Bett is at The mill with Aldous
+            self.assertEqual(r._reactors(speaker, "Aldous, pass the sack.", n2i), [idx["Aldous"]])
+            self.assertEqual(r._reactors(speaker, "@Aldous pass the sack.", n2i), [idx["Aldous"]])
+            for line in ("Cuthbert, get up here.", "@Cuthbert get up here.", "WHISPER @Cuthbert: get up here.",
+                         "Dimity, come down.", "@Dimity come down."):
+                self.assertEqual(r._reactors(speaker, line, n2i), [], line)
+            self.assertEqual(r._reactors(speaker, "Nobody in particular.", n2i), [])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
