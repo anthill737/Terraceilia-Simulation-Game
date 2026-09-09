@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,  # noqa: F401
-                    thought_line, note_log, whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES, SOCIAL, clean_voice, sentences)
+                    thought_line, note_log, whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES, SOCIAL, clean_voice, sentences, roll_voice)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 import runner
@@ -33,8 +33,10 @@ def clean_line(text: str | None) -> str | None:
 # ---------------------------------------------------------------- a game (persisted)
 class Game:
     def __init__(self, gid: str, d: dict | None = None) -> None:
-        self.id = gid; self.dir = GAMES / gid; self.dir.mkdir(parents=True, exist_ok=True)
         d = d or {}
+        self.draft = bool(d.get("draft", False))                     # a draft is not a game: it lives under games/drafts and has no game folder
+        self.draft_narration = d.get("draft_narration", ""); self.draft_note = d.get("draft_note", "")
+        self.id = gid; self.dir = (GAMES / "drafts" / gid) if self.draft else (GAMES / gid)
         self.title = d.get("title", "")
         self.created = d.get("created", dt.datetime.now().isoformat(timespec="minutes"))
         self.world_text = d.get("world_text", DEFAULT_WORLD)
@@ -61,7 +63,7 @@ class Game:
         self.world = World(d.get("world"))
 
     def to_dict(self) -> dict:
-        return {"title": self.title, "created": self.created, "world_text": self.world_text, "players": self.players,
+        return {"title": self.title, "created": self.created, "world_text": self.world_text, "players": self.players, "draft": self.draft, "draft_narration": self.draft_narration, "draft_note": self.draft_note,
                 "model_a": self.model_a, "model_b": self.model_b, "world_model": self.world_model, "max_days": self.max_days,
                 "map_source": self.map_source, "map_model": self.map_model,
                 "max_minutes": self.max_minutes, "drama": self.drama, "repo": self.repo, "seats": self.seats, "transcript": self.transcript,
@@ -69,7 +71,8 @@ class Game:
                 "last_seen": self.last_seen, "bad_models": self.bad_models, "probe_day": self.probe_day, "world": self.world.to_dict()}
 
     def save(self, chronicle: bool = False) -> None:
-        (self.dir / "game.json").write_text(json.dumps(self.to_dict()), encoding="utf-8")
+        self.dir.mkdir(parents=True, exist_ok=True)
+        (self.dir / ("draft.json" if self.draft else "game.json")).write_text(json.dumps(self.to_dict()), encoding="utf-8")
         if chronicle: self.write_chronicle()
 
     def write_chronicle(self) -> None:
@@ -115,12 +118,15 @@ class Game:
     @classmethod
     def load(cls, gid: str) -> "Game | None":
         f = GAMES / gid / "game.json"
+        if not f.exists(): f = GAMES / "drafts" / gid / "draft.json"
         if not f.exists(): return None
-        try: return cls(gid, json.loads(f.read_text(encoding="utf-8")))
+        try:
+            d = json.loads(f.read_text(encoding="utf-8")); d["draft"] = f.name == "draft.json"
+            return cls(gid, d)
         except Exception: return None
 
     def seat_dir(self, i: int) -> Path:
-        d = self.dir / f"seat{i}"; d.mkdir(exist_ok=True)
+        d = self.dir / f"seat{i}"; d.mkdir(parents=True, exist_ok=True)
         m = d / "memory.md"
         if not m.exists(): m.write_text(f"# {self.seats[i]['name'] if i < len(self.seats) else i}: memory\n\n(Nothing yet.)\n", encoding="utf-8")
         return d
@@ -129,8 +135,20 @@ class Game:
 _GAMES_CACHE: dict[str, tuple[float, dict]] = {}
 
 
+def list_drafts() -> list[dict]:
+    """Every draft, newest first: a draft is a valley being chosen, not a game, and lives apart from the game folders."""
+    out = []
+    for f in sorted(GAMES.glob("drafts/*/draft.json"), reverse=True):
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+            out.append({"id": f.parent.name, "title": d.get("title") or "Terraceilia", "created": d.get("created", ""), "status": "draft", "day": 0,
+                        "people": len(d.get("world", {}).get("characters", {}))})
+        except Exception: continue
+    return out
+
+
 def list_games() -> list[dict]:
-    """Index of games. Parses a game.json only when its mtime changed, so polling stays cheap."""
+    """Index of games. Parses a game.json only when its mtime changed, so polling stays cheap. Drafts are not games."""
     out = []
     for f in sorted(GAMES.glob("*/game.json"), reverse=True):
         try:
@@ -155,6 +173,7 @@ class Run:
         self.g = g; self.lock = threading.RLock()
         self.terms: list[dict] = []; self.current: str | None = None
         self.testing: dict = {}                 # while Start is testing the seats: done, total, now, names
+        self.generating: str = ""               # while a draft is being rolled: all, people, map, reroll <name>, add <name>
         self.talked: set[str] = set()           # groups already talked, one round per group per beat
         self.talks: list[dict] = []             # every talk round run this game: day, phase, beat, place, names
         self.procs: dict[int, subprocess.Popen] = {}; self.speaking: set[int] = set()
@@ -390,6 +409,7 @@ class Run:
     def regenerate_map(self) -> str:
         """Draw a new map now, before Start. Once people exist the map is fixed for the game."""
         g = self.g; w = g.world
+        if g.draft: return self.generate("map")
         with self.lock:
             if w.created or w.characters or len(g.seats) > 1: return "the map is fixed once people exist"
             if self.busy() or self.map_generating: return "busy; try again in a moment"
@@ -427,7 +447,7 @@ class Run:
     def start(self) -> None:
         with self.lock:
             g = self.g
-            if self.busy() or self.map_generating: return
+            if self.busy() or self.map_generating or self.generating or g.draft: return
             if g.status == "paused" and self.thread and self.thread.is_alive():
                 self.blocked = ""; self.pause_flag.clear(); g.status = "running"; self.version += 1; g.save(); return
             if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()     # the map and the people are made in the run, see _run
@@ -596,30 +616,96 @@ class Run:
             with self.lock: self.current = None; g.status = "stopped" if self.stop_flag.is_set() else "done"; g.save(chronicle=True)
 
     def _create_world(self) -> None:
+        """A game started the old way, with no draft: the lives are asked for here and the world is created at once."""
         g = self.g; w = g.world
-        names = [c["name"] for c in w.characters.values()]
+        w.seed_wants(self.rng); out = self._ask_lives(list(w.characters))
+        if out is None: return
+        w.seed_all_relations(self.rng); w.seed_duties(self.rng); w.seed_pastimes(self.rng)
+        for rr in out.get("relations", []) or []:
+            if isinstance(rr, dict):
+                w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
+                if rr.get("mutual", True): w.set_rel(str(rr.get("b", "")), str(rr.get("a", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
+        w.created = True; w.day = 1
+        self._record("World", (strip_dashes(strip_json(out.get("narration") or "The valley wakes.")) + "\n\n" + w.standings_table()), "world")
+    # ---- the draft: the map and the people rolled and shown before anything is a game
+    def generate(self, what: str = "all") -> str:
+        """Roll the draft in the background: the map (kept, built in, or drawn from the description), the people, and their
+        lives from the World. "people" rerolls everyone and keeps the map; "map" redraws the map and keeps the people."""
+        g = self.g; w = g.world
+        with self.lock:
+            if not g.draft: return "this is a game, not a draft"
+            if self.busy() or self.generating or self.map_generating: return "busy; try again in a moment"
+            if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
+            self.stop_flag.clear(); self.generating = what; g.draft_note = ""; self.version += 1
+        def work() -> None:
+            try:
+                if what in ("all", "map"):
+                    if what == "map" and g.map_source == "generated": w.map_generated = False
+                    self.prepare_map()
+                    if what == "map" and w.characters:
+                        places = list(w.map); rng = random.Random()
+                        with self.lock:
+                            for c in w.characters.values():
+                                if c.get("home") not in w.map: c["home"] = rng.choice(places)
+                                if c.get("location") not in w.map: c["location"] = c["home"]
+                            w.seed_places(); self.version += 1
+                if what in ("all", "people"):
+                    self._build_people(); self._roll_lives()
+            finally:
+                with self.lock: self.generating = ""; self.version += 1
+                g.save()
+        threading.Thread(target=work, daemon=True).start()
+        return "rolling the valley; watch the World's terminal"
+
+    def _roll_lives(self) -> bool:
+        """Ask the World for a life for every rolled person, seed everything the engine seeds, and keep the opening narration
+        for the day the draft becomes a game. If the World gives nothing, the people are rolled plain and the draft says so."""
+        g = self.g; w = g.world; out = self._ask_lives(list(w.characters))
         w.seed_wants(self.rng)
-        stats = "\n".join(f"- {c['name']}: STR {c['str']} SPD {c['spd']} HP {c['hp_max']} gold {c['gold']}, currently at {c['location']}; wants, in plain terms, {c['goal']['text']}" for c in w.characters.values())
+        if out is None:
+            for c in w.characters.values():
+                c["trade"] = c.get("trade") or "villager"; c["personality"] = c.get("personality") or "keeps their own counsel"
+                c["secret"] = c.get("secret") or "nothing worth telling"; c["fear"] = c.get("fear") or "the cold"; c["want"] = c.get("want") or "to see spring"
+                c["voice"] = c.get("voice") or roll_voice(c, self.rng)
+            g.draft_note = "The World gave no lives, so the people are rolled plain. Reroll all to try again."
+        w.seed_all_relations(self.rng); w.seed_duties(self.rng); w.seed_pastimes(self.rng)
+        if out:
+            for rr in out.get("relations", []) or []:
+                if isinstance(rr, dict):
+                    w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
+                    if rr.get("mutual", True): w.set_rel(str(rr.get("b", "")), str(rr.get("a", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
+            g.draft_narration = strip_dashes(strip_json(out.get("narration") or "The valley wakes."))
+        else: g.draft_narration = "The valley wakes."
+        with self.lock: self.version += 1
+        g.save(); return out is not None
+
+    def _ask_lives(self, names: list[str]) -> dict | None:
+        """The creation prompt for these names, answered by the World: {"people": {...}, "relations": [...], "narration": str}
+        with every person's fields already written onto their character, or None if nothing usable came back."""
+        g = self.g; w = g.world
+        if not names: return {"people": {}, "relations": [], "narration": ""}
+        stats = "\n".join(f"- {c['name']}: STR {c['str']} SPD {c['spd']} HP {c['hp_max']} gold {c['gold']}, currently at {c['location']}; wants, in plain terms, {(c.get('goal') or {}).get('text', 'to see spring')}" for c in w.characters.values() if c["name"] in names)
+        others = [n for n in w.characters if n not in names]
         prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", "The engine has rolled these people. Give each a life. Homes must be places on the map.",
-            stats, "\nWrite a short opening narration (the valley waking, the early frost, the rider's news) and then a fenced ```json block, exactly this shape:",
+            stats, ("\nThese people already have their lives and are not to be written again, only tied to: " + ", ".join(others) + ".\n") if others else "",
+            "\nWrite a short opening narration (the valley waking, the early frost, the rider's news) and then a fenced ```json block, exactly this shape:",
             '```json\n{"people":[{"name":"Name","trade":"miller","home":"The mill","personality":"one line","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything, in their own terms, built around the plain want the engine rolled for them",'
             '"voice":{"length":"clipped or plain or rambling","habit":"one verbal habit, a few words","examples":["three lines they might say","in their own voice","one each"],"never":"what they never talk about"}}],'
             '"relations":[{"a":"Name","b":"OtherName","type":"spouse","feeling":3,"trust":2,"mutual":true,"why":"married twelve years; he drinks, she keeps the ledger"}]}\n```',
             "One entry per name, every name, names exact. Make them different from each other: some rich, some poor, some liked, some feared, some with dangerous secrets that touch other people in this list. "
             "Then give the valley a web of relationships in \"relations\": at least eight, each with a \"why\" (one line of history: how they met, what happened, what is owed), using types spouse, lover, kin, friend, rival, enemy, creditor, debtor, master, servant; feeling and trust run from -5 (hate, would knife them) to 5 (love, trust with their life). "
             "Make some relationships one-sided (mutual false, then a second entry the other way with different numbers): an unrequited love, a servant who hates a master who trusts him, a debtor who smiles at a creditor he loathes."])
-        self._term(0, "creating the world...")
-        people: dict = {}; out = None
+        self._term(0, "creating the world..." if not others else f"giving {', '.join(names)} a life...")
+        people: dict = {}; out = None; data: dict = {}
         for attempt in range(2):
-            if self.stop_flag.is_set(): return
+            if self.stop_flag.is_set(): return None
             out = self.ask(0, prompt if attempt == 0 else prompt + "\n\nYour last reply had no valid JSON block. Reply again with the narration and the fenced json block.", "creation")
             data = extract_json(out or "") or {}
             people = {str(p.get("name")): p for p in data.get("people", []) if isinstance(p, dict)}
             if out and len(people) >= max(1, len(names) // 2): break
-        if self.stop_flag.is_set() or not out: return
+        if self.stop_flag.is_set() or not out: return None
         for n in names:
-            p = people.get(n, {})
-            c = w.characters[n]
+            p = people.get(n, {}); c = w.characters[n]
             sd = lambda v, alt: strip_dashes(str(v or alt))   # noqa: E731
             c["trade"] = sd(p.get("trade"), "villager")[:40]; c["home"] = str(p.get("home") or c["location"])[:40]
             c["personality"] = sd(p.get("personality"), "keeps their own counsel")[:200]
@@ -627,13 +713,148 @@ class Run:
             c["want"] = sd(p.get("want"), "to see spring")[:200]
             c["voice"] = clean_voice(p.get("voice"), c, self.rng)          # fixed for the game; fate can edit it under Bio
             if p.get("home") in w.map: c["location"] = p["home"]
-        w.seed_all_relations(self.rng); w.seed_duties(self.rng); w.seed_pastimes(self.rng)
-        for rr in data.get("relations", []) or []:
-            if isinstance(rr, dict):
-                w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
-                if rr.get("mutual", True): w.set_rel(str(rr.get("b", "")), str(rr.get("a", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
-        w.created = True; w.day = 1
-        self._record("World", (strip_dashes(strip_json(out or "The valley wakes.")) + "\n\n" + w.standings_table()), "world")
+        g.cli_sessions.pop("0", None)      # the World begins the year fresh
+        return {"people": people, "relations": data.get("relations", []) or [], "narration": out}
+
+    def _fresh_name(self, rng: random.Random) -> str:
+        w = self.g.world; used = {n.lower() for n in w.characters}
+        pool = [n for n in (list(w.names) if w.names else []) + NAMES if n.lower() not in used]
+        return rng.choice(pool) if pool else f"Newcomer {len(w.characters) + 1}"
+
+    def reroll_person(self, name: str) -> str:
+        """A new name, trade, personality, secret, fear, want and way of speaking for one drafted person, from the World.
+        Their seat and model, their stats, their nature, their jobs and their pastime stay. Runs in the background."""
+        g = self.g; w = g.world
+        with self.lock:
+            if not g.draft: return "this is a game, not a draft"
+            if name not in w.characters: return "no such person"
+            if self.busy() or self.generating: return "busy; try again in a moment"
+            new = self._fresh_name(random.Random()); self.generating = f"reroll {name}"; self.version += 1
+        def work() -> None:
+            try:
+                with self.lock: self._rename(name, new)
+                for k in ("trade", "personality", "secret", "fear", "want"): w.characters[new][k] = ""
+                w.characters[new]["voice"] = None
+                if self._ask_lives([new]) is None:
+                    c = w.characters[new]; c["trade"] = "villager"; c["personality"] = "keeps their own counsel"; c["secret"] = "nothing worth telling"; c["fear"] = "the cold"; c["want"] = "to see spring"; c["voice"] = roll_voice(c, self.rng)
+                    g.draft_note = f"The World gave {new} no life, so they are rolled plain."
+            finally:
+                with self.lock: self.generating = ""; self.version += 1
+                g.save()
+        threading.Thread(target=work, daemon=True).start()
+        return f"rerolling {name}"
+
+    def _rename(self, old: str, new: str) -> None:
+        """One person's name changes everywhere the draft knows it."""
+        g = self.g; w = g.world
+        w.characters = {(new if k == old else k): v for k, v in w.characters.items()}; w.characters[new]["name"] = new
+        for x in g.seats:
+            if x["name"] == old: x["name"] = new
+        w.relations = {(new if a == old else a): {(new if b == old else b): r for b, r in rs.items()} for a, rs in w.relations.items()}
+        for k in list(w.activities):
+            if k == old: w.activities[new] = w.activities.pop(old)
+        self._sync_terms()
+
+    def add_person(self) -> str:
+        """One more drafted person: rolled by the engine, given a life by the World in the background, seated on the next model."""
+        g = self.g; w = g.world
+        with self.lock:
+            if not g.draft: return "this is a game, not a draft"
+            if self.busy() or self.generating: return "busy; try again in a moment"
+            if len(w.characters) >= 30: return "thirty people is the most a valley holds"
+            if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
+            rng = random.Random(); n = self._fresh_name(rng); i = len(g.seats) - 1; m = g.model_a if i % 2 == 0 else g.model_b
+            w.characters[n] = roll_character(n, len(w.characters) + 1, rng, list(w.map))
+            g.seats.append({"name": n, "provider": m["provider"], "model": m["model"], "color": PALETTE[i % len(PALETTE)]})
+            w.ledger = starting_ledger(len(w.characters), len(w.map)); self._sync_terms(); self.generating = f"add {n}"; self.version += 1
+        def work() -> None:
+            try:
+                w.seed_wants(self.rng)
+                if self._ask_lives([n]) is None:
+                    c = w.characters[n]; c["trade"] = "villager"; c["personality"] = "keeps their own counsel"; c["secret"] = "nothing worth telling"; c["fear"] = "the cold"; c["want"] = "to see spring"; c["voice"] = roll_voice(c, self.rng)
+                    g.draft_note = f"The World gave {n} no life, so they are rolled plain."
+                with self.lock:
+                    w.seed_all_relations(self.rng); w.seed_pastimes(self.rng)
+                    c = w.characters[n]
+                    if not c.get("duties"):
+                        fit = {k: w.duty_fit(c, k) for k in DUTIES}; free = [k for k in DUTIES if not w.holders(k)] or list(DUTIES)
+                        c["duties"] = [max(free, key=lambda k: fit[k])]
+                    self.version += 1
+            finally:
+                with self.lock: self.generating = ""; self.version += 1
+                g.save()
+        threading.Thread(target=work, daemon=True).start()
+        return f"adding {n}"
+
+    def remove_person(self, name: str) -> str:
+        g = self.g; w = g.world
+        with self.lock:
+            if not g.draft: return "this is a game, not a draft"
+            if name not in w.characters: return "no such person"
+            if self.busy() or self.generating: return "busy; try again in a moment"
+            del w.characters[name]; g.seats = [x for x in g.seats if x["name"] != name]
+            w.relations.pop(name, None)
+            for rs in w.relations.values(): rs.pop(name, None)
+            w.activities.pop(name, None); self._sync_terms(); self.version += 1; g.save()
+        return f"{name} removed from the draft"
+
+    def seat_tested(self, x: dict) -> bool:
+        """A seat is ready when the model it will run on has answered a test."""
+        m = x.get("model") or connect.first_accessible(x["provider"]) or ""
+        return bool(m) and bool(connect.probes_of(x["provider"]).get(m, {}).get("ok"))
+
+    def draft_ready(self) -> bool:
+        g = self.g
+        return bool(g.draft and g.world.characters and not self.generating and g.seats and all(self.seat_tested(x) for x in g.seats))
+
+    def test_seats(self) -> str:
+        """Test every distinct model the draft's seats will run on, in the background, one after another."""
+        g = self.g
+        with self.lock:
+            if self.busy() or self.generating or self.testing: return "busy; try again in a moment"
+            if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
+            pairs: list[tuple[str, str]] = []
+            for x in g.seats:
+                p = (x["provider"], x.get("model", ""))
+                if p not in pairs: pairs.append(p)
+            self.testing = {"done": 0, "total": len(pairs), "now": "", "names": []}; self.version += 1
+        def work() -> None:
+            try:
+                for prov, model in pairs:
+                    if self.stop_flag.is_set(): break
+                    with self.lock: self.testing["now"] = f"{prov} {model or 'first that answers'}"; self.version += 1
+                    if model: self.probe_model(prov, model)
+                    else:
+                        for cand in PROVIDERS.get(prov, {}).get("models", []):
+                            ok, _ = self.probe_model(prov, cand)
+                            if ok: break
+                    with self.lock:
+                        self.testing["done"] += 1; self.testing["now"] = ""
+                        if self.seat_tested({"provider": prov, "model": model}): self.testing["names"].append(f"{prov} {model or connect.first_accessible(prov) or ''}".strip())
+                        self.version += 1
+            finally:
+                with self.lock: self.testing = {}; self.version += 1
+        threading.Thread(target=work, daemon=True).start()
+        return "testing the seats"
+
+    def freeze_draft(self) -> None:
+        """The draft becomes the game: its folder moves under games, the world is created as of day one, and the opening
+        narration the World wrote at Generate time is the first line of the chronicle."""
+        g = self.g; w = g.world
+        with self.lock:
+            if not g.draft: return
+            old = g.dir; g.draft = False; g.dir = GAMES / g.id
+            if old.exists():
+                if g.dir.exists(): shutil.rmtree(g.dir, ignore_errors=True)
+                shutil.move(str(old), str(g.dir))
+            for f in (g.dir / "draft.json",):
+                try:
+                    if f.exists(): f.unlink()
+                except OSError: pass
+            w.created = True; w.day = 1; g.status = "idle"; self.version += 1
+            g.save()
+        self._record("World", (g.draft_narration or "The valley wakes.") + "\n\n" + w.standings_table(), "world")
+        g.draft_narration = ""; g.save()
 
     def _dawn(self) -> None:
         """The valley wears a little: weather, spoilage, hunger, cold, sickness, and the dead by morning. Before anyone speaks."""

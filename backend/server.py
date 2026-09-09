@@ -11,7 +11,7 @@ from engine import ALL_NEEDS, DUTIES, clean_voice, GAMES, PASTIMES, SEASONS, STA
 
 DUTY_DEFS = {k: {x: d.get(x) for x in ("label", "verb", "skill", "produces", "consumes", "effect", "breaks")} for k, d in DUTIES.items()}
 PASTIME_DEFS = {k: {"label": d["label"], "verb": d["verb"]} for k, d in PASTIMES.items()}
-from game import Game, Run, list_games
+from game import list_drafts, Game, Run, list_games
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -33,10 +33,11 @@ class App:
             except OSError: pass
 
     def _latest(self) -> Game:
-        for m in list_games():
+        """The newest thing, draft or game; with nothing at all, a fresh draft."""
+        for m in sorted(list_games() + list_drafts(), key=lambda m: m["id"], reverse=True):
             g = Game.load(m["id"])
             if g: return g
-        return Game(now_id())
+        g = Game(now_id(), {"draft": True}); g.save(); return g
 
     @property
     def run(self) -> Run: return self.runs[self.gid]
@@ -82,7 +83,8 @@ class App:
                     "calendar_rows": [season_row(name) for _, name in SEASONS], "sentence": season_sentence(w.day, w.weather),
                     "titles": w.titles(), "want_progress": {c["name"]: w.want_progress(c["name"]) for c in w.characters.values()}, "social": list(w.social_log[-400:]),
                     "activities": json.loads(json.dumps(w.activities)), "now": time.time(),
-                    "games": list_games(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
+                    "games": list_games() + list_drafts(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
+                    "draft": g.draft, "generating": r.generating, "draft_ready": r.draft_ready(), "draft_note": g.draft_note, "seat_tests": {x["name"]: r.seat_tested(x) for x in g.seats},
                     "terms": tstates,
                     "phone_url": self.phone_url, "away_url": self.away_url, "last_god": self.last_god,
                     "os": ("win" if os.name == "nt" else "mac" if sys.platform == "darwin" else "linux"),
@@ -121,6 +123,15 @@ class App:
         threading.Thread(target=work, daemon=True).start()
         return f"Testing {provider}..."
 
+    def generate(self, what: str = "all") -> str:
+        """Roll the draft: the World must be connected, since it writes the lives."""
+        r = self.run
+        if not r.g.draft: return "this is a game, not a draft"
+        need = {r.g.world_model["provider"], r.map_model_used()["provider"]} if r.g.map_source == "generated" else {r.g.world_model["provider"]}
+        bad = [n for n in need if connect.status_of(n) in ("not_installed", "not_signed_in", "error")]
+        if bad: self.start_error = f"{bad[0]} is not connected. Open Settings, Connections."; connect.refresh(force=True); r.version += 1; return self.start_error
+        self.start_error = ""; return r.generate(what)
+
     def start_game(self) -> None:
         """Nothing starts until every agent this game needs is connected. One line says which one is not."""
         r = self.run
@@ -129,12 +140,18 @@ class App:
             if bad:
                 self.start_error = f"{bad[0]} is not connected. Open Settings, Connections."
                 connect.refresh(force=True); r.version += 1; return
-        self.start_error = ""; r.start()
+        self.start_error = ""
+        if r.g.draft:
+            if not r.g.world.characters: self.start_error = "Generate the valley first: there is nobody in it yet."; r.version += 1; return
+            if not r.draft_ready(): self.start_error = "Every seat needs a tested model before the year can start. Press Test seats."; r.version += 1; return
+            r.freeze_draft()
+        r.start()
 
     def configure(self, d: dict) -> None:
         r = self.run; g = r.g
         with r.lock:
-            if r.busy() or g.world.created: return   # a world, once made, is fixed
+            if r.busy() or g.world.created or r.generating: return   # a world, once made, is fixed
+            if g.draft and g.world.characters and "players" in d and int(d["players"] or 0) != len(g.world.characters): d = {k: v for k, v in d.items() if k != "players"}
             for k in ("title", "world_text", "repo"):
                 if k in d: setattr(g, k, str(d[k]))
             if "players" in d: g.players = max(2, min(30, int(d["players"] or 20)))
@@ -146,7 +163,8 @@ class App:
                 if isinstance(v, dict) and v.get("provider") in PROVIDERS: setattr(g, k, {"provider": v["provider"], "model": str(v.get("model") or "")})
             self._set_map_choice(g, d)
             if not g.title: g.title = "Terraceilia " + g.created[:10]
-            g.seats = []; g.save()
+            if not g.world.characters: g.seats = []
+            g.save()
 
     @staticmethod
     def _set_map_choice(g: Game, d: dict) -> None:
@@ -159,8 +177,9 @@ class App:
             g.map_model = {"provider": mm["provider"], "model": mm["model"]} if isinstance(mm, dict) and mm.get("provider") in PROVIDERS and mm.get("model") else None
 
     def new_game(self) -> None:
+        """A new valley begins as a draft: nothing is a game until Start."""
         with self.lock:
-            g = Game(now_id()); g.save(); self.runs[g.id] = Run(g); self.gid = g.id
+            g = Game(now_id(), {"draft": True}); g.save(); self.runs[g.id] = Run(g); self.gid = g.id
 
     def open_game(self, gid: str) -> None:
         with self.lock:
@@ -170,7 +189,7 @@ class App:
         with self.lock:
             r = self.runs.get(gid)
             if r and r.busy(): return
-            self.runs.pop(gid, None); shutil.rmtree(GAMES / gid, ignore_errors=True)
+            self.runs.pop(gid, None); shutil.rmtree(GAMES / gid, ignore_errors=True); shutil.rmtree(GAMES / "drafts" / gid, ignore_errors=True)
             if gid == self.gid:
                 g = self._latest(); self.runs.setdefault(g.id, Run(g)); self.gid = g.id
 
@@ -276,7 +295,7 @@ class App:
                     if m.exists(): m.write_text(m.read_text(encoding="utf-8").replace(f"# {name}:", f"# {new}:", 1) + f"\n(You are now called {new}; you were {name}.)\n", encoding="utf-8")
                 notes.append(f"{name} is now called {new}")
             g.save(); r.version += 1
-        if notes: w.fate.extend(notes); r._record("Fate", "; ".join(notes), "fate")
+        if notes and not g.draft: w.fate.extend(notes); r._record("Fate", "; ".join(notes), "fate")
         return "; ".join(notes) or "no change"
 
     def edit_relation(self, d: dict) -> None:
@@ -285,7 +304,7 @@ class App:
             w.set_rel(str(d.get("a", "")), str(d.get("b", "")), d.get("type"), d.get("feeling"), d.get("trust"), why=str(d.get("why") or "fate reached in and changed how they feel"))
             if d.get("mutual"): w.set_rel(str(d.get("b", "")), str(d.get("a", "")), d.get("type"), d.get("feeling"), d.get("trust"), why=str(d.get("why") or "fate reached in and changed how they feel"))
             g.save(); r.version += 1
-        a, b = d.get("a"), d.get("b"); rr = w.rel(a, b) if a in w.characters and b in w.characters else None
+        a, b = d.get("a"), d.get("b"); rr = w.rel(a, b) if a in w.characters and b in w.characters and not g.draft else None
         if rr: w.fate.append(f"Between {a} and {b} something has shifted: {a} now {w.feel_word(rr['feeling'])} {b} and {w.trust_word(rr['trust'])} ({rr['type']})."); r._record("Fate", w.fate[-1], "fate")
 
     def god(self, fn) -> None:  # noqa: ANN001
@@ -383,6 +402,11 @@ def make_handler(app: App, token: str):
              "/god/extinguish": lambda: app.god(lambda w: ("fire out at " + data.get("place", "")) if w.extinguish(data.get("place", "")) else "no fire there"),
              "/edit/game": lambda: app.edit_game(data),
              "/map/regenerate": lambda: setattr(app, "last_god", app.run.regenerate_map()),
+             "/draft/generate": lambda: setattr(app, "last_god", app.generate(data.get("what") or "all")),
+             "/draft/reroll": lambda: setattr(app, "last_god", app.run.reroll_person(data.get("name", ""))),
+             "/draft/add": lambda: setattr(app, "last_god", app.run.add_person()),
+             "/draft/remove": lambda: setattr(app, "last_god", app.run.remove_person(data.get("name", ""))),
+             "/draft/test": lambda: setattr(app, "last_god", app.run.test_seats()),
              "/connect/refresh": lambda: connect.invalidate(data.get("provider") or None),
              "/connect/install": lambda: setattr(app, "last_conn", connect.start_install(data.get("provider", ""))),
              "/connect/login": lambda: setattr(app, "last_conn", connect.start_login(data.get("provider", ""))),

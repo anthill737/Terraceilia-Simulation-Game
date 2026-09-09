@@ -198,6 +198,21 @@ thaw) and the weather is rolled from it each morning: cold burns wood and warmth
 and nothing grows in winter. The engine runs all of this at dawn, before anyone speaks, and writes a
 line into the chronicle with the season, the weather, and what is low, broken, sick, or burning.
 
+### Choosing your people before the year starts
+
+A new valley begins as a draft, not a game. Set the name, the description, the days, the drama, the
+number of people and the models as before, then press Generate: the engine rolls the map (built in,
+or drawn from the description) and the people, and the World writes their lives, their relationships
+and their ways of speaking. The People sheet then shows them exactly as it does in play, with every
+tab editable, plus Reroll and Remove in each person's Bio and an Add person card at the end of the
+strip; Reroll all rerolls everyone and keeps the map, Regenerate map redraws the map and keeps the
+people. Start is enabled once there is at least one person and every seat's model has answered a
+test (Test seats runs them); it freezes the draft into the game, moves it under `games/`, and runs
+the day-one tests as before. Until then the draft lives under `games/drafts/` with no game folder,
+survives closing the browser and restarting the server, appears in the Games rail as a draft, and
+Delete draft discards it. On the phone the strip is the dropdown, the tabs sit below, and Reroll
+and Remove are in the person's Bio.
+
 ### Social actions
 
 When people stand together the engine, not the model, decides what passes between them, from the

@@ -213,7 +213,7 @@ def place_key(name: str, m: dict | None = None) -> str | None:
 
 def now_id() -> str:
     base = dt.datetime.now().strftime("%Y%m%d-%H%M%S"); sid = base; n = 2
-    while (GAMES / sid).exists(): sid = f"{base}-{n}"; n += 1
+    while (GAMES / sid).exists() or (GAMES / "drafts" / sid).exists(): sid = f"{base}-{n}"; n += 1
     return sid
 
 
