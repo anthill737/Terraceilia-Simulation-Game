@@ -54,6 +54,15 @@ class CapTests(unittest.TestCase):
         self.assertEqual(out, "Bett: She fell. She got up.\nEVENT: Rain. More rain.\n\nA long day. Nothing.")
 
 
+def settle(w: engine.World, rng: random.Random) -> None:
+    """Everything a Run would seed on open, seeded here with the test's own rng so nothing about the world is left to chance:
+    jobs, pastimes, ways of speaking, and a want that turns on nobody, so the only errands are the ones a test sets."""
+    w.seed_duties(rng); w.seed_pastimes(rng)
+    for c in w.characters.values():
+        c["voice"] = engine.roll_voice(c, rng); c["goal"] = {"kind": "gold", "target": 20, "text": "to have 20 gold put by"}
+    assert w.needs_seeding() == [], w.needs_seeding()
+
+
 class TouchedTests(unittest.TestCase):
     def setUp(self) -> None:
         self.w = engine.World(); rng = random.Random(4); places = list(self.w.map)
@@ -61,6 +70,7 @@ class TouchedTests(unittest.TestCase):
             self.w.characters[n] = engine.roll_character(n, i + 1, rng, places)
         c = self.w.characters; c["Aldous"]["location"] = "The mill"; c["Bett"]["location"] = "The mill"; c["Cuthbert"]["location"] = "The inn"; c["Dimity"]["location"] = "The castle"
         self.w.set_rel("Aldous", "Dimity", typ="kin", feeling=3, trust=3)
+        settle(self.w, rng)
 
     def test_only_what_touched_them_reaches_a_villager(self) -> None:
         w = self.w; ties = w.ties_of("Aldous"); self.assertIn("Dimity", ties); self.assertNotIn("Cuthbert", ties)
@@ -222,7 +232,7 @@ class TouchedTests(unittest.TestCase):
         engine.GAMES = tmp; game.GAMES = tmp
         g = game.Game(engine.now_id()); g.world = self.w; w = g.world; w.created = True; w.day = 2
         g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
-        r = game.Run(g); rounds: list[tuple] = []
+        r = game.Run(g); r.rng = random.Random(7); rounds: list[tuple] = []
         def fake_round(seats, instruction, label, on_reply, reactions=True):
             rounds.append((label, tuple(sorted(g.seats[i]["name"] for i in seats)),
                            instruction(seats[0]) if callable(instruction) else instruction, reactions))
@@ -256,6 +266,7 @@ class TouchedTests(unittest.TestCase):
             nm = f"P{i}"; w.characters[nm] = engine.roll_character(nm, i + 1, rng, places)
             w.characters[nm]["location"] = place; w.characters[nm]["needs"]["spirit"] = 6
         w.ledger = engine.starting_ledger(n, len(w.map)); w.seed_places(); w.created = True; w.day = 2
+        settle(w, rng)                                   # wants that turn on nobody: the only errands are the ones a test sets
         g = game.Game(engine.now_id()); g.world = w
         g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": nm, "provider": "Claude Code", "model": "x", "color": "#abc"} for nm in w.characters]
         r = game.Run(g); r.rng = random.Random(7); rounds: list[tuple] = []

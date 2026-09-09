@@ -19,6 +19,8 @@ def valley(n: int = 4, place: str | None = None, seed: int = 3) -> engine.World:
         nm = f"P{i}"; c = engine.roll_character(nm, i + 1, rng, places); c["location"] = c["home"] = place; c["trade"] = "villager"
         c["traits"] = {t: 3 for t in engine.TRAITS}; c["needs"]["spirit"] = 6; c["voice"] = engine.roll_voice(c, rng); w.characters[nm] = c
     w.ledger = engine.starting_ledger(n, len(w.map)); w.seed_places(); w.created = True; w.day = 1
+    w.seed_duties(rng); w.seed_pastimes(rng)
+    for c in w.characters.values(): c["goal"] = {"kind": "gold", "target": 20, "text": "to have 20 gold put by"}   # a want that turns on nobody
     return w
 
 
