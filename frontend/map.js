@@ -4,7 +4,9 @@ const MapView=(()=>{
  const NS='http://www.w3.org/2000/svg';const $=id=>document.getElementById(id);
  const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
  let built=false,drag=null,selected=null,S_=null,tokens={},hover=null,weather={},sky='day';
- const W=1000,H=780;let view={k:1,tx:0,ty:0};let pan=null;const pointers=new Map();let pinch=null;let U=1;
+ // the art is W by AH; the map's box, H tall, runs on below the lowest place so the people standing there and their labels stay in view
+ const W=1000,AH=780;let H=780;let view={k:1,tx:0,ty:0};
+ const contentBottom=m=>Math.max(AH,Math.max(0,...Object.values(m||{}).map(d=>+d.y||0))+200);let pan=null;const pointers=new Map();let pinch=null;let U=1;
  // screen pixels per map unit, as the map is scaled to fit its box; tokens and labels are counter scaled against it
  function unit(){const svg=$('mapSvg');if(!svg)return 1;const r=svg.getBoundingClientRect();if(!r.width||!r.height)return 1;return Math.min(r.width/W,r.height/H)}
  const tokScale=()=>Math.min(2.4,0.85/(view.k*U));
@@ -72,11 +74,11 @@ const MapView=(()=>{
 
  // ---------- terrain
  function terrain(svg,m,s){const g=el('g',{id:'terrain'},svg);const R=rng(11);const st=styleOf(s);
-  el('rect',{x:0,y:0,width:1000,height:780,fill:'url(#ground)'},g);el('rect',{x:0,y:0,width:1000,height:780,fill:'#000',filter:'url(#tex)',opacity:.55},g);
+  el('rect',{x:0,y:0,width:W,height:H,fill:'url(#ground)'},g);el('rect',{x:0,y:0,width:W,height:H,fill:'#000',filter:'url(#tex)',opacity:.55},g);
   const acc=(st.palette||{}).accent||'#5d7a3a';
   for(let i=0;i<9;i++)el('ellipse',{cx:150+R()*700,cy:200+R()*450,rx:60+R()*160,ry:20+R()*40,fill:R()>.5?shade(acc,.55):shade(acc,.4),opacity:.30},g);
   if(s&&s.map_generated)terrainGenerated(g,m,R,st);else terrainBuiltin(g,R);
-  el('rect',{x:0,y:0,width:1000,height:780,fill:'url(#vig)'},g)}
+  el('rect',{x:0,y:0,width:W,height:H,fill:'url(#vig)'},g)}
 
  function terrainBuiltin(g,R){
   el('path',{d:'M250 170 C330 40 660 40 760 170 Z',fill:'url(#hill)',opacity:.95},g);el('path',{d:'M300 170 C370 90 620 90 690 170 Z',fill:'#2c3340',opacity:.9},g);el('path',{d:'M180 190 C230 120 330 120 380 190 Z',fill:'#262d39',opacity:.9},g);el('path',{d:'M620 190 C690 110 800 110 850 190 Z',fill:'#262d39',opacity:.8},g);
@@ -165,6 +167,7 @@ const MapView=(()=>{
 
  // ---------- build
  function buildBase(s){const svg=$('mapSvg');svg.innerHTML='';const m=s.map;const st=styleOf(s);sky=st.sky||'day';
+  H=contentBottom(m);svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   defs(svg,st);
   // the space around a map that does not fill its box is the map's own ground, not the page
   svg.parentNode.style.background='';                                                          // a letterbox, when there is one, is the page
@@ -187,9 +190,9 @@ const MapView=(()=>{
   el('g',{id:'tokens'},vw);el('g',{id:'weather','clip-path':'url(#mapClip)'},vw);      // rain, snow and fog fall inside the map and nowhere else
   el('rect',{id:'night',x:0,y:0,width:W,height:H,fill:SKY[sky]?SKY[sky].tint:'#0a0f1e',opacity:0,'pointer-events':'none'},vw);
   el('g',{id:'tips'},vw);
-  const fr=el('g',{id:'frame','pointer-events':'none'},svg);el('rect',{x:6,y:6,width:988,height:768,rx:14,fill:'none',stroke:'#3a3222','stroke-width':3},fr);el('rect',{x:10,y:10,width:980,height:760,rx:12,fill:'none',stroke:'#7a6a44','stroke-width':1,opacity:.6},fr);
+  const fr=el('g',{id:'frame','pointer-events':'none'},svg);el('rect',{x:6,y:6,width:988,height:H-12,rx:14,fill:'none',stroke:'#3a3222','stroke-width':3},fr);el('rect',{x:10,y:10,width:980,height:H-20,rx:12,fill:'none',stroke:'#7a6a44','stroke-width':1,opacity:.6},fr);
   const dtl=$('dayTitle');if(dtl)dtl.textContent=s.map_name||'Terraceilia';
-  const cr=el('g',{transform:'translate(950,700)'},fr);el('circle',{r:22,fill:'none',stroke:'#7a6a44','stroke-width':1.5},cr);el('path',{d:'M0 -20 L5 0 L0 20 L-5 0 Z',fill:'#c9b28a'},cr);el('path',{d:'M-20 0 L0 5 L20 0 L0 -5 Z',fill:'#7a6a44'},cr);el('text',{y:-26,'text-anchor':'middle',class:'sub'},cr).textContent='N';
+  const cr=el('g',{transform:`translate(950,${H-80})`},fr);el('circle',{r:22,fill:'none',stroke:'#7a6a44','stroke-width':1.5},cr);el('path',{d:'M0 -20 L5 0 L0 20 L-5 0 Z',fill:'#c9b28a'},cr);el('path',{d:'M-20 0 L0 5 L20 0 L0 -5 Z',fill:'#7a6a44'},cr);el('text',{y:-26,'text-anchor':'middle',class:'sub'},cr).textContent='N';
   if(!svg._viewBound){svg._viewBound=true;bindView(svg);if(window.ResizeObserver)new ResizeObserver(()=>{if(view.user)applyView();else resetView()}).observe(svg.parentNode)}
   svg.addEventListener('click',()=>{if(pan&&pan.moved)return;selected=null;showPlace(S_)});view={k:1,tx:0,ty:0,user:false,homed:false};resetView();built=true;tokens={}}
 
@@ -261,8 +264,8 @@ const MapView=(()=>{
   if(sky==='ash')weather.fog=true;if(sky==='storm')weather.rain=true;
   const w=(s.weather||'');if(/snow|bitter/.test(w))weather.snow=true;if(/rain|storm/.test(w))weather.rain=true;if(w==='storm')weather.night=weather.night||false}
  function renderWeather(){const g=$('weather');if(!g)return;const key=JSON.stringify(weather)+sky;if(g.dataset.key===key)return;g.dataset.key=key;g.innerHTML='';const R=rng(3);
-  if(weather.snow){for(let i=0;i<70;i++){const x=R()*1000,y=R()*780;const f=el('circle',{cx:x,cy:y,r:1.2+R()*1.6,fill:'#fff',opacity:.7},g);el('animate',{attributeName:'cy',values:`${y};${y+780}`,dur:`${9+R()*8}s`,repeatCount:'indefinite'},f);el('animate',{attributeName:'cx',values:`${x};${x+30};${x-10};${x+20}`,dur:`${9+R()*8}s`,repeatCount:'indefinite'},f)}}
-  if(weather.rain){for(let i=0;i<60;i++){const x=R()*1000,y=R()*780;const l=el('line',{x1:x,y1:y,x2:x-4,y2:y+14,stroke:'#9fc7e0','stroke-width':1.2,opacity:.5},g);el('animate',{attributeName:'y1',values:`${y};${y+780}`,dur:`${1.2+R()*.8}s`,repeatCount:'indefinite'},l);el('animate',{attributeName:'y2',values:`${y+14};${y+794}`,dur:`${1.2+R()*.8}s`,repeatCount:'indefinite'},l)}}
+  if(weather.snow){for(let i=0;i<70;i++){const x=R()*1000,y=R()*H;const f=el('circle',{cx:x,cy:y,r:1.2+R()*1.6,fill:'#fff',opacity:.7},g);el('animate',{attributeName:'cy',values:`${y};${y+H}`,dur:`${9+R()*8}s`,repeatCount:'indefinite'},f);el('animate',{attributeName:'cx',values:`${x};${x+30};${x-10};${x+20}`,dur:`${9+R()*8}s`,repeatCount:'indefinite'},f)}}
+  if(weather.rain){for(let i=0;i<60;i++){const x=R()*1000,y=R()*H;const l=el('line',{x1:x,y1:y,x2:x-4,y2:y+14,stroke:'#9fc7e0','stroke-width':1.2,opacity:.5},g);el('animate',{attributeName:'y1',values:`${y};${y+H}`,dur:`${1.2+R()*.8}s`,repeatCount:'indefinite'},l);el('animate',{attributeName:'y2',values:`${y+14};${y+H+14}`,dur:`${1.2+R()*.8}s`,repeatCount:'indefinite'},l)}}
   if(weather.fog){const col=sky==='ash'?'#c9bda8':'#cfd8d6';for(let i=0;i<8;i++){const y=100+R()*600;const c=el('ellipse',{cx:R()*1000,cy:y,rx:180+R()*160,ry:24+R()*20,fill:col,opacity:sky==='ash'?.14:.10},g);el('animate',{attributeName:'cx',values:`${-200};${1200}`,dur:`${40+R()*30}s`,repeatCount:'indefinite'},c)}}
   if(weather.wolves){const m=wolfPlace(S_.map);if(m)for(let i=0;i<3;i++){const w=el('g',{transform:`translate(${m.x-60+i*50},${m.y+40})`},g);el('path',{d:'M-8 4 L-8 -2 L-3 -6 L6 -6 L10 -9 L12 -4 L8 -2 L8 4 Z',fill:'#5a5a62'},w);el('circle',{cx:9,cy:-6,r:1,fill:'#ff4d4d'},w);el('animateTransform',{attributeName:'transform',type:'translate',values:`${m.x-60+i*50} ${m.y+40};${m.x-40+i*50} ${m.y+46};${m.x-60+i*50} ${m.y+40}`,dur:`${3+i}s`,repeatCount:'indefinite'},w)}}}
  function renderFire(s){const fires=s.fires||{};document.querySelectorAll('.node').forEach(n=>{const fx=n.querySelector('.fx');fx.innerHTML='';const pl=n.dataset.place;if(!s.map[pl])return;

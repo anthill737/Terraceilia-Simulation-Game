@@ -126,8 +126,11 @@ table.st{border-collapse:collapse;font-size:var(--fs-b);margin-top:var(--u)}tabl
 .tok circle.ring{fill:none;stroke-width:2;opacity:0}.tok.thinking circle.ring{opacity:1;animation:tring 1.4s ease-out infinite}@keyframes tring{0%{r:12;opacity:.9}100%{r:26;opacity:0}}
 .tok text.ini{fill:var(--bg);font:400 var(--fs-s) Inter,system-ui,sans-serif;pointer-events:none}.tok text.lbl{fill:var(--ink);font:var(--fs-s) Inter,system-ui,sans-serif;pointer-events:none}
 .tip rect{fill:var(--panel);stroke:var(--edge)}.tip text{fill:var(--ink);font:var(--fs-s) Inter,system-ui,sans-serif}
-#mapHud{position:absolute;bottom:12px;left:12px;right:330px;display:flex;gap:var(--u);align-items:center;pointer-events:none}#mapHud>*{pointer-events:auto}
+#mapHud{position:absolute;bottom:12px;left:12px;right:330px;display:flex;gap:var(--u);align-items:center;justify-content:flex-end;pointer-events:none}#mapHud>*{pointer-events:auto}
 #mapHud .note{background:color-mix(in srgb,var(--bg) 80%,transparent);padding:calc(var(--u) / 2) var(--u);border-radius:8px}
+/* the hint is one small line below the map's box, never over the art; the box is what is left between the tabs and the fate box */
+#mapHint{display:none;flex:0 0 auto;padding:calc(var(--u) / 2) calc(var(--u) * 1.5);font-size:var(--fs-s);color:var(--muted);border-top:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#map.on+#mapHint{display:block}
 #placePanel{position:absolute;right:12px;bottom:12px;width:300px;background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:calc(var(--u) * 1.5);display:none;font-size:var(--fs-b)}#placePanel.open{display:block}
 #placePanel h3{margin:0 0 calc(var(--u) / 2);font-size:var(--fs-b);display:flex;justify-content:space-between;align-items:center}#placePanel h3 button{height:26px;width:26px;padding:0}
 #placePanel .fx{display:flex;justify-content:space-between;align-items:center;padding:calc(var(--u) / 2) 0;border-top:1px solid var(--line)}#placePanel .fx.gone span{text-decoration:line-through;color:var(--faint)}
@@ -251,7 +254,7 @@ table.st{border-collapse:collapse;font-size:var(--fs-b);margin-top:var(--u)}tabl
  #rail.on{display:flex;flex:1 1 auto;min-height:0;border:0}#side.on{display:flex;flex:1 1 auto;min-height:0;border:0}#chron.on{display:block;flex:1 1 auto;min-height:0;overflow:auto}#setup.on{display:block;flex:1 1 auto;min-height:0;overflow:auto}
  .inner{width:calc(100% - 24px)}.two,.three{grid-template-columns:1fr}
  #tabs{display:flex;flex:0 0 56px;background:var(--panel);border-top:1px solid var(--line)}#tabs button{flex:1;height:56px;font-size:var(--fs-b)}
- #mapHud{right:12px;bottom:8px}#mapHud .note{font-size:var(--fs-s)}#mapHud .note:first-child{display:none}
+ #mapHud{right:12px;bottom:8px;left:12px}#mapHud .note{font-size:var(--fs-s)}#mapHint,#map.on+#mapHint{display:none}
  .sheetwrap{justify-content:stretch}.sheetwrap .panel{width:100%;max-width:100vw;padding:calc(var(--u) * 2)}#gearBtn{display:inline-grid}
  #placePanel{left:12px;right:12px;width:auto}
  #peoPick{display:block}.pg,.pg3,.pg4,.hgrid,.dgrid,.dutylist{grid-template-columns:1fr}.tie{grid-template-columns:1fr 1fr;gap:var(--u)}
