@@ -35,7 +35,7 @@
 <main id="center">
  <div id="centerTabs"><button data-c="map" class="on">Map</button><button data-c="chron">Chronicle</button><button data-c="setup">Setup</button></div>
  <section id="setup"><div class="inner">
-  <h1>New game</h1><p class="lead">Choose how many people live in the valley, which models play them, and who plays the World. Then press Generate: the engine rolls the map and the people and shows them to you before anything starts. Nothing is a game until you press Start.</p>
+  <h1>New game</h1><p class="lead">Choose how many people live in the valley, which models play them, and who plays the World. Then press Generate: the engine rolls the people out of your description alone, and then the valley they walk into. Reroll either on its own, as often as you like, in either order. Homes are given out when you press Start, and nothing is a game until then.</p>
   <div class="field"><label>Title</label><input id="title"></div>
   <div class="field"><label>The world</label><textarea id="world_text"></textarea></div>
   <div class="three"><div class="field"><label>People in the valley</label><input id="players" type="number" min="2" max="30"></div><div class="field"><label>Days in the year</label><input id="max_days" type="number" min="1"></div><div class="field"><label>Or stop after minutes</label><input id="max_minutes" type="number" min="0" placeholder="no limit"></div></div>
@@ -44,13 +44,13 @@
   <div class="two"><div class="field"><label>People, odd seats</label><div class="row"><select id="ma_p"></select><select id="ma_m"></select><input id="ma_c" placeholder="custom model" style="display:none"></div></div><div class="field"><label>People, even seats</label><div class="row"><select id="mb_p"></select><select id="mb_m"></select><input id="mb_c" placeholder="custom model" style="display:none"></div></div></div>
   <div class="field"><label>The map</label><div class="row"><select id="map_source"><option value="builtin">Built-in valley</option><option value="generated">Generate from the description</option></select></div>
    <div class="row" id="mapModelRow" style="margin-top:8px;display:none"><select id="mm_p"></select><select id="mm_m"></select><input id="mm_c" placeholder="custom model" style="display:none"></div>
-   <div class="note" style="margin-top:6px">The built-in valley is Terraceilia, ten places everyone knows. Generated: the model above reads your description and draws a map with its own ground, water, sky, places and names, once, when you press Start. World can draw it early or draw it again.</div></div>
+   <div class="note" style="margin-top:6px">The built-in valley is Terraceilia, ten places everyone knows. Generated: the model above reads your description and draws a map with its own ground, water, sky and places. The people are rolled before it and never depend on it, so the map can be redrawn under them as often as you like.</div></div>
   <div class="field"><label>Folder the CLIs run in (empty and harmless; nothing is edited)</label><div class="row"><input id="repo"><button id="browse" class="btn">Browse</button></div></div>
-  <div class="field row wrap" id="draftBar"><button id="generate" class="primary" style="padding:0 22px">Generate</button><button id="rerollAll" class="btn">Reroll all</button><button id="regenMap" class="btn">Regenerate map</button><button id="openPeople" class="btn">The people</button><button id="testSeats" class="btn">Test seats</button><button id="deleteDraft" class="btn danger">Delete draft</button><span class="note" id="draftNote"></span></div>
+  <div class="field row wrap" id="draftBar"><button id="generate" class="primary" style="padding:0 22px">Generate</button><button id="rerollAll" class="btn">Reroll the people</button><button id="regenMap" class="btn">Redraw the map</button><button id="openPeople" class="btn">The people</button><button id="testSeats" class="btn">Test seats</button><button id="deleteDraft" class="btn danger">Delete draft</button><span class="note" id="draftNote"></span></div>
   <div class="field"><button id="start2" class="primary" style="padding:0 22px">Start the year</button></div>
  </div></section>
 
- <section id="map"><div id="making"><div><div class="spin"></div><b id="makingHead">The World is making the valley</b><div class="note" style="margin-top:6px" id="makingNote">Rolling twenty lives, secrets, and grudges. This takes a minute or two. Watch the World's terminal on the right.</div></div></div><svg id="mapSvg" viewBox="0 0 1000 780" preserveAspectRatio="xMidYMid meet"></svg><div id="dayBar"><span id="dayTitle"></span><span id="dayText"></span></div>
+ <section id="map"><div id="making"><div><div class="spin"></div><b id="makingHead">The World is making the valley</b><div class="note" style="margin-top:6px" id="makingNote">Rolling the people, their faces, their secrets and their grudges, and then the map. This takes a minute or two. Watch the World's terminal on the right.</div></div></div><svg id="mapSvg" viewBox="0 0 1000 780" preserveAspectRatio="xMidYMid meet"></svg><div id="dayBar"><span id="dayTitle"></span><span id="dayText"></span></div>
   <div id="mapHud"><span class="note" id="godNote" style="margin-left:auto;display:none"></span><button type="button" class="btn" id="mapReset" style="display:none">Reset view</button></div>
   <div id="placePanel"><h3><span id="ppName"></span><button class="icon" id="ppClose" aria-label="Close">&#10005;</button></h3><div id="ppDesc" class="note"></div><div id="ppFx"></div><div id="ppPres" class="note" style="margin-top:6px"></div><div id="ppWho" class="note" style="margin-top:6px"></div><div class="row" style="margin-top:10px"><button id="ppFire" class="danger solid">Set fire</button></div></div></section>
  <div id="mapHint">Drag a person to move them. Click a place to see what is there. Everything you do here becomes fate the World must narrate.</div>
@@ -68,7 +68,7 @@
  <div class="peoTop"><input id="peoFilter" placeholder="Filter by name, trade or place" autocomplete="off"><select id="peoPick"></select><button type="button" class="btn" id="peoAddTop" style="display:none">+ Add person</button></div>
  <div class="peoWrap"><div id="peoStrip"></div><div class="stripbar"><i></i></div></div>
  <div id="peoHead"></div>
- <div class="ptabs"><button data-p="bio" class="on">Bio</button><button data-p="body">Health</button><button data-p="disp">Personality</button><button data-p="ties">Relationships</button><button data-p="duties">Jobs</button><button data-p="log">Log</button></div>
+ <div class="ptabs"><button data-p="bio" class="on">Bio</button><button data-p="edit">Edit</button><button data-p="body">Health</button><button data-p="disp">Personality</button><button data-p="ties">Relationships</button><button data-p="duties">Jobs</button><button data-p="log">Log</button></div>
  <div id="peoPane"></div>
  </div></div>
 
@@ -147,4 +147,4 @@
 </div></div>
 
 <div id="picker"><div class="box"><b>Choose a folder</b><div class="row"><input id="pkPath"><button id="pkUp" class="btn">Up</button></div><ul id="pkList"></ul><div class="row" style="justify-content:flex-end"><button id="pkCancel" class="btn">Cancel</button><button id="pkUse" class="primary">Use this folder</button></div></div></div>
-<script src="walks.js"></script><script src="map.js"></script><script src="app.js"></script></body></html>
+<script src="face.js"></script><script src="walks.js"></script><script src="map.js"></script><script src="app.js"></script></body></html>

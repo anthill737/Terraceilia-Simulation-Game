@@ -51,7 +51,7 @@ class Base(unittest.TestCase):
         g.repo = str(self.tmp); g.save(); return g, game.Run(g)
 
     def created(self, r: game.Run) -> None:
-        self.assertTrue(r.preflight()); r.prepare_map(); r._build_people(); r._create_world()
+        self.assertTrue(r.preflight()); r._build_people(); r.prepare_map(); r._create_world()
 
     def wait(self, cond, seconds: float = 90, what: str = "") -> None:
         deadline = time.time() + seconds

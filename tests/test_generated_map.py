@@ -132,10 +132,11 @@ class MapTests(unittest.TestCase):
         r = game.Run(g); w = g.world; errs: list = []
         # The map, the people, and their lives are made here rather than inside the day loop, so the acts below
         # land before day one and the run is not a race against a stub game that finishes in a couple of seconds.
-        r.prepare_map(); r._build_people(); r._create_world()
+        r._build_people(); r.prepare_map(); r._create_world()
         self.assertTrue(w.created, "the world was never created")
         self.assertTrue(w.map_generated); self.assertEqual(w.map_name, "Harrowmere")
-        self.assertTrue(set(w.characters) <= set(FIXED_MAP["names"]), "people were not named from the generated map")
+        self.assertTrue(set(w.characters) <= set(engine.NAMES), "people are rolled before the map, so they are named from data/names.json")
+        for c in w.characters.values(): self.assertIn(c["home"], w.map, "Start gave everyone a home on the map that was drawn")
         for c in w.characters.values(): c["hp"] = c["hp_max"] = 40      # so the fire wounds them without killing them
         self.assertEqual(w.ignite("Saltmarket"), "Saltmarket is burning")
         self.assertEqual(w.destroy("Fenchapel", "the bell"), "the bell destroyed")

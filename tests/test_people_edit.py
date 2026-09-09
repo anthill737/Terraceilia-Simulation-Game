@@ -71,6 +71,37 @@ class PeopleEditTests(unittest.TestCase):
         self.assertEqual(telegram.send("this must never leave the machine"), "Telegram is muted for this run.")
         telegram.notify("nor this", "finish")
 
+    def test_the_editor_reaches_into_play_and_every_change_is_fate(self) -> None:
+        """The same one screen editor is reachable in play, and what it does there the World has to narrate."""
+        r = self.app.run; w = r.g.world
+        before = len(r.g.transcript)
+        note = r.reroll_one("Bett", "trade")
+        self.assertIn("Bett", note); self.assertIn(w.characters["Bett"]["trade"], engine.TRADE_NAMES)
+        fate = [e for e in r.g.transcript if e["kind"] == "fate"]
+        self.assertTrue(fate and fate[-1]["text"] == note, "a reroll in play is fate the World must narrate")
+        self.assertGreater(len(r.g.transcript), before)
+        self.assertTrue(self.me().get("changed"), "and they play the new self from their next turn")
+        self.assertEqual(r.reroll_one("Nobody", "trade"), "no such person")
+        self.assertEqual(r.reroll_one("Bett", "handedness"), "nothing to reroll there")
+
+    def test_a_pair_set_from_a_plain_word_is_fate_too(self) -> None:
+        r = self.app.run; w = r.g.world
+        self.assertIn("married", r.set_tie("Bett", "Osgar", "married"))
+        self.assertEqual(w.rel("Bett", "Osgar")["type"], "spouse"); self.assertEqual(w.rel("Osgar", "Bett")["type"], "spouse")
+        self.assertEqual(w.rel("Osgar", "Bett")["feeling"], engine.DRAFT_TIES["married"][1])
+        self.assertTrue([e for e in r.g.transcript if e["kind"] == "fate" and "married" in e["text"]])
+
+    def test_editing_a_person_keeps_their_face_and_moves_their_words(self) -> None:
+        import portrait
+        r = self.app.run; c = self.me(); seed = c["face_seed"]
+        face = portrait.face_of(c, "#22D3EE")
+        self.app.edit_character({"name": "Bett", "tags": ["  Sly ", "sly", "GRIM", "weary", "vain"], "age": 200})
+        self.assertEqual(c["tags"], ["sly", "grim", "weary"], "tidied, deduplicated and capped at three")
+        self.assertEqual(c["age"], 120, "and an age nobody reaches is clamped")
+        self.assertEqual(c["face_seed"], seed, "editing a person never quietly gives them a new face")
+        self.assertNotEqual(portrait.face_of(c, "#22D3EE")["lines"], face["lines"], "though the years they gained do show")
+        self.assertIn("Bett", self.app.snapshot()["faces"])
+
     def test_a_tie_can_be_set_both_ways(self) -> None:
         self.app.edit_relation({"a": "Bett", "b": "Osgar", "type": "rival", "feeling": -4, "trust": -2, "mutual": True})
         w = self.app.run.g.world

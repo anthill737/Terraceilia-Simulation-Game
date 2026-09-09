@@ -56,6 +56,7 @@ class WantTests(unittest.TestCase):
 
     def test_recognition_goes_to_the_one_best_and_reaches_the_prompts(self) -> None:
         w = valley(); a, b = w.characters["P0"], w.characters["P1"]
+        for c in w.living(): c["skills"] = {}       # people are rolled with their trade's skill; this is about earning a name, not starting with one
         self.assertEqual(w.titles(), {}, "nobody is called anything yet")
         a["skills"]["milling"] = 3; self.assertEqual(w.titles().get("P0"), ["the miller"])
         b["skills"]["milling"] = 3; self.assertNotIn("P0", w.titles(), "a tie is no title")

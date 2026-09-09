@@ -12,6 +12,13 @@ EVENTS = json.loads((DATA / "events.json").read_text(encoding="utf-8"))
 DUTIES: dict[str, dict] = {d["key"]: d for d in json.loads((DATA / "duties.json").read_text(encoding="utf-8"))}
 PASTIMES: dict[str, dict] = {d["key"]: d for d in json.loads((DATA / "pastimes.json").read_text(encoding="utf-8"))}
 SOCIAL: dict[str, dict] = {d["key"]: d for d in json.loads((DATA / "social.json").read_text(encoding="utf-8"))}   # what people do to each other, editable
+PEOPLE = json.loads((DATA / "people.json").read_text(encoding="utf-8"))   # how a person is rolled: trades, trait words, and the plain lines
+TRADES: list[dict] = PEOPLE["trades"]                       # a general medieval list; no trade names a place on any map
+TRADE_NAMES: list[str] = [t["name"] for t in TRADES]
+TRADE_KINDS: dict[str, list[str]] = {t["name"]: list(t.get("kinds") or []) for t in TRADES}
+TAGS: list[str] = PEOPLE["tags"]                            # the one to three words a person is known by
+CHARACTER_LINES: list[str] = PEOPLE["character_lines"]
+WANT_LINES: list[str] = PEOPLE["wants"]; FEAR_LINES: list[str] = PEOPLE["fears"]; SECRET_LINES: list[str] = PEOPLE["secrets"]
 MAX_DUTIES = 3
 _MAPFILE = json.loads((DATA / "map.json").read_text(encoding="utf-8"))
 BASE_MAP = _MAPFILE["places"]
@@ -217,13 +224,111 @@ def now_id() -> str:
     return sid
 
 
+# ---------------------------------------------------------------- rolling a person
+# A person is rolled from the valley's description and nothing else. No place, no map, no home: those are settled
+# at Start, when the map is known. Everything below is one field, rolled on its own, so that one field can be
+# rerolled on its own from the editor without disturbing the rest.
+def roll_trade(rng: random.Random) -> str:
+    return rng.choice(TRADE_NAMES)
+
+
+def roll_tags(rng: random.Random) -> list[str]:
+    """One to three words the valley would use about them."""
+    return rng.sample(TAGS, rng.choice([1, 2, 2, 3]))
+
+
+def tags_phrase(tags: list[str]) -> str:
+    tags = [t for t in tags if t]
+    if not tags: return "hard to read"
+    if len(tags) == 1: return tags[0].capitalize()
+    return (", ".join(tags[:-1]) + " and " + tags[-1]).capitalize()
+
+
+def roll_line(tags: list[str], rng: random.Random) -> str:
+    """The one line of character, built from their words so the two never contradict each other."""
+    return rng.choice(CHARACTER_LINES).format(tags=tags_phrase(tags))
+
+
+def roll_skills(trade: str, rng: random.Random) -> dict:
+    """What their hands already know: their trade's own skill, and sometimes one more picked up along the way."""
+    out: dict[str, int] = {}
+    for sk in (next((t.get("skills") or [] for t in TRADES if t["name"] == trade), [])):
+        out[sk] = rng.randint(2, 6)
+    if rng.random() < .45:
+        other = rng.choice([d["skill"] for d in DUTIES.values()])
+        out.setdefault(other, rng.randint(1, 3))
+    return out
+
+
+def roll_age(rng: random.Random) -> int:
+    """Most of the valley is between twenty and fifty; a few are children of the last bad winter, a few are very old."""
+    r = rng.random()
+    return rng.randint(14, 19) if r < .10 else rng.randint(20, 34) if r < .45 else rng.randint(35, 49) if r < .78 else rng.randint(50, 62) if r < .94 else rng.randint(63, 79)
+
+
+def new_seed(rng: random.Random) -> int:
+    return rng.randrange(1, 2 ** 31)
+
+
 def roll_character(name: str, seat: int, rng: random.Random, places: list[str] | None = None) -> dict:
-    hp = rng.randint(8, 14)
+    """One whole person, ready to play, with no reference to any map. Pass places only to put them somewhere at once,
+    which is what a game saved the old way does; a draft leaves home and location empty until Start."""
+    hp = rng.randint(8, 14); trade = roll_trade(rng); tags = roll_tags(rng)
     return {"name": name, "seat": seat, "str": rng.randint(2, 9), "spd": rng.randint(2, 9), "hp": hp, "hp_max": hp,
-            "gold": rng.randint(1, 9), "skills": {}, "location": rng.choice(places or PLACES), "standing": standing_word(0), "standing_score": 0,
-            "alive": True, "gone": False, "gone_reason": "", "trade": "", "home": "", "personality": "", "secret": "", "fear": "", "want": "",
+            "gold": rng.randint(1, 9), "skills": roll_skills(trade, rng), "location": rng.choice(places) if places else "", "standing": standing_word(0), "standing_score": 0,
+            "alive": True, "gone": False, "gone_reason": "", "trade": trade, "home": rng.choice(places) if places else "",
+            "age": roll_age(rng), "tags": tags, "personality": roll_line(tags, rng),
+            "secret": rng.choice(SECRET_LINES), "fear": rng.choice(FEAR_LINES), "want": rng.choice(WANT_LINES),
+            "face_seed": new_seed(rng),
             "cause_of_death": "", "traits": roll_traits(rng), "log": [], "needs": fresh_needs(), "sick": False, "sick_days": 0,
             "duties": [], "dumped": [], "emergency": None, "pastime": "", "items": [], "skip_streak": 0}
+
+
+# What one reroll button does. Each entry touches exactly one field of the person and nothing else.
+def reroll_field(c: dict, field: str, rng: random.Random) -> str:
+    """Roll one field of a person again, leaving every other field exactly as it was. Returns a plain note, or ''."""
+    name = c["name"]
+    if field == "trade":
+        c["trade"] = roll_trade(rng); return f"{name} is now a {c['trade']}"
+    if field == "tags":
+        c["tags"] = roll_tags(rng); return f"{name} is {tags_phrase(c['tags']).lower()}"
+    if field in ("personality", "character"):
+        c["personality"] = roll_line(c.get("tags") or [], rng); return f"{name}'s character changed"
+    if field == "traits":
+        c["traits"] = roll_traits(rng); return f"{name}'s nature changed"
+    if field == "skills":
+        c["skills"] = roll_skills(c.get("trade", ""), rng); return f"{name}'s skills are now {', '.join(f'{k} {v}' for k, v in c['skills'].items()) or 'none'}"
+    if field == "want":
+        c["want"] = rng.choice(WANT_LINES); return f"{name} now wants {c['want']}"
+    if field == "fear":
+        c["fear"] = rng.choice(FEAR_LINES); return f"{name} now fears {c['fear']}"
+    if field == "secret":
+        c["secret"] = rng.choice(SECRET_LINES); return f"{name}'s secret changed"
+    if field == "age":
+        c["age"] = roll_age(rng); return f"{name} is now {c['age']}"
+    if field == "face":
+        c["face_seed"] = new_seed(rng); return f"{name} has a new face"
+    if field == "voice":
+        c["voice"] = roll_voice(c, rng); return f"{name}'s way of talking changed"
+    if field == "health":
+        hp = rng.randint(8, 14); c["hp_max"] = hp; c["hp"] = hp; return f"{name}'s health is now {hp}"
+    if field == "str":
+        c["str"] = rng.randint(2, 9); return f"{name}'s strength is now {c['str']}"
+    if field == "spd":
+        c["spd"] = rng.randint(2, 9); return f"{name}'s speed is now {c['spd']}"
+    if field == "gold":
+        c["gold"] = rng.randint(1, 9); return f"{name} now has {c['gold']} gold"
+    return ""
+
+
+REROLLABLE = ("name", "trade", "tags", "personality", "traits", "skills", "want", "fear", "secret", "age", "face", "voice", "health", "str", "spd", "gold")
+
+# The six words the draft uses for a pair, and the opinion each one sets on both sides.
+DRAFT_TIES: dict[str, tuple[str, int, int]] = {
+    "strangers": ("none", 0, 0), "friends": ("friend", 3, 2), "rivals": ("rival", -2, -1),
+    "kin": ("kin", 2, 3), "lovers": ("lover", 4, 3), "married": ("spouse", 4, 4)}
+DRAFT_TIE_OF = {"none": "strangers", "friend": "friends", "rival": "rivals", "enemy": "rivals",
+                "kin": "kin", "lover": "lovers", "spouse": "married"}
 
 
 # ---------------------------------------------------------------- needs, seasons, weather
@@ -490,6 +595,9 @@ class World:
             c.setdefault("log", []); c.setdefault("needs", fresh_needs()); c.setdefault("sick", False); c.setdefault("sick_days", 0)
             c.setdefault("duties", []); c.setdefault("dumped", []); c.setdefault("emergency", None)
             c.setdefault("pastime", ""); c.setdefault("items", []); c.setdefault("skip_streak", 0); c["needs"].setdefault("spirit", 6)
+            c.setdefault("age", 30); c.setdefault("tags", [])
+            if not c.get("face_seed"):                                   # a game saved before people had faces
+                c["face_seed"] = (abs(hash(c.get("name", ""))) % (2 ** 31)) or 1; self._note_migrated("faces")
         self.map: dict = d.get("map") or json.loads(json.dumps(BASE_MAP))
         self.map_name: str = d.get("map_name") or BASE_NAME
         self.style: dict = d.get("style") or json.loads(json.dumps(BASE_STYLE))
@@ -520,6 +628,7 @@ class World:
         if any(not c.get("goal") for c in self.living()): out.append("wants")
         if any(p not in self.upkeep for p in self.map): out.append("the state of the places")
         if any(not c.get("voice") for c in self.living()): out.append("ways of speaking")
+        if any(c.get("home") not in self.map for c in self.living()): out.append("homes")
         return out
 
     def seed_missing(self, rng: random.Random) -> list[str]:
@@ -533,6 +642,7 @@ class World:
             elif what == "ways of speaking":
                 for c in self.living():
                     if not c.get("voice"): c["voice"] = roll_voice(c, rng)
+            elif what == "homes": self.assign_homes(rng)
             done.append(what)
         return done
 
@@ -1411,6 +1521,39 @@ class World:
         c = self.characters[name]; fit = {k: self.pastime_fit(c, k) + rng.random() * 1.5 for k in PASTIMES}
         return max(fit, key=fit.get)
 
+    def home_fits(self, place: str, trade: str) -> bool:
+        """Whether a place is the kind of place that trade is practised in. An unlisted trade fits nowhere in particular."""
+        t = " ".join(str(trade or "").lower().split())
+        kinds = TRADE_KINDS.get(t)
+        if kinds is None:
+            kinds = next((ks for name, ks in TRADE_KINDS.items() if name and name in t), None)
+        return bool(kinds) and (self.map.get(place) or {}).get("kind") in kinds
+
+    LIVED_IN = ("village", "town", "market", "inn", "farm", "castle", "chapel", "mill", "tower")
+
+    def homes_of(self, place: str) -> int:
+        return sum(1 for c in self.characters.values() if c.get("home") == place)
+
+    def assign_homes(self, rng: random.Random) -> list[str]:
+        """At Start, and only then, every person is given a home: the nearest place their trade is practised in, and
+        failing that the nearest place anyone could live. Nobody is left without one. A trade with no place to practise
+        in this valley costs them nothing but the walk: they live among everyone else and take the open jobs like
+        anyone else. Returns one line per person whose trade found no place of its own."""
+        if not self.map: return []
+        places = list(self.map)
+        lived = [p for p in places if (self.map[p] or {}).get("kind") in self.LIVED_IN] or places
+        homeless = []
+        for i, c in enumerate(sorted(self.characters.values(), key=lambda c: c.get("seat", 0))):
+            if c.get("home") in self.map: continue
+            where = lived[i % len(lived)]     # where the valley finds them on the first morning, dealt out evenly across it
+            fit = [p for p in places if self.home_fits(p, c.get("trade", ""))]
+            if not fit: homeless.append(f"{c['name']} the {c.get('trade') or 'villager'} has no place in this valley to practise it")
+            pool = fit or lived
+            c["home"] = min(pool, key=lambda p: (self.distance(where, p), self.homes_of(p), p))
+        for c in self.characters.values():
+            if c.get("location") not in self.map: c["location"] = c["home"] if c.get("home") in self.map else lived[0]
+        return homeless
+
     def seed_pastimes(self, rng: random.Random) -> None:
         for c in self.living():
             if not c.get("pastime") or c["pastime"] not in PASTIMES: c["pastime"] = self.roll_pastime(c["name"], rng)
@@ -1480,10 +1623,22 @@ class World:
     # A want is gold to hold, a skill to reach or to be best at, a tie to win, or an evening spent somewhere. Reached, it is
     # announced, standing rises, and a new one is rolled. Nobody chooses these; they come from the person's nature and life.
     def roll_want(self, name: str, rng: random.Random) -> dict:
+        """A want they do not already have. People start with the skills of their trade, so a want to be the best at a
+        thing can be true the day it is rolled; that is not a want, so it is rolled again."""
+        for _ in range(8):
+            g = self._roll_want(name, rng)
+            keep = self.characters[name].get("goal"); self.characters[name]["goal"] = g
+            try: done = self.want_progress(name)[0] >= 100
+            finally: self.characters[name]["goal"] = keep
+            if not done: return g
+        return {"kind": "gold", "target": int(self.characters[name].get("gold", 0)) + 10, "text": f"to have {int(self.characters[name].get('gold', 0)) + 10} gold put by"}
+
+    def _roll_want(self, name: str, rng: random.Random) -> dict:
         c = self.characters[name]; tr = c.get("traits", {}); others = [x["name"] for x in self.living() if x["name"] != name]
         kinds = ["gold"] * (2 + (2 if int(tr.get("greed", 3)) >= 4 else 0)) + ["skill"] * (2 + (2 if int(tr.get("ambition", 3)) >= 4 else 0)) \
-            + ["tie"] * (2 + (2 if int(tr.get("desire", 3)) >= 4 or int(tr.get("warmth", 3)) >= 4 else 0)) + ["place"] * 2
-        kind = rng.choice(kinds) if others else rng.choice(["gold", "skill", "place"])
+            + ["tie"] * (2 + (2 if int(tr.get("desire", 3)) >= 4 or int(tr.get("warmth", 3)) >= 4 else 0))
+        if c.get("location") in self.map: kinds += ["place"] * 2      # nobody wants an evening at a place before they live on the map
+        kind = rng.choice(kinds) if others else rng.choice(["gold", "skill"] + (["place"] if c.get("location") in self.map else []))
         if kind == "gold":
             n = int(c.get("gold", 0)) + rng.randint(5, 12)
             return {"kind": "gold", "target": n, "text": f"to have {n} gold put by"}

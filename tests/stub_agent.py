@@ -61,10 +61,11 @@ def answer(text: str) -> str:
             return "Here is the map of the fen.\n" + fenced(placeholder_map())
         return "Here is the map of the fen.\n" + fenced(FIXED_MAP)
     if '"people":[{"name"' in text:                       # world creation: give every rolled name a life
-        names = re.findall(r"^- (.+?): STR \d+", text, re.M)
-        places = re.findall(r"^- (.+?): .*? Paths lead to: ", text, re.M) or ["Saltmarket"]
-        people = [{"name": n, "trade": "eel catcher", "home": places[i % len(places)], "personality": "keeps to the water",
-                   "secret": "owes the miller", "fear": "the mere at night", "want": "a dry roof"} for i, n in enumerate(names)]
+        names = re.findall(r"^- (.+?): .*?STR \d+", text, re.M)
+        # a trade and a home are sent on purpose although the prompt no longer asks for them: the engine owns both, and
+        # the tests check that what comes back here is ignored
+        people = [{"name": n, "trade": "eel catcher", "home": "Saltmarket", "personality": "keeps to the water",
+                   "secret": "owes the miller", "fear": "the mere at night", "want": "a dry roof"} for n in names]
         rels = [{"a": names[0], "b": names[1], "type": "rival", "feeling": -2, "trust": -1, "mutual": True, "why": "the same eel run"}] if len(names) > 1 else []
         return "The fen wakes under a low sky.\n" + fenced({"people": people, "relations": rels})
     if "outcomes, settled by the engine" in text:         # the afternoon: tell each outcome back, plus one invented line the engine must drop

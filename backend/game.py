@@ -5,7 +5,8 @@ from pathlib import Path
 
 from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,  # noqa: F401
-                    thought_line, note_log, whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES, SOCIAL, clean_voice, sentences, roll_voice)
+                    thought_line, note_log, whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES, SOCIAL, clean_voice, sentences, roll_voice,
+                    DRAFT_TIES, REROLLABLE, new_seed, reroll_field, tags_phrase)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 import runner
@@ -45,6 +46,7 @@ class Game:
         self.model_a = d.get("model_a", {"provider": "Claude Code", "model": ""})
         self.model_b = d.get("model_b", {"provider": CODEX_PROVIDER, "model": CODEX_DEFAULT})   # Codex villagers default to luna
         self.world_model = d.get("world_model", {"provider": "Claude Code", "model": ""})
+        self.people_seed = int(d.get("people_seed") or 0)    # the roll the people came from; the same seed gives the same people on any map
         self.map_source = d.get("map_source") if d.get("map_source") in ("builtin", "generated") else "builtin"
         self.map_model = d.get("map_model") if isinstance(d.get("map_model"), dict) else None     # None: the World's model draws it
         self.max_days = d.get("max_days", 12)
@@ -65,7 +67,7 @@ class Game:
     def to_dict(self) -> dict:
         return {"title": self.title, "created": self.created, "world_text": self.world_text, "players": self.players, "draft": self.draft, "draft_narration": self.draft_narration, "draft_note": self.draft_note,
                 "model_a": self.model_a, "model_b": self.model_b, "world_model": self.world_model, "max_days": self.max_days,
-                "map_source": self.map_source, "map_model": self.map_model,
+                "map_source": self.map_source, "map_model": self.map_model, "people_seed": self.people_seed,
                 "max_minutes": self.max_minutes, "drama": self.drama, "repo": self.repo, "seats": self.seats, "transcript": self.transcript,
                 "turn": self.turn, "status": self.status, "started_at": self.started_at, "cli_sessions": self.cli_sessions,
                 "last_seen": self.last_seen, "bad_models": self.bad_models, "probe_day": self.probe_day, "world": self.world.to_dict()}
@@ -426,22 +428,39 @@ class Run:
         threading.Thread(target=work, daemon=True).start()
         return "drawing a new map from the description; watch the World's terminal"
 
-    def _build_people(self) -> None:
-        """Roll the people onto this map: names from the generated map when it brought enough, else data/names.json."""
-        g = self.g; w = g.world; rng = random.Random()
-        pool = list(w.names) if w.names else NAMES[:]; rng.shuffle(pool)
-        if len(pool) < g.players:
-            extra = [n for n in NAMES if n.lower() not in {p.lower() for p in pool}]; rng.shuffle(extra); pool += extra
-        names = pool[: g.players]; srng = random.Random(); places = list(w.map)
+    def _build_people(self, seed: int | None = None) -> None:
+        """Roll the people from the valley's description and nothing else. The map is never read here: names come from
+        data/names.json, trades from the general medieval list in data/people.json, and nobody has a home or a place to
+        stand until Start settles those against whatever map the year begins on. One seed, one valley of people, on any
+        map: everything the engine rolls comes out of this one random stream."""
+        g = self.g; w = g.world
+        g.people_seed = int(seed if seed is not None else new_seed(random.Random()))
+        rng = random.Random(g.people_seed)
+        pool = NAMES[:]; rng.shuffle(pool)
+        names = pool[: g.players]
+        while len(names) < g.players: names.append(f"Newcomer {len(names) + 1}")
         with self.lock:
             g.seats = g.seats[:1] + [{"name": n, "provider": (g.model_a if i % 2 == 0 else g.model_b)["provider"], "model": (g.model_a if i % 2 == 0 else g.model_b)["model"],
                                       "color": PALETTE[i % len(PALETTE)]} for i, n in enumerate(names)]
-            w.characters = {}
-            for i, n in enumerate(names): w.characters[n] = roll_character(n, i + 1, srng, places)
+            w.characters = {}; w.relations = {}; w.activities = {}
+            for i, n in enumerate(names): w.characters[n] = roll_character(n, i + 1, rng)
+            for c in w.characters.values(): c["voice"] = roll_voice(c, rng)
             w.ledger = starting_ledger(len(names), len(w.map)); w.seed_places()
+            w.seed_all_relations(rng); w.seed_duties(rng); w.seed_pastimes(rng); w.seed_wants(rng)
             self._sync_terms(); self.version += 1
         for i in range(len(g.seats)): g.seat_dir(i)
         g.save()
+
+    def _roll_person(self, name: str, seat: int, rng: random.Random) -> dict:
+        """One more person, rolled whole, with a face, and fitted into the valley that is already there."""
+        w = self.g.world
+        c = roll_character(name, seat, rng); c["voice"] = roll_voice(c, rng)
+        w.characters[name] = c
+        w.seed_all_relations(rng); w.seed_pastimes(rng); w.seed_wants(rng)
+        if not c.get("duties"):
+            fit = {k: w.duty_fit(c, k) for k in DUTIES}; free = [k for k in DUTIES if not w.holders(k)] or list(DUTIES)
+            c["duties"] = [max(free, key=lambda k: fit[k])]
+        return c
 
     # ---- controls
     def start(self) -> None:
@@ -589,10 +608,10 @@ class Run:
         try:
             if not self.preflight(): return
             if not w.created:
-                if len(g.seats) <= 1:            # a fresh game: the map first, then the people, then their lives
-                    self.prepare_map()
-                    if self.stop_flag.is_set(): return
+                if len(g.seats) <= 1:            # a fresh game: the people first, out of the description, then the map they walk into
                     self._build_people()
+                    if self.stop_flag.is_set(): return
+                    self.prepare_map()
                 self._create_world()
             while not self.stop_flag.is_set() and w.created:
                 while self.pause_flag.is_set() and not self.stop_flag.is_set(): time.sleep(0.5)
@@ -618,9 +637,12 @@ class Run:
     def _create_world(self) -> None:
         """A game started the old way, with no draft: the lives are asked for here and the world is created at once."""
         g = self.g; w = g.world
-        w.seed_wants(self.rng); out = self._ask_lives(list(w.characters))
+        homeless = w.assign_homes(self.rng)       # the map is drawn, so everyone is given the nearest place that fits
+        out = self._ask_lives(list(w.characters))
         if out is None: return
-        w.seed_all_relations(self.rng); w.seed_duties(self.rng); w.seed_pastimes(self.rng)
+        if homeless:
+            self._record("Engine", "There is no place in this valley to practise every trade. " + "; ".join(homeless)
+                         + ". They live among everyone else and take the open jobs like anyone else.", "system")
         for rr in out.get("relations", []) or []:
             if isinstance(rr, dict):
                 w.set_rel(str(rr.get("a", "")), str(rr.get("b", "")), rr.get("type"), rr.get("feeling"), rr.get("trust"), why=str(rr.get("why", "") or "an old relationship"))
@@ -628,9 +650,10 @@ class Run:
         w.created = True; w.day = 1
         self._record("World", (strip_dashes(strip_json(out.get("narration") or "The valley wakes.")) + "\n\n" + w.standings_table()), "world")
     # ---- the draft: the map and the people rolled and shown before anything is a game
-    def generate(self, what: str = "all") -> str:
-        """Roll the draft in the background: the map (kept, built in, or drawn from the description), the people, and their
-        lives from the World. "people" rerolls everyone and keeps the map; "map" redraws the map and keeps the people."""
+    def generate(self, what: str = "all", seed: int | None = None) -> str:
+        """Roll the draft in the background. The people come first and owe the map nothing, so the two can be rerolled
+        one at a time, any number of times, in either order: "people" rolls a fresh valley of people and leaves the map
+        alone, "map" redraws the map and leaves the people alone, "all" does both, people first."""
         g = self.g; w = g.world
         with self.lock:
             if not g.draft: return "this is a game, not a draft"
@@ -639,18 +662,12 @@ class Run:
             self.stop_flag.clear(); self.generating = what; g.draft_note = ""; self.version += 1
         def work() -> None:
             try:
+                if what in ("all", "people"):
+                    self._build_people(seed); self._roll_lives()
                 if what in ("all", "map"):
                     if what == "map" and g.map_source == "generated": w.map_generated = False
                     self.prepare_map()
-                    if what == "map" and w.characters:
-                        places = list(w.map); rng = random.Random()
-                        with self.lock:
-                            for c in w.characters.values():
-                                if c.get("home") not in w.map: c["home"] = rng.choice(places)
-                                if c.get("location") not in w.map: c["location"] = c["home"]
-                            w.seed_places(); self.version += 1
-                if what in ("all", "people"):
-                    self._build_people(); self._roll_lives()
+                    with self.lock: w.seed_places(); self.version += 1
             finally:
                 with self.lock: self.generating = ""; self.version += 1
                 g.save()
@@ -658,17 +675,12 @@ class Run:
         return "rolling the valley; watch the World's terminal"
 
     def _roll_lives(self) -> bool:
-        """Ask the World for a life for every rolled person, seed everything the engine seeds, and keep the opening narration
-        for the day the draft becomes a game. If the World gives nothing, the people are rolled plain and the draft says so."""
+        """Every person is already whole: the engine rolled their trade, their words, their nature and their face. This asks
+        the World for the prose on top, out of the valley's description alone, and keeps the opening narration for the day the
+        draft becomes a game. If the World gives nothing, the engine's own roll stands and the draft says so."""
         g = self.g; w = g.world; out = self._ask_lives(list(w.characters))
-        w.seed_wants(self.rng)
         if out is None:
-            for c in w.characters.values():
-                c["trade"] = c.get("trade") or "villager"; c["personality"] = c.get("personality") or "keeps their own counsel"
-                c["secret"] = c.get("secret") or "nothing worth telling"; c["fear"] = c.get("fear") or "the cold"; c["want"] = c.get("want") or "to see spring"
-                c["voice"] = c.get("voice") or roll_voice(c, self.rng)
-            g.draft_note = "The World gave no lives, so the people are rolled plain. Reroll all to try again."
-        w.seed_all_relations(self.rng); w.seed_duties(self.rng); w.seed_pastimes(self.rng)
+            g.draft_note = "The World gave no lives, so the people stand as the engine rolled them. Reroll all to try again."
         if out:
             for rr in out.get("relations", []) or []:
                 if isinstance(rr, dict):
@@ -684,12 +696,14 @@ class Run:
         with every person's fields already written onto their character, or None if nothing usable came back."""
         g = self.g; w = g.world
         if not names: return {"people": {}, "relations": [], "narration": ""}
-        stats = "\n".join(f"- {c['name']}: STR {c['str']} SPD {c['spd']} HP {c['hp_max']} gold {c['gold']}, currently at {c['location']}; wants, in plain terms, {(c.get('goal') or {}).get('text', 'to see spring')}" for c in w.characters.values() if c["name"] in names)
+        stats = "\n".join(f"- {c['name']}: {c.get('trade') or 'villager'}, {c.get('age', 30)} years old, {tags_phrase(c.get('tags') or []).lower()}; STR {c['str']} SPD {c['spd']} HP {c['hp_max']} gold {c['gold']}; wants, in plain terms, {(c.get('goal') or {}).get('text', 'to see spring')}" for c in w.characters.values() if c["name"] in names)
         others = [n for n in w.characters if n not in names]
-        prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", "The engine has rolled these people. Give each a life. Homes must be places on the map.",
+        prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "The engine has rolled these people out of that description alone. Their names, their trades, their ages, their words and their numbers are settled and are not yours to change. "
+            "Write the rest of each life: their character in one line, their secret, their fear, what they want more than anything, and how they talk. "
+            "Say nothing about where anyone lives or where anything is. There is no map yet: the valley they walk into is drawn after this, and homes are given out on the first morning.",
             stats, ("\nThese people already have their lives and are not to be written again, only tied to: " + ", ".join(others) + ".\n") if others else "",
             "\nWrite a short opening narration (the valley waking, the early frost, the rider's news) and then a fenced ```json block, exactly this shape:",
-            '```json\n{"people":[{"name":"Name","trade":"miller","home":"The mill","personality":"one line","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything, in their own terms, built around the plain want the engine rolled for them",'
+            '```json\n{"people":[{"name":"Name","personality":"one line, in keeping with the words the engine gave them","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything, in their own terms, built around the plain want the engine rolled for them",'
             '"voice":{"length":"clipped or plain or rambling","habit":"one verbal habit, a few words","examples":["three lines they might say","in their own voice","one each"],"never":"what they never talk about"}}],'
             '"relations":[{"a":"Name","b":"OtherName","type":"spouse","feeling":3,"trust":2,"mutual":true,"why":"married twelve years; he drinks, she keeps the ledger"}]}\n```',
             "One entry per name, every name, names exact. Make them different from each other: some rich, some poor, some liked, some feared, some with dangerous secrets that touch other people in this list. "
@@ -707,23 +721,24 @@ class Run:
         for n in names:
             p = people.get(n, {}); c = w.characters[n]
             sd = lambda v, alt: strip_dashes(str(v or alt))   # noqa: E731
-            c["trade"] = sd(p.get("trade"), "villager")[:40]; c["home"] = str(p.get("home") or c["location"])[:40]
-            c["personality"] = sd(p.get("personality"), "keeps their own counsel")[:200]
-            c["secret"] = sd(p.get("secret"), "nothing worth telling")[:200]; c["fear"] = sd(p.get("fear"), "the cold")[:200]
-            c["want"] = sd(p.get("want"), "to see spring")[:200]
-            c["voice"] = clean_voice(p.get("voice"), c, self.rng)          # fixed for the game; fate can edit it under Bio
-            if p.get("home") in w.map: c["location"] = p["home"]
+            # the trade stays the engine's, off the general list, and the home waits for Start: the World writes only the prose
+            c["personality"] = sd(p.get("personality"), c.get("personality") or "keeps their own counsel")[:200]
+            c["secret"] = sd(p.get("secret"), c.get("secret") or "nothing worth telling")[:200]
+            c["fear"] = sd(p.get("fear"), c.get("fear") or "the cold")[:200]
+            c["want"] = sd(p.get("want"), c.get("want") or "to see spring")[:200]
+            c["voice"] = clean_voice(p.get("voice"), c, self.rng)          # fixed for the game; fate can edit it in the editor
         g.cli_sessions.pop("0", None)      # the World begins the year fresh
         return {"people": people, "relations": data.get("relations", []) or [], "narration": out}
 
     def _fresh_name(self, rng: random.Random) -> str:
         w = self.g.world; used = {n.lower() for n in w.characters}
-        pool = [n for n in (list(w.names) if w.names else []) + NAMES if n.lower() not in used]
+        pool = [n for n in NAMES if n.lower() not in used]
         return rng.choice(pool) if pool else f"Newcomer {len(w.characters) + 1}"
 
     def reroll_person(self, name: str) -> str:
-        """A new name, trade, personality, secret, fear, want and way of speaking for one drafted person, from the World.
-        Their seat and model, their stats, their nature, their jobs and their pastime stay. Runs in the background."""
+        """A new name, trade, words, character, secret, fear, want, face and way of speaking for one drafted person: the
+        engine rolls them at once, then the World writes the prose. Their seat and model, their stats, their nature, their
+        jobs and their pastime stay. Runs in the background."""
         g = self.g; w = g.world
         with self.lock:
             if not g.draft: return "this is a game, not a draft"
@@ -732,12 +747,13 @@ class Run:
             new = self._fresh_name(random.Random()); self.generating = f"reroll {name}"; self.version += 1
         def work() -> None:
             try:
-                with self.lock: self._rename(name, new)
-                for k in ("trade", "personality", "secret", "fear", "want"): w.characters[new][k] = ""
-                w.characters[new]["voice"] = None
+                rng = random.Random()
+                with self.lock:
+                    self._rename(name, new); c = w.characters[new]
+                    for k in ("trade", "tags", "personality", "secret", "fear", "want", "face"): reroll_field(c, k, rng)
+                    c["voice"] = roll_voice(c, rng)
                 if self._ask_lives([new]) is None:
-                    c = w.characters[new]; c["trade"] = "villager"; c["personality"] = "keeps their own counsel"; c["secret"] = "nothing worth telling"; c["fear"] = "the cold"; c["want"] = "to see spring"; c["voice"] = roll_voice(c, self.rng)
-                    g.draft_note = f"The World gave {new} no life, so they are rolled plain."
+                    g.draft_note = f"The World gave {new} no life, so they stand as the engine rolled them."
             finally:
                 with self.lock: self.generating = ""; self.version += 1
                 g.save()
@@ -756,7 +772,8 @@ class Run:
         self._sync_terms()
 
     def add_person(self) -> str:
-        """One more drafted person: rolled by the engine, given a life by the World in the background, seated on the next model."""
+        """One more drafted person, at the end of the strip: rolled whole by the engine, with a face, at once and with
+        nothing to wait for. Edit them from there, or press Reroll to have the World write their prose."""
         g = self.g; w = g.world
         with self.lock:
             if not g.draft: return "this is a game, not a draft"
@@ -764,27 +781,70 @@ class Run:
             if len(w.characters) >= 30: return "thirty people is the most a valley holds"
             if not g.seats: g.seats = [self.world_seat()]; self._sync_terms()
             rng = random.Random(); n = self._fresh_name(rng); i = len(g.seats) - 1; m = g.model_a if i % 2 == 0 else g.model_b
-            w.characters[n] = roll_character(n, len(w.characters) + 1, rng, list(w.map))
+            self._roll_person(n, len(w.characters) + 1, rng)
             g.seats.append({"name": n, "provider": m["provider"], "model": m["model"], "color": PALETTE[i % len(PALETTE)]})
-            w.ledger = starting_ledger(len(w.characters), len(w.map)); self._sync_terms(); self.generating = f"add {n}"; self.version += 1
-        def work() -> None:
-            try:
-                w.seed_wants(self.rng)
-                if self._ask_lives([n]) is None:
-                    c = w.characters[n]; c["trade"] = "villager"; c["personality"] = "keeps their own counsel"; c["secret"] = "nothing worth telling"; c["fear"] = "the cold"; c["want"] = "to see spring"; c["voice"] = roll_voice(c, self.rng)
-                    g.draft_note = f"The World gave {n} no life, so they are rolled plain."
-                with self.lock:
-                    w.seed_all_relations(self.rng); w.seed_pastimes(self.rng)
-                    c = w.characters[n]
-                    if not c.get("duties"):
-                        fit = {k: w.duty_fit(c, k) for k in DUTIES}; free = [k for k in DUTIES if not w.holders(k)] or list(DUTIES)
-                        c["duties"] = [max(free, key=lambda k: fit[k])]
-                    self.version += 1
-            finally:
-                with self.lock: self.generating = ""; self.version += 1
-                g.save()
-        threading.Thread(target=work, daemon=True).start()
-        return f"adding {n}"
+            w.ledger = starting_ledger(len(w.characters), len(w.map)); self._sync_terms(); self.version += 1
+            g.save()
+        return f"{n} the {w.characters[n]['trade']} joins the draft"
+
+    # ---- the small reroll buttons: one field at a time, and nothing else moves
+    def reroll_one(self, name: str, field: str) -> str:
+        """Roll one field of one person again. Works in the draft and in play; in play it is fate like any other edit."""
+        g = self.g; w = g.world; field = str(field or "").strip().lower()
+        with self.lock:
+            c = w.characters.get(name)
+            if not c: return "no such person"
+            if field not in REROLLABLE: return "nothing to reroll there"
+            rng = random.Random()
+            if field == "name":
+                new = self._fresh_name(rng)
+                if new == name: return "no change"
+                self._rename(name, new); self.version += 1; g.save()
+                note = f"{name} is now called {new}"
+            else:
+                note = reroll_field(c, field, rng)
+                if not note: return "no change"
+                if not g.draft and field in ("trade", "tags", "personality", "traits", "want", "fear", "secret", "voice", "age"):
+                    c["changed"] = True                 # in play a changed life starts them fresh; in a draft there is nothing to unlearn
+                    i = next((j for j, x in enumerate(g.seats) if x["name"] == c["name"]), None)
+                    if i is not None: g.cli_sessions.pop(str(i), None)
+                self.version += 1; g.save()
+        if not g.draft: w.fate.append(note); self._record("Fate", note, "fate")
+        return note
+
+    # ---- the draft's pairs: six plain words, and the opinion each one sets on both sides
+    def set_tie(self, a: str, b: str, word: str) -> str:
+        """One pair of people, set from the six words the draft offers. The numbers come from the word, both ways."""
+        g = self.g; w = g.world; word = str(word or "").strip().lower()
+        if word not in DRAFT_TIES: return "no such kind of relationship"
+        if a not in w.characters or b not in w.characters or a == b: return "no such pair"
+        typ, feel, trust = DRAFT_TIES[word]
+        with self.lock:
+            why = f"they are {word}" if word != "strangers" else "they are nothing to each other yet"
+            w.set_rel(a, b, typ, feel, trust, why=why); w.set_rel(b, a, typ, feel, trust, why=why)
+            self.version += 1; g.save()
+        note = f"{a} and {b} are {word}"
+        if not g.draft: w.fate.append(note); self._record("Fate", note, "fate")
+        return note
+
+    def reroll_ties(self) -> str:
+        """Reroll every pair in the valley: each one takes one of the six words, weighted so most people are strangers."""
+        g = self.g; w = g.world
+        with self.lock:
+            if self.busy() or self.generating: return "busy; try again in a moment"
+            names = list(w.characters); rng = random.Random()
+            if len(names) < 2: return "there is nobody to be anything to anyone"
+            weighted = ["strangers"] * 8 + ["friends"] * 4 + ["rivals"] * 3 + ["kin"] * 2 + ["lovers"] + ["married"]
+            w.relations = {}
+            w.seed_all_relations(rng)             # everyone still has a first impression of everyone
+            for i, a in enumerate(names):
+                for b in names[i + 1:]:
+                    word = rng.choice(weighted)
+                    if word == "strangers": continue
+                    typ, feel, trust = DRAFT_TIES[word]
+                    w.set_rel(a, b, typ, feel, trust, why=f"they are {word}"); w.set_rel(b, a, typ, feel, trust, why=f"they are {word}")
+            self.version += 1; g.save()
+        return "the valley's relationships are rolled again"
 
     def remove_person(self, name: str) -> str:
         g = self.g; w = g.world
@@ -851,9 +911,13 @@ class Run:
                 try:
                     if f.exists(): f.unlink()
                 except OSError: pass
+            homeless = w.assign_homes(self.rng)      # the map is settled now, so everyone is given the nearest place that fits
             w.created = True; w.day = 1; g.status = "idle"; self.version += 1
             g.save()
         self._record("World", (g.draft_narration or "The valley wakes.") + "\n\n" + w.standings_table(), "world")
+        if homeless:
+            self._record("Engine", "There is no place in this valley to practise every trade. " + "; ".join(homeless)
+                         + ". They live among everyone else and take the open jobs like anyone else.", "system")
         g.draft_narration = ""; g.save()
 
     def _dawn(self) -> None:

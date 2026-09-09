@@ -60,11 +60,14 @@ class Sheets(unittest.TestCase):
     def test_the_situations_sheet_and_button_are_gone(self) -> None:
         self.assertNotIn('data-sheet="situations"', HTML); self.assertNotIn('id="sheet-situations"', HTML); self.assertNotIn("renderSituations", JS); self.assertNotIn("['situations','Situations']", JS)
 
-    def test_people_has_six_tabs_and_the_words_on_them(self) -> None:
-        """The keys behind the tabs are data and stay; the words on them are the convener's."""
+    def test_people_has_seven_tabs_and_the_words_on_them(self) -> None:
+        """The keys behind the tabs are data and stay; the words on them are the convener's. Edit is the one screen
+        editor, reached from Bio, and it is the whole screen in a draft, where the tabs are hidden."""
         tabs = re.findall(r'<div class="ptabs">(.*?)</div>', HTML)[0]
-        self.assertEqual(re.findall(r'data-p="(\w+)"', tabs), ["bio", "body", "disp", "ties", "duties", "log"])
-        self.assertEqual(re.findall(r'>([A-Za-z]+)</button>', tabs), ["Bio", "Health", "Personality", "Relationships", "Jobs", "Log"])
+        self.assertEqual(re.findall(r'data-p="(\w+)"', tabs), ["bio", "edit", "body", "disp", "ties", "duties", "log"])
+        self.assertEqual(re.findall(r'>([A-Za-z]+)</button>', tabs), ["Bio", "Edit", "Health", "Personality", "Relationships", "Jobs", "Log"])
+        self.assertIn("function paneEdit", JS); self.assertIn("id=\"b_edit\"", JS)
+        self.assertIn("document.querySelector('.ptabs').style.display=drafting?'none':''", JS)
         self.assertIn("function paneBody", JS); self.assertNotIn("function paneHealth", JS); self.assertNotIn("function paneStats", JS)
         self.assertIn('class="needbars"', JS); self.assertNotIn("Where they stand", JS)
 
