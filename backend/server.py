@@ -7,7 +7,9 @@ from pathlib import Path
 import connect
 import telegram
 from agents import PROVIDERS, VERSIONS, refresh_versions
-from engine import ALL_NEEDS, DUTIES, clean_voice, GAMES, PASTIMES, SEASONS, STANDING_WORDS, World, now_id, standing_score_for, standing_word, need_word, season_row, season_sentence
+import portrait
+from engine import (ALL_NEEDS, DRAFT_TIES, DRAFT_TIE_OF, DUTIES, GAMES, PASTIMES, REROLLABLE, SEASONS, STANDING_WORDS, TAGS, TRADE_NAMES, World,
+                    clean_voice, need_word, now_id, season_row, season_sentence, standing_score_for, standing_word)
 
 DUTY_DEFS = {k: {x: d.get(x) for x in ("label", "verb", "skill", "produces", "consumes", "effect", "breaks")} for k, d in DUTIES.items()}
 PASTIME_DEFS = {k: {"label": d["label"], "verb": d["verb"]} for k, d in PASTIMES.items()}
@@ -58,7 +60,7 @@ class App:
                     "weather": w.weather, "day_report": w.day_report, "upkeep": w.upkeep, "bodies": dict(w.bodies), "roster": w.roster, "phase": w.phase,
                     "activities": json.loads(json.dumps(w.activities)), "now": time.time(),
                     "characters": [{k: c.get(k) for k in ("name", "location", "alive", "gone", "hp", "hp_max", "gold", "trade", "standing", "sick", "needs", "duties", "dumped", "emergency", "activity", "goal", "pastime", "items")} for c in w.characters.values()],
-                    "titles": w.titles(),
+                    "titles": w.titles(), "faces": portrait.faces_of(w.characters.values(), {x["name"]: x["color"] for x in g.seats}),
                     "seats": [{"name": x["name"], "color": x["color"]} for x in g.seats], "version": r.version}
 
     def snapshot(self, since: int = -1, terms: bool = False, tail: int = 120) -> dict:
@@ -84,6 +86,8 @@ class App:
                     "titles": w.titles(), "want_progress": {c["name"]: w.want_progress(c["name"]) for c in w.characters.values()}, "social": list(w.social_log[-400:]),
                     "activities": json.loads(json.dumps(w.activities)), "now": time.time(),
                     "games": list_games() + list_drafts(), "live": [k for k, x in self.runs.items() if x.busy()], "places": list(mp.keys()),
+                    "faces": portrait.faces_of(chars, {x["name"]: x["color"] for x in seats}),
+                    "trade_list": TRADE_NAMES, "tag_list": TAGS, "tie_words": list(DRAFT_TIES), "tie_word_of": DRAFT_TIE_OF, "rerollable": list(REROLLABLE), "people_seed": g.people_seed,
                     "draft": g.draft, "generating": r.generating, "draft_ready": r.draft_ready(), "draft_note": g.draft_note, "seat_tests": {x["name"]: r.seat_tested(x) for x in g.seats},
                     "terms": tstates,
                     "phone_url": self.phone_url, "away_url": self.away_url, "last_god": self.last_god,
@@ -123,14 +127,16 @@ class App:
         threading.Thread(target=work, daemon=True).start()
         return f"Testing {provider}..."
 
-    def generate(self, what: str = "all") -> str:
+    def generate(self, what: str = "all", seed: int | None = None) -> str:
         """Roll the draft: the World must be connected, since it writes the lives."""
         r = self.run
         if not r.g.draft: return "this is a game, not a draft"
+        try: seed = int(seed) if seed is not None else None
+        except (TypeError, ValueError): seed = None
         need = {r.g.world_model["provider"], r.map_model_used()["provider"]} if r.g.map_source == "generated" else {r.g.world_model["provider"]}
         bad = [n for n in need if connect.status_of(n) in ("not_installed", "not_signed_in", "error")]
         if bad: self.start_error = f"{bad[0]} is not connected. Open Settings, Connections."; connect.refresh(force=True); r.version += 1; return self.start_error
-        self.start_error = ""; return r.generate(what)
+        self.start_error = ""; return r.generate(what, seed)
 
     def start_game(self) -> None:
         """Nothing starts until every agent this game needs is connected. One line says which one is not."""
@@ -223,6 +229,14 @@ class App:
             life_changed = False
             for k in ("trade", "personality", "secret", "fear", "want", "home"):
                 if k in d and str(d[k]) != c.get(k): c[k] = str(d[k])[:300]; life_changed = True; notes.append(f"{name}'s {k} changed")
+            if isinstance(d.get("tags"), list):
+                tags = [" ".join(str(t).strip().lower().split())[:24] for t in d["tags"]]
+                tags = [t for t in dict.fromkeys(tags) if t][:3]
+                if tags != (c.get("tags") or []): c["tags"] = tags; life_changed = True; notes.append(f"{name} is now {', '.join(tags) or 'nothing in particular'}")
+            if "age" in d:
+                try: age = max(1, min(120, int(d["age"])))
+                except (TypeError, ValueError): age = None
+                if age is not None and age != c.get("age"): c["age"] = age; notes.append(f"{name} is now {age}")
             if isinstance(d.get("voice"), dict):
                 nv = clean_voice(d["voice"], c, r.rng)
                 if nv != c.get("voice"): c["voice"] = nv; life_changed = True; notes.append(f"{name}'s way of talking changed")
@@ -402,9 +416,12 @@ def make_handler(app: App, token: str):
              "/god/extinguish": lambda: app.god(lambda w: ("fire out at " + data.get("place", "")) if w.extinguish(data.get("place", "")) else "no fire there"),
              "/edit/game": lambda: app.edit_game(data),
              "/map/regenerate": lambda: setattr(app, "last_god", app.run.regenerate_map()),
-             "/draft/generate": lambda: setattr(app, "last_god", app.generate(data.get("what") or "all")),
+             "/draft/generate": lambda: setattr(app, "last_god", app.generate(data.get("what") or "all", data.get("seed"))),
              "/draft/reroll": lambda: setattr(app, "last_god", app.run.reroll_person(data.get("name", ""))),
              "/draft/add": lambda: setattr(app, "last_god", app.run.add_person()),
+             "/draft/ties": lambda: setattr(app, "last_god", app.run.reroll_ties()),
+             "/edit/reroll": lambda: setattr(app, "last_god", app.run.reroll_one(data.get("name", ""), data.get("field", ""))),
+             "/edit/tie": lambda: setattr(app, "last_god", app.run.set_tie(data.get("a", ""), data.get("b", ""), data.get("word", ""))),
              "/draft/remove": lambda: setattr(app, "last_god", app.run.remove_person(data.get("name", ""))),
              "/draft/test": lambda: setattr(app, "last_god", app.run.test_seats()),
              "/connect/refresh": lambda: connect.invalidate(data.get("provider") or None),

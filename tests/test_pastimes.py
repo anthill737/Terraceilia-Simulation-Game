@@ -102,6 +102,7 @@ class ServerTests(unittest.TestCase):
             app = server.App(); g = app.run.g; g.world = valley(n=2); w = g.world
             g.seats = [{"name": "World", "provider": "Claude Code", "model": "x", "color": "#fff"}] + [{"name": n, "provider": "Claude Code", "model": "x", "color": "#abc"} for n in w.characters]
             app.run._sync_terms(); g.save()
+            w.characters["P0"]["pastime"] = "walking"        # whatever the roll gave them, the edit has somewhere to move it to
             self.assertIn("pastime is now singing at the inn", app.edit_character({"name": "P0", "pastime": "singing"}))
             self.assertIn("in good spirits", app.edit_character({"name": "P0", "needs": {"spirit": 9}}))
             snap = app.snapshot(); self.assertIn("pastime_defs", snap); self.assertEqual(next(c for c in snap["characters"] if c["name"] == "P0")["pastime"], "singing")

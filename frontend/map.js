@@ -36,6 +36,7 @@ const MapView=(()=>{
   const g1=el('radialGradient',{id:'ground',cx:'50%',cy:'45%',r:'75%'},d);el('stop',{offset:'0%','stop-color':base},g1);el('stop',{offset:'55%','stop-color':mid},g1);el('stop',{offset:'100%','stop-color':deep},g1);
   const cp=el('clipPath',{id:'mapClip'},d);el('rect',{x:0,y:0,width:W,height:H},cp);
   const bc=el('clipPath',{id:'boxClip'},d);el('rect',{id:'boxRect',x:0,y:0,width:W,height:H},bc);      // the visible box, whatever its shape
+  const hc=el('clipPath',{id:'headClip'},d);el('circle',{cx:0,cy:-9,r:10},hc);      // the token wears its own face, cut to a head
   const vig=el('radialGradient',{id:'vig',cx:'50%',cy:'50%',r:'72%'},d);el('stop',{offset:'55%','stop-color':'#000','stop-opacity':0},vig);el('stop',{offset:'100%','stop-color':'#000','stop-opacity':.6},vig);
   const hill=el('linearGradient',{id:'hill',x1:0,y1:0,x2:0,y2:1},d);el('stop',{offset:'0%','stop-color':'#3d4658'},hill);el('stop',{offset:'100%','stop-color':'#1c222c'},hill);
   const hg=el('linearGradient',{id:'hillgen',x1:0,y1:0,x2:0,y2:1},d);el('stop',{offset:'0%','stop-color':shade(base,2.05)},hg);el('stop',{offset:'100%','stop-color':shade(base,1.05)},hg);
@@ -288,10 +289,20 @@ const MapView=(()=>{
   const who=s.characters.filter(c=>c.alive&&!c.gone&&c.location===selected).map(c=>c.name);$('ppWho').textContent=who.length?'People: '+who.join(', '):'Nobody here.';pp.classList.add('open')}
  function note(t){const n=$('godNote');n.textContent=t||'';n.style.display=t?'':'none';clearTimeout(n._t);n._t=setTimeout(()=>n.style.display='none',4000)}
  function figure(t,col){el('ellipse',{cy:14,rx:8,ry:3,fill:'#000',opacity:.35},t);el('circle',{class:'ring',r:12,stroke:col},t);
-  el('path',{class:'cloak',d:'M-8 12 L-6 -2 L0 -6 L6 -2 L8 12 Z',fill:col,stroke:'#0a0d0b','stroke-width':1.2},t);el('circle',{class:'head',cy:-9,r:5,fill:'#e6c8a6',stroke:'#0a0d0b','stroke-width':1.2},t);el('text',{y:6,'text-anchor':'middle',class:'ini'},t);
+  el('path',{class:'cloak',d:'M-8 14 L-6 0 L0 -4 L6 0 L8 14 Z',fill:col,stroke:'#0a0d0b','stroke-width':1.2},t);
+  el('circle',{class:'head',cy:-9,r:10,fill:'#e6c8a6',stroke:'#0a0d0b','stroke-width':1.2},t);
+  const fw=el('g',{'clip-path':'url(#headClip)'},t);      // the clip is read in the token's own space, so the scaling sits inside it
+  el('g',{class:'face',transform:'translate(-10,-19) scale(0.2)'},fw);
   el('line',{class:'lead',x1:0,y1:14,x2:0,y2:14},t);const lab=el('g',{class:'lab'},t);
   el('text',{y:28,'text-anchor':'middle',class:'lbl',filter:'url(#halo)'},lab);
   el('text',{y:40,'text-anchor':'middle',class:'act',filter:'url(#halo)'},lab);el('rect',{x:-20,y:44,width:40,height:3,rx:1.5,class:'pbar'},lab);el('rect',{x:-20,y:44,width:0,height:3,rx:1.5,class:'pfill'},lab)}
+
+ // The face a token wears. It is redrawn only when the person behind it changed: a wound, a birthday, a new hood.
+ function paintFace(t,face){const g=t.querySelector('.face');if(!g)return;
+  const key=face?JSON.stringify(face):'';
+  if(t._faceKey===key)return;
+  t._faceKey=key;
+  g.innerHTML=(face&&typeof Face!=='undefined')?Face.markup(face,{head:true,plate:false}):''}
 
  // ---------- movement. The engine says what each person is doing, where, and since when; Walks plans it and the map plays it.
  // A timeline is a walk along the paths to each stop, then a stay there with the bar filling. It begins where the token stands,
@@ -326,7 +337,8 @@ const MapView=(()=>{
   const prev={};for(const n in tokens){const t=tokens[n];if(t.classList.contains('drag'))continue;prev[n]={place:t.dataset.place,key:t._key||'',x:t._x,y:t._y}}
   const planned=Walks.plan(s,prev,serverNow());
   s.characters.forEach(c=>{if(!c.alive||c.gone)return;const pl=c.location;const d=s.map[pl];if(!d)return;live.add(c.name);const sl=slotOf(pl,c.name);const n=(byPlace[pl]||[]).length;
-    let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#7d7462');t.querySelector('.ini').textContent=c.name[0];t.querySelector('.lbl').textContent=c.name;tokens[c.name]=t;bind(t,c.name);t._x=sl.x;t._y=sl.y;t.setAttribute('transform',`translate(${sl.x},${sl.y}) scale(${tokScale().toFixed(4)})`)}
+    let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#7d7462');t.querySelector('.lbl').textContent=c.name;tokens[c.name]=t;bind(t,c.name);t._x=sl.x;t._y=sl.y;t.setAttribute('transform',`translate(${sl.x},${sl.y}) scale(${tokScale().toFixed(4)})`)}
+    paintFace(t,(s.faces||{})[c.name]);
     t.dataset.sx=sl.x;t.dataset.sy=sl.y;t._slotOf=p=>slotOf(p,c.name);
     const a=acts[c.name];const pn=planned[c.name];
     if(pn){t._key=pn.key;t._act=a||null;t._tl=pn.tl&&pn.tl.end>0?pn.tl:null;t._rest=null}

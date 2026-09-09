@@ -75,7 +75,7 @@ function render(s){const first=!S||S.id!==s.id;if(first){T=[];lastTurn=-1}mergeT
  $('start2').style.display=started?'none':'';$('sayBtn').disabled=!busy;
  $('start2').disabled=!!(drafting&&(gen||!s.draft_ready));$('start2').style.opacity=$('start2').disabled?'.45':'';
  $('draftBar').style.display=drafting?'':'none';
- if(drafting){$('generate').textContent=gen?(gen==='all'?'Rolling the valley...':gen==='map'?'Drawing the map...':gen==='people'?'Rerolling everyone...':gen.startsWith('reroll')?'Rerolling '+esc(gen.slice(7))+'...':gen.startsWith('add')?'Adding '+esc(gen.slice(4))+'...':'Working...'):(drafted?'Generate again':'Generate');
+ if(drafting){$('generate').textContent=gen?(gen==='all'?'Rolling the valley...':gen==='map'?'Drawing the map...':gen==='people'?'Rolling the people...':gen.startsWith('reroll')?'Rerolling '+esc(gen.slice(7))+'...':gen.startsWith('add')?'Adding '+esc(gen.slice(4))+'...':'Working...'):(drafted?'Generate again':'Generate');
   $('generate').disabled=!!gen;['rerollAll','regenMap','openPeople','testSeats'].forEach(id=>{$(id).disabled=!!gen||!drafted;$(id).style.display=drafted?'':'none'});$('regenMap').style.display=(drafted&&s.map_source==='generated')?'':'none';
   $('testSeats').textContent=tst?`Testing ${tst.done} of ${tst.total}...`:s.draft_ready?'Seats tested':'Test seats';
   $('draftNote').textContent=s.draft_note||(drafted?(s.draft_ready?`${s.characters.length} people, every seat tested. Start when you are ready.`:`${s.characters.length} people. Test the seats before Start.`):'')}
@@ -170,8 +170,18 @@ document.querySelectorAll('#gearMenu .list button').forEach(b=>b.onclick=async()
 function modelPick(pfx,val,selP,selM,inpC){fillSel(selP,Object.keys(providers),val.provider);const ms=[FIRST].concat((providers[val.provider]||{models:[]}).models,['Custom...']);const v=val.model||FIRST;const known=ms.includes(v);fillSel(selM,ms,known?v:'Custom...');inpC.style.display=known?'none':'';if(!known)inpC.value=val.model;
  selP.onchange=()=>{const m2=[FIRST].concat((providers[selP.value]||{models:[]}).models,['Custom...']);fillSel(selM,m2,FIRST);inpC.style.display='none'};selM.onchange=()=>{inpC.style.display=selM.value==='Custom...'?'':'none';if(selM.value==='Custom...')inpC.focus()}}
 function pickVal(selP,selM,inpC){const m=selM.value;return {provider:selP.value,model:m==='Custom...'?inpC.value.trim():m===FIRST?'':m}}
+// ---------- Portraits. The engine settles the face, face.js draws it, and everything that shows a person shows it:
+// 60 across on a card, 160 in the editor, 20 on a map token. It changes only when the person does.
+const faceOf=n=>((S&&S.faces)||{})[n];
+function portrait(n,size,opts){const f=faceOf(n);
+ if(!f||typeof Face==='undefined')return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" class="face blank"></svg>`;
+ return Face.svg(f,size,opts||{})}
+
 // ---------- People: the character screen. Everyone across the top, the chosen one below.
-let peoSel='',peoTab='bio',peoFilter='',tieSort='strongest',peoNote='',peoStripHtml='',peoPaneHtml='',peoShown='';
+let peoSel='',peoTab='bio',peoFilter='',tieSort='strongest',peoNote='',peoStripHtml='',peoPaneHtml='',peoShown='',tieFilter='';
+// the six plain words a pair can be, in the order they appear in the dropdown
+const TIEWORDS=['strangers','friends','rivals','kin','lovers','married'];
+const tieWordOf=r=>((S&&S.tie_word_of)||{})[(r&&r.type)||'none']||'strangers';
 const REL=['none','spouse','lover','kin','friend','rival','enemy','creditor','debtor','master','servant'];
 // key, label, the word at each end, and the five words the dial can read
 const TRAITS=[
@@ -202,6 +212,9 @@ function renderPeople(s){const pane=$('peoPane');const drafting=!!s.draft&&!s.cr
  if(!s.characters.length){$('peoStrip').innerHTML='';$('peoPick').innerHTML='';$('peoHead').innerHTML='';peoStripHtml='';peoPaneHtml='';
   pane.innerHTML=drafting?'<div class="empty">Nobody is in the draft yet. Press Generate under Setup and the engine rolls the valley.</div>':'<div class="empty">Nobody lives here yet. Press Start and the World rolls them.</div>';return}
  if(!s.characters.some(c=>c.name===peoSel))peoSel=s.characters[0].name;
+ // in a draft the editor is the whole screen: one screen, no tabs, everything in reach
+ document.querySelector('.ptabs').style.display=drafting?'none':'';
+ if(drafting)peoTab='edit';
  peoRenderStrip(s);
  // never rebuild the panel under someone's hands
  const busy=pane.contains(document.activeElement)&&/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
@@ -212,8 +225,9 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
   .sort((a,b)=>(a.alive?0:1)-(b.alive?0:1));      // the dead go to the end, still there, still dimmed
  const html=rows.map(c=>{const pct=Math.max(0,Math.min(100,Math.round(100*c.hp/Math.max(1,c.hp_max))));
   const band=(!c.alive||pct<30)?'low':pct<60?'mid':'';
-  return `<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'var(--faint)')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}, at ${esc(c.location)}">
-   <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${(((s.titles||{})[c.name])||[]).length?esc(((s.titles||{})[c.name]).join(', '))+' · ':''}${esc(c.location)}${c.sick?' · sick':''}</span>
+  return `<button type="button" class="chip ${c.name===peoSel?'on':''} ${c.alive?'':'dead'}" data-n="${esc(c.name)}" style="--c:${esc(seatColor(c.name)||'var(--faint)')}" title="${esc(c.name)}, ${esc(c.trade||'no trade yet')}${c.location?', at '+esc(c.location):''}">
+   <span class="cf">${portrait(c.name,60)}</span>
+   <span class="cn"><span class="dot"></span>${esc(c.name)}</span><span class="cp">${(((s.titles||{})[c.name])||[]).length?esc(((s.titles||{})[c.name]).join(', '))+' · ':''}${esc(c.location||c.trade||'not placed yet')}${c.sick?' · sick':''}</span>
    <span class="chp ${band}"><i style="width:${c.alive?pct:0}%"></i></span>
    <span class="chhp">${c.alive?`hp ${c.hp}/${c.hp_max}`:'dead'}</span>${c.alive&&c.activity?`<span class="chact">${esc(c.activity)}</span>`:''}</button>`}).join('')
   ||'<div class="empty">Nobody matches that.</div>';
@@ -230,9 +244,9 @@ function peoRenderStrip(s){const q=peoFilter.trim().toLowerCase();
 function peoRenderPane(s){const c=s.characters.find(x=>x.name===peoSel);if(!c)return;
  const tt=((s.titles||{})[c.name]||[]);const title=tt[0]||'';const trade=(c.trade||'').trim();
  const showTrade=trade&&!(title&&title.replace(/^the /,'').toLowerCase()===trade.replace(/^the /,'').toLowerCase());
- $('peoHead').innerHTML=`<span class="nm">${esc(c.name)}</span>${title?`, <i class="ttl">${esc(title)}</i>`:''}${showTrade?`, ${esc(/^the /i.test(trade)?trade:'the '+trade)}`:''} \u00b7 ${esc(c.location)} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead, '+esc(c.cause_of_death||'unknown')}${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return g.text?` \u00b7 wants ${esc(g.text)}, ${wp[0]}%`:''})()}${(s.draft&&!s.created)?` \u00b7 <span class="${(s.seat_tests||{})[c.name]?'good':'poor'}">${(s.seat_tests||{})[c.name]?'seat tested':'seat not tested'}</span>`:''}`;
+ $('peoHead').innerHTML=`<span class="hf">${portrait(c.name,34,{round:true})}</span><span class="nm">${esc(c.name)}</span>${title?`, <i class="ttl">${esc(title)}</i>`:''}${showTrade?`, ${esc(/^the /i.test(trade)?trade:'the '+trade)}`:''}${c.location?' \u00b7 '+esc(c.location):''} \u00b7 ${c.alive?(c.gone?'gone':'alive'):'dead, '+esc(c.cause_of_death||'unknown')}${(()=>{const g=c.goal||{};const wp=((s.want_progress||{})[c.name])||[0,''];return g.text?` \u00b7 wants ${esc(g.text)}, ${wp[0]}%`:''})()}${(s.draft&&!s.created)?` \u00b7 <span class="${(s.seat_tests||{})[c.name]?'good':'poor'}">${(s.seat_tests||{})[c.name]?'seat tested':'seat not tested'}</span>`:''}`;
  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===peoTab));
- const html=(peoTab==='bio'?paneBio(s,c):peoTab==='body'?paneBody(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):peoTab==='duties'?paneDuties(s,c):paneLog(s,c))
+ const html=(peoTab==='edit'?paneEdit(s,c):peoTab==='bio'?paneBio(s,c):peoTab==='body'?paneBody(s,c):peoTab==='disp'?paneDisp(s,c):peoTab==='ties'?paneTies(s,c):peoTab==='duties'?paneDuties(s,c):paneLog(s,c))
   +(peoTab==='log'?'':`<p class="small">${esc(peoNote)}</p>`);
  if(html===peoPaneHtml)return;
  $('peoPane').innerHTML=html;peoPaneHtml=html;peoWire(s,c)}
@@ -242,7 +256,8 @@ async function peoApply(patch){peoNote='';const r=await api('/edit/character',{n
 
 // ---- Bio. One form, two columns, label above value, every control the same height. Save sits bottom right.
 function paneBio(s,c){const places=s.places||[];const f=(id,label,inner)=>`<div class="fld"><label for="${id}">${label}</label>${inner}</div>`;
- return `<div class="form2">
+ return `<div class="biotop">${portrait(c.name,160)}<div class="biowords"><div class="bioline">${esc(c.personality||'')}</div><div class="small">${esc((c.tags||[]).join(', '))}${c.age?(c.tags||[]).length?' · '+c.age+' years old':c.age+' years old':''}</div></div></div>
+ <div class="form2">
   ${f('b_name','Name',`<input id="b_name" value="${esc(c.name)}">`)}
   ${f('b_trade','Trade',`<input id="b_trade" value="${esc(c.trade)}">`)}
   ${f('b_home','Home',`<input id="b_home" value="${esc(c.home)}" list="b_places"><datalist id="b_places">${places.map(p=>`<option>${esc(p)}</option>`).join('')}</datalist>`)}
@@ -263,7 +278,7 @@ function paneBio(s,c){const places=s.places||[];const f=(id,label,inner)=>`<div 
   ${f('b_vex','Three lines they might say, one per line',`<textarea id="b_vex" rows="3">${esc(((c.voice||{}).examples||[]).join('\n'))}</textarea>`)}
   ${f('b_vnever','What they never talk about',`<textarea id="b_vnever" rows="3">${esc((c.voice||{}).never||'')}</textarea>`)}
  </div>
- <div class="row end">${(s.draft&&!s.created)?`<button type="button" class="btn" id="b_rr" title="A new name, trade, personality, secret, fear, want and way of speaking; the seat and the model stay">Reroll</button><button type="button" class="btn danger" id="b_rm">Remove</button>`:''}${(c.items||[]).length?`<span class="small" title="Things they made or found">Keeps: ${c.items.map(esc).join(', ')}</span>`:''}<button type="button" class="btn" id="b_reroll" title="Roll a new measured want for them">New want</button><span class="small">${(s.draft&&!s.created)?'Edits here go into the draft; the year starts with what you see.':'A changed life or model starts them fresh on their next turn.'}</span><button class="primary" id="b_save">Save</button></div>`}
+ <div class="row end">${(s.draft&&!s.created)?`<button type="button" class="btn" id="b_rr" title="A new name, trade, personality, secret, fear, want and way of speaking; the seat and the model stay">Reroll</button><button type="button" class="btn danger" id="b_rm">Remove</button>`:''}${(c.items||[]).length?`<span class="small" title="Things they made or found">Keeps: ${c.items.map(esc).join(', ')}</span>`:''}<button type="button" class="btn" id="b_edit" title="The whole person on one screen, every field with its own reroll">Edit</button><button type="button" class="btn" id="b_reroll" title="Roll a new measured want for them">New want</button><span class="small">${(s.draft&&!s.created)?'Edits here go into the draft; the year starts with what you see.':'A changed life or model starts them fresh on their next turn.'}</span><button class="primary" id="b_save">Save</button></div>`}
 
 // ---- Body, shown as Health. Condition and wounds, the four needs as equal bars, then the numbers as one aligned list. What a word means is in its tooltip.
 const CONDITION=p=>p>=100?['Unhurt','good']:p>=75?['Scratched','good']:p>=50?['Hurt','fair']:p>=25?['Badly hurt','poor']:p>0?['Dying','poor']:['Dead','poor'];
@@ -350,11 +365,115 @@ function paneLog(s,c){const rx=rxName(c.name);
   out+=`<div class="logrow ${esc(e.kind)}" style="${e.speaker===c.name?'--c:'+esc(seatColor(c.name)||'var(--faint)'):''}"><div class="lm">${esc(e.speaker)} \u00b7 Day ${e.day??0}${e.turn?`, turn ${e.turn}`:''}${e.place?' \u00b7 '+esc(e.place):''}</div>${raw?text:rich(text)}</div>`}
  return out}
 
+// ---- Edit: the whole person on one screen, no tabs, the portrait at the top. Every field carries a small reroll that
+// rolls that field and nothing else. Save applies at once; the dials and the ties apply the moment they are clicked.
+const rr=(f,tip)=>`<button type="button" class="rr" data-f="${f}" title="${esc(tip)}" aria-label="${esc(tip)}">&#8635;</button>`;
+const edf=(label,f,tip,inner)=>`<div class="fld"><label>${label}${f?rr(f,tip):''}</label>${inner}</div>`;
+function paneEdit(s,c){const drafting=!!s.draft&&!s.created;const trades=s.trade_list||[];const tags=s.tag_list||[];
+ const has=(c.tags||[]);const sk=Object.entries(c.skills||{});
+ const pick=(i)=>`<select class="etag" data-i="${i}"><option value="">none</option>${tags.map(t=>`<option ${t===has[i]?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
+ return `<div class="ed">
+  <div class="edtop">
+   <div class="edface">${portrait(c.name,160)}<button type="button" class="btn" id="e_face" title="A new look, and nothing else about them changes">Reroll face</button></div>
+   <div class="edwho">
+    <div class="form2">
+     ${edf('Name','name','A different name off the list',`<input id="e_name" value="${esc(c.name)}">`)}
+     ${edf('Trade','trade','Another trade from the general list',`<input id="e_trade" value="${esc(c.trade||'')}" list="e_trades"><datalist id="e_trades">${trades.map(t=>`<option>${esc(t)}</option>`).join('')}</datalist>`)}
+    </div>
+    ${edf('Character, in one line','personality','A new line, built from their words',`<input id="e_pers" value="${esc(c.personality||'')}">`)}
+    ${edf('The words they are known by, one to three','tags','Three new words',`<div class="etags">${pick(0)}${pick(1)}${pick(2)}</div>`)}
+    <div class="form2">
+     ${edf('Age','age','A different age',`<input id="e_age" type="number" min="1" max="120" value="${c.age??30}">`)}
+     ${edf('Played by','',' ',`<select id="e_prov"></select>`)}
+    </div>
+    ${edf('Model, and the seat colour they wear','',' ',`<select id="e_model"></select><input id="e_custom" placeholder="custom model" style="display:none">`)}
+   </div>
+  </div>
+
+  <div class="ch">Their nature ${rr('traits','Roll all twelve again')}</div>
+  <p class="small">Twelve dials, one click to a step. A step takes effect at once${drafting?'':' and starts them fresh on their next turn'}.</p>
+  <div class="dgrid">${TRAITS.map(([k,label,lo,hi,words])=>{const v=Math.max(1,Math.min(5,+((c.traits||{})[k])||3));
+   return `<div class="dial ${dialSel===k?'sel':''}" data-k="${k}">
+    <div class="dtop"><span class="dname">${label}</span><span class="dword">${esc(words[v-1])}</span></div>
+    ${seg(1,5,v)}
+    <div class="dends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`}).join('')}</div>
+
+  <div class="ch">Skills ${rr('skills','Roll their skills again from their trade')}</div>
+  <p class="small">0 to 9. Set one to 0 to take it away; the empty row at the end adds one.</p>
+  <div id="e_skills">${sk.map(([k,v])=>`<span class="skillrow"><input class="sk" value="${esc(k)}"><span></span><input class="sv" type="number" min="0" max="9" value="${v}"></span>`).join('')}<span class="skillrow new"><input class="sk" placeholder="a skill they have learned"><span></span><input class="sv" type="number" min="0" max="9" value="0"></span></div>
+
+  <div class="ch">Body</div>
+  <div class="form2">
+   ${edf('Health','health','Roll their health again',`<div class="row"><input id="e_hp" type="number" min="0" value="${c.hp}"><span class="small">of</span><input id="e_hpm" type="number" min="1" value="${c.hp_max}"></div>`)}
+   ${edf('Strength','str','Roll their strength again',`<input id="e_str" type="number" min="0" max="9" value="${c.str}">`)}
+   ${edf('Speed','spd','Roll their speed again',`<input id="e_spd" type="number" min="0" max="9" value="${c.spd}">`)}
+   ${edf('Gold','gold','Roll their purse again',`<input id="e_gold" type="number" min="0" value="${c.gold}">`)}
+  </div>
+
+  <div class="form2">
+   ${edf('What they want more than anything','want','A different want',`<textarea id="e_want" rows="3">${esc(c.want||'')}</textarea>`)}
+   ${edf('What they fear','fear','A different fear',`<textarea id="e_fear" rows="3">${esc(c.fear||'')}</textarea>`)}
+  </div>
+
+  <div class="row end">${drafting?`<button type="button" class="btn" id="e_rr" title="A whole new person on this seat, with a life written by the World">Reroll person</button><button type="button" class="btn danger" id="e_rm">Remove</button>`:''}
+   <span class="small">${drafting?'Edits go into the draft; the year starts with what you see.':'Every change here is fate, and the World narrates it.'}</span>
+   <button class="primary" id="e_save">Save</button></div>
+  <p class="small" id="e_note">${esc(peoNote)}</p>
+  ${drafting?tiePairs(s):''}
+ </div>`}
+
+// ---- The draft's relationships: every pair in the valley, one dropdown each, and the opinion numbers set from the word.
+function tiePairs(s){const ns=(s.characters||[]).map(c=>c.name);const q=tieFilter.trim().toLowerCase();
+ const rows=[];
+ for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){
+  if(q&&!(ns[i]+' '+ns[j]).toLowerCase().includes(q))continue;
+  rows.push([ns[i],ns[j]])}
+ const shown=rows.slice(0,400);
+ return `<div class="ch" style="margin-top:calc(var(--u) * 4)">Relationships</div>
+  <div class="tieHead"><span class="small">Every pair in the valley. The word sets how they feel about each other, both ways.</span>
+   <input id="e_tiefilter" class="tiefilter" placeholder="filter by name" value="${esc(tieFilter)}">
+   <button type="button" class="btn" id="e_tieall">Reroll all</button></div>
+  <div class="pairs">${shown.map(([a,b])=>{const w=tieWordOf(((s.relations||{})[a]||{})[b]);
+   const extra=TIEWORDS.includes(w)?'':`<option selected>${esc(w)}</option>`;
+   return `<div class="pair"><span class="pn">${esc(a)}</span><span class="pv">and</span><span class="pn">${esc(b)}</span>
+    <select class="pw" data-a="${esc(a)}" data-b="${esc(b)}">${extra}${TIEWORDS.map(x=>`<option ${x===w?'selected':''}>${x}</option>`).join('')}</select></div>`}).join('')
+   ||'<div class="empty">No pair matches that.</div>'}</div>
+  ${rows.length>shown.length?`<p class="small">${rows.length-shown.length} more pairs; filter by a name to reach them.</p>`:''}`}
+
+async function edReroll(field){peoNote='';const r=await api('/edit/reroll',{name:peoSel,field});
+ if(field==='name'&&r.last_god&&/ is now called /.test(r.last_god))peoSel=r.last_god.split(' is now called ')[1];
+ peoNote=r.last_god||'no change';peoPaneHtml='';render(r)}
+
+function edWire(s,c){const pane=$('peoPane');const drafting=!!s.draft&&!s.created;
+ const seat=(s.seats||[]).find(x=>x.name===c.name)||{provider:Object.keys(providers)[0]||'',model:''};
+ modelPick('e',seat,$('e_prov'),$('e_model'),$('e_custom'));
+ pane.querySelectorAll('.rr').forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();edReroll(b.dataset.f)});
+ $('e_face').onclick=()=>edReroll('face');
+ pane.querySelectorAll('.dial').forEach(d=>{d.onclick=()=>{if(dialSel!==d.dataset.k){dialSel=d.dataset.k;pane.querySelectorAll('.dial').forEach(x=>x.classList.toggle('sel',x===d))}};
+  d.querySelectorAll('.seg button').forEach(b=>b.onclick=ev=>{ev.stopPropagation();dialSel=d.dataset.k;peoApply({traits:{[d.dataset.k]:+b.dataset.i}})})});
+ if($('e_rr'))$('e_rr').onclick=async()=>{peoNote='';const r=await api('/draft/reroll',{name:peoSel});peoNote=r.last_god||'';peoPaneHtml='';render(r)};
+ if($('e_rm'))$('e_rm').onclick=async()=>{if(!confirm(`Remove ${peoSel} from the draft?`))return;peoNote='';const r=await api('/draft/remove',{name:peoSel});peoNote=r.last_god||'';peoSel='';peoPaneHtml='';render(r)};
+ if($('e_tiefilter'))$('e_tiefilter').oninput=e=>{tieFilter=e.target.value;peoPaneHtml='';peoRenderPane(S)};
+ if($('e_tieall'))$('e_tieall').onclick=async()=>{if(!confirm('Reroll every pair in the valley?'))return;const r=await api('/draft/ties',{});peoNote=r.last_god||'';peoPaneHtml='';render(r)};
+ pane.querySelectorAll('.pw').forEach(sel=>sel.onchange=async()=>{const r=await api('/edit/tie',{a:sel.dataset.a,b:sel.dataset.b,word:sel.value});
+  peoNote=r.last_god||'no change';peoPaneHtml='';render(r)});
+ $('e_save').onclick=async()=>{const skills={};
+  pane.querySelectorAll('#e_skills .skillrow').forEach(r=>{const k=r.querySelector('.sk').value.trim();if(k)skills[k]=+r.querySelector('.sv').value||0});
+  const tags=[...pane.querySelectorAll('.etag')].map(x=>x.value).filter(Boolean);
+  const d={new_name:$('e_name').value.trim(),trade:$('e_trade').value,personality:$('e_pers').value,tags,age:+$('e_age').value,
+   want:$('e_want').value,fear:$('e_fear').value,skills,hp:+$('e_hp').value,hp_max:+$('e_hpm').value,
+   str:+$('e_str').value,spd:+$('e_spd').value,gold:+$('e_gold').value,...pickVal($('e_prov'),$('e_model'),$('e_custom'))};
+  const nn=d.new_name;peoNote='';const r=await api('/edit/character',{name:peoSel,...d});
+  if(nn&&nn!==peoSel&&(r.characters||[]).some(x=>x.name===nn))peoSel=nn;
+  peoNote=r.last_god||'no change';peoPaneHtml='';render(r)}}
+
 // ---- handlers for whichever tab is showing
 function peoWire(s,c){const pane=$('peoPane');
- if(peoTab==='bio'){const seat=(s.seats||[]).find(x=>x.name===c.name)||{provider:Object.keys(providers)[0]||'',model:''};
+ if(peoTab==='edit'){edWire(s,c)}
+ else if(peoTab==='bio'){const seat=(s.seats||[]).find(x=>x.name===c.name)||{provider:Object.keys(providers)[0]||'',model:''};
   modelPick('b',seat,$('b_prov'),$('b_model'),$('b_custom'));
   if($('b_reroll'))$('b_reroll').onclick=()=>peoApply({reroll_want:true});
+  if($('b_edit'))$('b_edit').onclick=()=>{peoTab='edit';peoNote='';peoPaneHtml='';renderPeople(S)};
   if($('b_rr'))$('b_rr').onclick=async()=>{peoNote='';const r=await api('/draft/reroll',{name:peoSel});peoNote=r.last_god||'';peoPaneHtml='';render(r)};
   if($('b_rm'))$('b_rm').onclick=async()=>{if(!confirm(`Remove ${peoSel} from the draft?`))return;peoNote='';const r=await api('/draft/remove',{name:peoSel});peoNote=r.last_god||'';peoSel='';peoPaneHtml='';render(r)};
   $('b_save').onclick=async()=>{const st=$('b_state').value;
@@ -576,7 +695,7 @@ $('primary').onclick=async()=>{const s=S||{};
  if(s.draft&&!(s.characters||[]).length){render(await api('/draft/generate',{what:'all'}));return}
  render(await api('/start',{}));if(mobile())showTab('map')};
 $('generate').onclick=async()=>{await save();render(await api('/draft/generate',{what:'all'}))};
-$('rerollAll').onclick=async()=>{if(confirm('Reroll everyone? Every edit to the people is lost; the map stays.'))render(await api('/draft/generate',{what:'people'}))};
+$('rerollAll').onclick=async()=>{if(confirm('Roll a fresh valley of people? Every edit to the people is lost. The map is untouched.'))render(await api('/draft/generate',{what:'people'}))};
 $('regenMap').onclick=async()=>{render(await api('/draft/generate',{what:'map'}))};
 $('openPeople').onclick=()=>sheet('people');
 $('testSeats').onclick=async()=>{render(await api('/draft/test',{}))};

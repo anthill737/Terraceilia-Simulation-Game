@@ -80,12 +80,26 @@ again. Unknown kinds, features, water types and skies fall back to safe values. 
 symmetric and connected, places are pushed at least 110 units apart and clamped into the canvas, and
 every place gets at least one thing in it. Two bad answers and the built-in valley is used instead,
 with a note in the chronicle saying so. It happens once, at Start; World can draw it earlier or again,
-and once people exist the map is fixed for that game.
+and once the year has begun the map is fixed for that game.
 
-Press **Start the year**. The engine rolls every person's numbers, then asks the World to give each
-one a life: a trade, a home, a personality, a secret, a fear, a want, and a web of relationships to the
-others. Marriages, debts, rivalries, an unrequited love, a servant who hates a master who trusts him.
-That takes a minute or two. Then day one begins.
+### People first, then the map
+
+The people are rolled before the map, out of your description alone, and they never read it. Names come
+from `data/names.json`, trades from the general medieval list in `data/people.json`, and everything else
+from a single seed: age, the one to three words they are known by, the one line of character built from
+those words, the twelve dials, strength, speed, health, gold, the skills of their trade, a want, a fear,
+a secret, a face. Then the World is asked for the prose on top of that: the character line in its own
+words, the secret, the fear, the want, how they talk, and a web of relationships between them.
+Marriages, debts, rivalries, an unrequited love, a servant who hates a master who trusts him. The World
+is never shown a map and never names anyone's trade or home.
+
+Only then does the map roll, or the built-in valley load. Because nothing about a person came from it,
+you can reroll the people alone and the map alone, any number of times, in either order, and neither
+disturbs the other. The same people seed gives you the same valley of people on any map.
+
+Press **Start the year**. That is when homes are given out: each person takes the nearest place their
+trade is practised in, and where this valley has no such place, they simply live among everyone else and
+take the open jobs like anyone else, with a line in the chronicle saying so. Then day one begins.
 
 ## How a day goes
 
@@ -198,20 +212,55 @@ thaw) and the weather is rolled from it each morning: cold burns wood and warmth
 and nothing grows in winter. The engine runs all of this at dawn, before anyone speaks, and writes a
 line into the chronicle with the season, the weather, and what is low, broken, sick, or burning.
 
+### Faces
+
+Every person has a portrait, drawn as SVG from their own data and their own face seed. The shape of
+the face, the skin, the hair and its colour, the eyes, the nose, the mouth and the beard come from the
+seed. The rest comes from who they are today: their age puts lines on them and grey in their hair,
+their trade puts a hat or a hood on them (a helm on a guard, a veil on a nun, straw on a farmer, and
+nothing at all on a trade this valley has never heard of), their seat colour is the colour of their
+clothes, a strength of 8 or 9 leaves a scar, food at 3 or below thins the face, a wound pales it, and
+the dead are drawn grey with their eyes closed.
+
+It is the same face every time: the same person and the same state always give the same picture, and it
+moves only when they do. A portrait sits 60 across on each card in the People strip, 160 in Bio and in
+the editor, and a 20 by 20 head rides the map token where the initial used to be, repainted only when
+the person behind it changes. **Reroll face** in the editor gives them a new look and changes nothing
+else about them.
+
+`backend/portrait.py` settles the features and hands over a small dict; `frontend/face.js` draws that
+dict at whatever size the page asks for. Neither half guesses: the features are settled in one place
+where a test can hold them still, and the drawing is a pure function of them.
+
 ### Choosing your people before the year starts
 
 A new valley begins as a draft, not a game. Set the name, the description, the days, the drama, the
-number of people and the models as before, then press Generate: the engine rolls the map (built in,
-or drawn from the description) and the people, and the World writes their lives, their relationships
-and their ways of speaking. The People sheet then shows them exactly as it does in play, with every
-tab editable, plus Reroll and Remove in each person's Bio and an Add person card at the end of the
-strip; Reroll all rerolls everyone and keeps the map, Regenerate map redraws the map and keeps the
-people. Start is enabled once there is at least one person and every seat's model has answered a
-test (Test seats runs them); it freezes the draft into the game, moves it under `games/`, and runs
-the day-one tests as before. Until then the draft lives under `games/drafts/` with no game folder,
-survives closing the browser and restarting the server, appears in the Games rail as a draft, and
-Delete draft discards it. On the phone the strip is the dropdown, the tabs sit below, and Reroll
-and Remove are in the person's Bio.
+number of people and the models as before, then press Generate: the engine rolls the people, the World
+writes their lives, and then the map is drawn or the built-in valley loads. **Reroll the people** rolls
+a fresh valley of people and leaves the map alone; **Redraw the map** redraws the map and leaves the
+people alone; either can be pressed as often as you like, in either order.
+
+The People sheet is then one screen, no tabs, with the portrait at the top: name, trade, the one line of
+character, one to three words from a dropdown, the twelve dials as click-to-set bars, skills as a list
+with levels 0 to 9 and an empty row that adds one, health and strength and speed and gold as numbers,
+want and fear as text, and the seat and its model. Every field carries a small reroll that rolls that
+field and nothing else, and Save applies at once. **Reroll person** gives one seat a whole new person
+with a life from the World, **Remove** deletes them, and **+ Add person** puts one more at the end of
+the strip, rolled whole by the engine with a face, at once and with nothing to wait for.
+
+Under the editor is the valley's relationships: every pair of people with one dropdown each reading
+strangers, friends, rivals, kin, lovers or married, and the opinion numbers set from the word on both
+sides. **Reroll all** rolls every pair again, weighted so that most people are strangers.
+
+Start is enabled once there is at least one person and every seat's model has answered a test (Test
+seats runs them); it freezes the draft into the game, gives everyone a home, moves it under `games/`,
+and runs the day-one tests as before. Until then the draft lives under `games/drafts/` with no game
+folder, survives closing the browser and restarting the server, appears in the Games rail as a draft,
+and Delete draft discards it.
+
+The same editor is reachable in play, under People, in a person's Bio, behind **Edit**. Everything it
+does there is fate, recorded and narrated by the World on the next day, exactly like every other act of
+the convener's hand.
 
 ### Social actions
 
@@ -329,17 +378,20 @@ Every act is recorded as fate, and the World must narrate it on the next day.
       server.py    HTTP API, static frontend, the convener's god powers
       game.py      one game: saved state, the day loop, prompts to the World and the people
       engine.py    the world: map, people, traits, urges, events, fires, relations, dice, validation
+      portrait.py  what a person's face looks like, settled from their data and their face seed
       agents.py    provider CLIs: launching, streaming, session resume, Codex trust
       prompts.py   the rules the World and the people are told
     frontend/
       index.html   the app shell
       app.js       state polling, setup, chronicle, valley, terminals
       map.js       the overworld map: drag people, destroy or restore things
+      face.js      draws a face from portrait.py's dict, at 20, 60 or 160 across
       style.css
     data/
       map.json     the fixed map: places, descriptions, fixtures, paths, coordinates
       events.json  what the world can throw at the people, by tier
       names.json   the pool of names people are rolled from
+      people.json  how a person is rolled: the medieval trade list, the words, the plain lines
     games/         one folder per game (not committed)
       <id>/game.json         everything about the game and the world
       <id>/chronicle.md      the chronicle as markdown
@@ -372,6 +424,12 @@ Every request carries the token as `?token=` or a cookie.
     POST /edit/game {...}, /edit/character {name, ...}, /edit/relation {a, b, ...}
     POST /god/resolve {id, note}         close a situation by hand
     POST /map/regenerate                 draw the map again, before the world is made
+    POST /draft/generate {what, seed}    what: all, people, map; seed rolls the same people again
+    POST /draft/reroll {name}            a whole new person on that seat, life written by the World
+    POST /draft/add, /draft/remove {name}, /draft/test
+    POST /draft/ties                     roll every pair in the valley again
+    POST /edit/reroll {name, field}      roll one field of one person again, and nothing else
+    POST /edit/tie {a, b, word}          strangers, friends, rivals, kin, lovers, married
 
     POST /connect/refresh {provider}     ask a CLI again whether it is installed and signed in
     POST /connect/install {provider}     run the official installer, output streamed under the row
