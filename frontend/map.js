@@ -4,6 +4,13 @@ const MapView=(()=>{
  const NS='http://www.w3.org/2000/svg';const $=id=>document.getElementById(id);
  const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
  let built=false,drag=null,selected=null,S_=null,tokens={},hover=null,weather={},sky='day';
+ const W=1000,H=780;let view={k:1,tx:0,ty:0};let pan=null;const pointers=new Map();let pinch=null;let U=1;
+ // screen pixels per map unit, as the map is scaled to fit its box; tokens and labels are counter scaled against it
+ function unit(){const svg=$('mapSvg');if(!svg)return 1;const r=svg.getBoundingClientRect();if(!r.width||!r.height)return 1;return Math.min(r.width/W,r.height/H)}
+ const tokScale=()=>Math.min(2.4,0.85/(view.k*U));
+ const mobile=()=>window.matchMedia('(max-width:820px),(max-height:520px)').matches;
+ // a point of the page in the map's own coordinates, through the pan and zoom
+ function viewPoint(svg,evt){const p=svgPoint(svg,evt);return {x:(p.x-view.tx)/view.k,y:(p.y-view.ty)/view.k}}
  function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e}
  function svgPoint(svg,evt){const pt=svg.createSVGPoint();pt.x=evt.clientX;pt.y=evt.clientY;return pt.matrixTransform(svg.getScreenCTM().inverse())}
  const rng=(seed=>()=>(seed=(seed*9301+49297)%233280)/233280);
@@ -25,6 +32,7 @@ const MapView=(()=>{
  function defs(svg,st){const d=el('defs',{},svg);const pal=st.palette||{};
   const base=pal.ground||'#2a4a33',mid=pal.mid||shade(base,.72),deep=pal.deep||shade(base,.40);
   const g1=el('radialGradient',{id:'ground',cx:'50%',cy:'45%',r:'75%'},d);el('stop',{offset:'0%','stop-color':base},g1);el('stop',{offset:'55%','stop-color':mid},g1);el('stop',{offset:'100%','stop-color':deep},g1);
+  const cp=el('clipPath',{id:'mapClip'},d);el('rect',{x:0,y:0,width:W,height:H},cp);
   const vig=el('radialGradient',{id:'vig',cx:'50%',cy:'50%',r:'72%'},d);el('stop',{offset:'55%','stop-color':'#000','stop-opacity':0},vig);el('stop',{offset:'100%','stop-color':'#000','stop-opacity':.6},vig);
   const hill=el('linearGradient',{id:'hill',x1:0,y1:0,x2:0,y2:1},d);el('stop',{offset:'0%','stop-color':'#3d4658'},hill);el('stop',{offset:'100%','stop-color':'#1c222c'},hill);
   const hg=el('linearGradient',{id:'hillgen',x1:0,y1:0,x2:0,y2:1},d);el('stop',{offset:'0%','stop-color':shade(base,2.05)},hg);el('stop',{offset:'100%','stop-color':shade(base,1.05)},hg);
@@ -156,28 +164,75 @@ const MapView=(()=>{
 
  // ---------- build
  function buildBase(s){const svg=$('mapSvg');svg.innerHTML='';const m=s.map;const st=styleOf(s);sky=st.sky||'day';
-  defs(svg,st);terrain(svg,m,s);
-  const roads=el('g',{id:'roads'},svg);const seen=new Set();
+  defs(svg,st);
+  // the space around a map that does not fill its box is the map's own ground, not the page
+  const pal=st.palette||{};const deep=pal.deep||shade(pal.ground||'#2a4a33',.40);svg.parentNode.style.background=deep;
+  const vp=el('g',{id:'viewport','clip-path':'url(#mapClip)'},svg);el('rect',{x:0,y:0,width:W,height:H,fill:deep},vp);
+  const vw=el('g',{id:'view'},vp);
+  terrain(vw,m,s);
+  const roads=el('g',{id:'roads'},vw);const seen=new Set();
   for(const [n,d] of Object.entries(m))for(const a of d.adj){const k=[n,a].sort().join('|');if(seen.has(k)||!m[a])continue;seen.add(k);
    const unsafe=DANGER.has(kindOf(n,d))||DANGER.has(kindOf(a,m[a]));
    const mx=(d.x+m[a].x)/2+(a<n?-1:1)*18,my=(d.y+m[a].y)/2+12;const dd=`M${d.x} ${d.y} Q${mx} ${my} ${m[a].x} ${m[a].y}`;
    el('path',{d:dd,class:'roadedge'},roads);el('path',{d:dd,class:'road'+(unsafe?' unsafe':''),'data-k':k},roads)}
-  const gn=el('g',{id:'nodes'},svg);
+  const gn=el('g',{id:'nodes'},vw);
   for(const [n,d] of Object.entries(m)){const node=el('g',{class:'node','data-place':n,transform:`translate(${d.x},${d.y})`},gn);
    el('circle',{r:46,class:'glow'},node);el('ellipse',{cx:0,cy:24,rx:38,ry:9,fill:'#000',opacity:.25},node);
    const ic=el('g',{class:'icon',filter:'url(#shadow)',transform:'scale(1.15)'},node);
    ((!s.map_generated&&BUILTIN_ICON[n])||ICONS[kindOf(n,d)]||ICONS.other)(ic);
    el('g',{class:'fx'},node);
-   el('text',{y:44,'text-anchor':'middle',class:'nm',filter:'url(#halo)'},node).textContent=n;el('text',{y:58,'text-anchor':'middle',class:'ruin',filter:'url(#halo)',id:'ru-'+n.replace(/\W/g,'_')},node).textContent='';
+   const nw=el('g',{class:'nmw'},node);el('text',{y:44,'text-anchor':'middle',class:'nm',filter:'url(#halo)'},nw).textContent=n;el('text',{y:58,'text-anchor':'middle',class:'ruin',filter:'url(#halo)',id:'ru-'+n.replace(/\W/g,'_')},nw).textContent='';
    node.addEventListener('click',e=>{e.stopPropagation();selected=n;showPlace(S_)})}
-  el('g',{id:'tokens'},svg);el('g',{id:'weather'},svg);
-  el('rect',{id:'night',x:0,y:0,width:1000,height:780,fill:SKY[sky]?SKY[sky].tint:'#0a0f1e',opacity:0,'pointer-events':'none'},svg);
-  el('g',{id:'tips'},svg);
+  el('g',{id:'tokens'},vw);el('g',{id:'weather','clip-path':'url(#mapClip)'},vw);      // rain, snow and fog fall inside the map and nowhere else
+  el('rect',{id:'night',x:0,y:0,width:W,height:H,fill:SKY[sky]?SKY[sky].tint:'#0a0f1e',opacity:0,'pointer-events':'none'},vw);
+  el('g',{id:'tips'},vw);
   const fr=el('g',{id:'frame','pointer-events':'none'},svg);el('rect',{x:6,y:6,width:988,height:768,rx:14,fill:'none',stroke:'#3a3222','stroke-width':3},fr);el('rect',{x:10,y:10,width:980,height:760,rx:12,fill:'none',stroke:'#7a6a44','stroke-width':1,opacity:.6},fr);
-  el('text',{x:28,y:38,class:'title',filter:'url(#halo)'},fr).textContent=s.map_name||'Terraceilia';
-  el('text',{x:28,y:56,class:'sub',filter:'url(#halo)',id:'dayText'},fr).textContent='';
+  const dtl=$('dayTitle');if(dtl)dtl.textContent=s.map_name||'Terraceilia';
   const cr=el('g',{transform:'translate(950,700)'},fr);el('circle',{r:22,fill:'none',stroke:'#7a6a44','stroke-width':1.5},cr);el('path',{d:'M0 -20 L5 0 L0 20 L-5 0 Z',fill:'#c9b28a'},cr);el('path',{d:'M-20 0 L0 5 L20 0 L0 -5 Z',fill:'#7a6a44'},cr);el('text',{y:-26,'text-anchor':'middle',class:'sub'},cr).textContent='N';
-  svg.addEventListener('click',()=>{selected=null;showPlace(S_)});built=true;tokens={}}
+  if(!svg._viewBound){svg._viewBound=true;bindView(svg);if(window.ResizeObserver)new ResizeObserver(()=>applyView()).observe(svg.parentNode)}
+  svg.addEventListener('click',()=>{if(pan&&pan.moved)return;selected=null;showPlace(S_)});view={k:1,tx:1e-9,ty:0};applyView();built=true;tokens={}}
+
+ // ---------- pan and zoom. Wheel to zoom and drag to pan on the desktop, pinch and drag on the phone, Reset to come back.
+ // Tokens and labels are counter scaled so they read the same at every zoom.
+ const KMIN=1,KMAX=5;
+ function clampView(){const k=view.k;view.k=Math.max(KMIN,Math.min(KMAX,k));view.tx=Math.max(W-W*view.k,Math.min(0,view.tx));view.ty=Math.max(H-H*view.k,Math.min(0,view.ty))}
+ function layoutBar(){const bar=$('dayBar'),svg=$('mapSvg');if(!bar||!svg)return;const r=svg.getBoundingClientRect(),m=svg.parentNode.getBoundingClientRect();
+  const left=(r.width-W*U)/2+6*U,top=(r.height-H*U)/2+6*U;bar.style.left=left.toFixed(1)+'px';bar.style.top=top.toFixed(1)+'px';bar.style.width=(988*U).toFixed(1)+'px';bar.style.display=r.width?'':'none'}
+ function applyView(){clampView();const v=$('view');if(!v)return;U=unit();v.setAttribute('transform',`translate(${view.tx.toFixed(2)},${view.ty.toFixed(2)}) scale(${view.k.toFixed(4)})`);
+  const sc=tokScale();const inv=sc.toFixed(4);document.querySelectorAll('.node .nmw').forEach(g=>g.setAttribute('transform',`translate(0,${(44*(1-sc)).toFixed(1)}) scale(${inv})`));
+  for(const n in tokens){const t=tokens[n];t.setAttribute('transform',`translate(${(+t._x||0).toFixed(1)},${(+t._y||0).toFixed(1)}) scale(${inv})`)}
+  const rb=$('mapReset');if(rb)rb.style.display=(view.k>1.001||Math.abs(view.tx)>1||Math.abs(view.ty)>1)?'':'none';layoutBar();layoutLabels()}
+ function zoomAt(px,py,factor){const k0=view.k,k1=Math.max(KMIN,Math.min(KMAX,k0*factor));if(k1===k0)return;view.tx=px-(px-view.tx)*(k1/k0);view.ty=py-(py-view.ty)*(k1/k0);view.k=k1;applyView()}
+ function resetView(){view={k:1,tx:0,ty:0};applyView()}
+ function bindView(svg){
+  svg.addEventListener('wheel',e=>{e.preventDefault();const p=svgPoint(svg,e);zoomAt(p.x,p.y,e.deltaY<0?1.15:1/1.15)},{passive:false});
+  svg.addEventListener('pointerdown',e=>{if(drag)return;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+   if(pointers.size===2){const [a,b]=[...pointers.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),k:view.k};pan=null;return}
+   const p=svgPoint(svg,e);pan={x:p.x,y:p.y,tx:view.tx,ty:view.ty,moved:false,id:e.pointerId};try{svg.setPointerCapture(e.pointerId)}catch(_){}});
+  svg.addEventListener('pointermove',e=>{if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+   if(pinch&&pointers.size===2){const [a,b]=[...pointers.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(!d||!pinch.d)return;
+    const mid=svgPoint(svg,{clientX:(a.x+b.x)/2,clientY:(a.y+b.y)/2});const k1=Math.max(KMIN,Math.min(KMAX,pinch.k*d/pinch.d));zoomAt(mid.x,mid.y,k1/view.k);return}
+   if(!pan||pan.id!==e.pointerId||drag)return;const p=svgPoint(svg,e);const dx=p.x-pan.x,dy=p.y-pan.y;if(Math.abs(dx)+Math.abs(dy)>3)pan.moved=true;
+   if(pan.moved){view.tx=pan.tx+dx;view.ty=pan.ty+dy;applyView()}});
+  const end=e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;if(pan&&pan.id===e.pointerId){const moved=pan.moved;setTimeout(()=>{pan=null},0);if(!moved)pan=null}};
+  svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);svg.addEventListener('pointerleave',e=>{if(!e.buttons)end(e)});
+  const rb=$('mapReset');if(rb)rb.onclick=e=>{e.stopPropagation();resetView()}}
+
+ // ---------- labels that never overlap. A name sits under its token; when two would collide one moves below or beside
+ // with a short leader line. Activity text is one line, cut with a full stop, never wrapped. The phone shows names always
+ // and the activity only for the person tapped.
+ const CH=6.6;
+ const trunc=t=>{t=String(t||'').replace(/\s+/g,' ').trim();return t.length>24?t.slice(0,23).replace(/[\s,;:]+$/,'')+'.':t};
+ function layoutLabels(){const list=Object.values(tokens).filter(t=>t.isConnected);if(!list.length)return;const k=1/tokScale();const placed=[];
+  const hit=(a,b)=>!(a.x2<=b.x1||b.x2<=a.x1||a.y2<=b.y1||b.y2<=a.y1);
+  list.sort((a,b)=>(+a._y||0)-(+b._y||0)||(+a._x||0)-(+b._x||0));
+  for(const t of list){const lab=t.querySelector('.lab');if(!lab)continue;const x=+t._x||0,y=+t._y||0;const showAct=t.querySelector('.act').style.display!=='none'&&!!t.querySelector('.act').textContent;
+   const nameW=(t.dataset.name||'').length*CH+8;const actW=showAct?(t.querySelector('.act').textContent.length*CH*.95+8):0;const w=Math.max(nameW,actW)/k,h=(showAct?30:14)/k;
+   const cands=[[0,0],[0,20],[36,-10],[-36,-10],[0,40],[36,14],[-36,14],[0,60]];let pick=null;
+   for(const [dx,dy] of cands){const bx=x+dx/k-w/2,by=y+(22+dy)/k;const box={x1:bx,y1:by,x2:bx+w,y2:by+h};if(!placed.some(p=>hit(p,box))){pick=[dx,dy,box];break}}
+   if(!pick){const bx=x-w/2,by=y+82/k;pick=[0,60,{x1:bx,y1:by,x2:bx+w,y2:by+h}]}
+   placed.push(pick[2]);const [dx,dy]=pick;lab.setAttribute('transform',dx||dy?`translate(${dx},${dy})`:'');
+   const ld=t.querySelector('.lead');if(ld){const on=!!(dx||dy);ld.style.display=on?'':'none';if(on){ld.setAttribute('x1',0);ld.setAttribute('y1',14);ld.setAttribute('x2',dx*0.8);ld.setAttribute('y2',dy+18)}}}}
 
  // ---------- the light this world sits under
  const SKY={day:{tint:'#0a0f1e',base:.15,cycle:.35},dusk:{tint:'#2a1420',base:.34,cycle:.18},night:{tint:'#060a16',base:.55,cycle:.08},
@@ -213,7 +268,9 @@ const MapView=(()=>{
  function note(t){const n=$('godNote');n.textContent=t||'';n.style.display=t?'':'none';clearTimeout(n._t);n._t=setTimeout(()=>n.style.display='none',4000)}
  function figure(t,col){el('ellipse',{cy:14,rx:8,ry:3,fill:'#000',opacity:.35},t);el('circle',{class:'ring',r:12,stroke:col},t);
   el('path',{class:'cloak',d:'M-8 12 L-6 -2 L0 -6 L6 -2 L8 12 Z',fill:col,stroke:'#0a0d0b','stroke-width':1.2},t);el('circle',{class:'head',cy:-9,r:5,fill:'#e6c8a6',stroke:'#0a0d0b','stroke-width':1.2},t);el('text',{y:6,'text-anchor':'middle',class:'ini'},t);
-  el('text',{y:40,'text-anchor':'middle',class:'act',filter:'url(#halo)'},t);el('rect',{x:-20,y:44,width:40,height:3,rx:1.5,class:'pbar'},t);el('rect',{x:-20,y:44,width:0,height:3,rx:1.5,class:'pfill'},t)}
+  el('line',{class:'lead',x1:0,y1:14,x2:0,y2:14},t);const lab=el('g',{class:'lab'},t);
+  el('text',{y:28,'text-anchor':'middle',class:'lbl',filter:'url(#halo)'},lab);
+  el('text',{y:40,'text-anchor':'middle',class:'act',filter:'url(#halo)'},lab);el('rect',{x:-20,y:44,width:40,height:3,rx:1.5,class:'pbar'},lab);el('rect',{x:-20,y:44,width:0,height:3,rx:1.5,class:'pfill'},lab)}
 
  // ---------- movement. The engine says what each person is doing, where, and since when; Walks plans it and the map plays it.
  // A timeline is a walk along the paths to each stop, then a stay there with the bar filling. It begins where the token stands,
@@ -227,15 +284,15 @@ const MapView=(()=>{
    if(!target)target=t._rest||{x:+t.dataset.sx,y:+t.dataset.sy};
    const cx=t._x??target.x,cy=t._y??target.y;let nx=target.x,ny=target.y;
    if(t._tl&&walking){nx=target.x;ny=target.y}else{const dx=target.x-cx,dy=target.y-cy;const d=Math.hypot(dx,dy);if(d>0.5){const step=Math.min(1,0.12);nx=cx+dx*step;ny=cy+dy*step;busy=true}}
-   t._x=nx;t._y=ny;t.setAttribute('transform',`translate(${nx.toFixed(1)},${ny.toFixed(1)})`);t.classList.toggle('walking',!!walking);
-   const at=t.querySelector('.act');if(at&&at.textContent!==what)at.textContent=what;
+   t._x=nx;t._y=ny;t.setAttribute('transform',`translate(${nx.toFixed(1)},${ny.toFixed(1)}) scale(${tokScale().toFixed(4)})`);t.classList.toggle('walking',!!walking);
+   const at=t.querySelector('.act');const wt=trunc(what);if(at&&at.textContent!==wt)at.textContent=wt;
    const pb=t.querySelector('.pbar'),pf=t.querySelector('.pfill');const show=bar!==null&&bar!==undefined;pb.style.display=show?'':'none';pf.style.display=show?'':'none';if(show)pf.setAttribute('width',(40*Math.min(1,bar)).toFixed(1))}
-  if(busy)raf=requestAnimationFrame(tick)}
+  if(busy){layoutLabels();raf=requestAnimationFrame(tick)}}
  function kick(){if(!raf)raf=requestAnimationFrame(tick)}
  function render(s){S_=s;if(!s.map||!(s.created||s.map_generated))return;const svg=$('mapSvg');
   const mk=(s.map_name||'')+'|'+Object.keys(s.map).join('|')+'|'+JSON.stringify(s.map_style||{});
   if(!built||svg.dataset.gid!==s.id||svg.dataset.mk!==mk){buildBase(s);svg.dataset.gid=s.id;svg.dataset.mk=mk}
-  readWeather(s);renderWeather();renderFire(s);renderDaylight();const dt=$('dayText');if(dt)dt.textContent=`Day ${s.day}${(s.day_report||{}).season?' · '+s.day_report.season:''}${s.weather?' · '+s.weather:''} · grain ${(s.ledger||{}).grain??0} · meals ${(s.ledger||{}).meals??0} · wood ${(s.ledger||{}).wood??0}`;
+  readWeather(s);renderWeather();renderFire(s);renderDaylight();const dt=$('dayText');if(dt)dt.textContent=`Day ${s.day}${(s.day_report||{}).season?', '+s.day_report.season:''}${s.weather?', '+s.weather:''}, grain ${(s.ledger||{}).grain??0}, meals ${(s.ledger||{}).meals??0}, wood ${(s.ledger||{}).wood??0}`;
   document.querySelectorAll('.road.unsafe').forEach(r=>r.classList.toggle('open',!!s.ledger.road_safe));
   for(const [n,d] of Object.entries(s.map)){const gone=d.destroyed||[];const ru=$('ru-'+n.replace(/\W/g,'_'));if(ru)ru.textContent=gone.length?'ruined: '+gone.join(', '):''}
   const thinking=new Set((s.current||'').split(', ').filter(Boolean));const acted={};(s.pending||[]).forEach(a=>acted[a.who]=a.text);
@@ -248,32 +305,32 @@ const MapView=(()=>{
   const prev={};for(const n in tokens){const t=tokens[n];if(t.classList.contains('drag'))continue;prev[n]={place:t.dataset.place,key:t._key||'',x:t._x,y:t._y}}
   const planned=Walks.plan(s,prev,serverNow());
   s.characters.forEach(c=>{if(!c.alive||c.gone)return;const pl=c.location;const d=s.map[pl];if(!d)return;live.add(c.name);const sl=slotOf(pl,c.name);const n=(byPlace[pl]||[]).length;
-    let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#7d7462');t.querySelector('.ini').textContent=c.name[0];el('text',{y:28,'text-anchor':'middle',class:'lbl',filter:'url(#halo)'},t).textContent=c.name;tokens[c.name]=t;bind(t,c.name);t._x=sl.x;t._y=sl.y;t.setAttribute('transform',`translate(${sl.x},${sl.y})`)}
+    let t=tokens[c.name];if(!t){t=el('g',{class:'tok','data-name':c.name},gt);figure(t,col[c.name]||'#7d7462');t.querySelector('.ini').textContent=c.name[0];t.querySelector('.lbl').textContent=c.name;tokens[c.name]=t;bind(t,c.name);t._x=sl.x;t._y=sl.y;t.setAttribute('transform',`translate(${sl.x},${sl.y}) scale(${tokScale().toFixed(4)})`)}
     t.dataset.sx=sl.x;t.dataset.sy=sl.y;t._slotOf=p=>slotOf(p,c.name);
     const a=acts[c.name];const pn=planned[c.name];
     if(pn){t._key=pn.key;t._act=a||null;t._tl=pn.tl&&pn.tl.end>0?pn.tl:null;t._rest=null}
     t._what=a?(a.state==='working'&&a.stops&&a.stops.length?a.stops[a.stops.length-1].what:a.what):'';
     t.classList.toggle('thinking',thinking.has(c.name));t.classList.toggle('hurt',c.hp<=c.hp_max/2);t.classList.toggle('idle',!!a&&a.state==='idle');t.classList.toggle('resting',!!a&&a.state==='resting');
-    t.querySelector('.lbl').style.display=(n<=4||hover===c.name||selected===pl)?'':'none';
+    t.querySelector('.lbl').style.display='';t.querySelector('.act').style.display=(!mobile()||hover===c.name)?'':'none';
     t.dataset.place=pl;t.dataset.action=acted[c.name]||(a?a.what:'');t.dataset.info=`${c.name} · ${c.trade} · ${c.hp}/${c.hp_max} hp · ${c.gold} gold · ${c.standing}`});
   for(const n in tokens)if(!live.has(n)){tokens[n].remove();delete tokens[n]}
-  kick();
+  kick();if(U!==unit())applyView();else{layoutBar();layoutLabels()}
   if(hover&&tokens[hover])tip(tokens[hover]);else $('tips').innerHTML='';
   if(selected)showPlace(s)}
  function tip(t){const g=$('tips');g.innerHTML='';const m=/translate\(([-\d.]+),([-\d.]+)\)/.exec(t.getAttribute('transform'));if(!m)return;const x=+m[1],y=+m[2];
   const lines=[t.dataset.info].concat(t.dataset.action?['now: '+t.dataset.action]:[]);const w=Math.min(440,Math.max(...lines.map(l=>l.length))*6.4+20);
-  const bx=Math.max(8,Math.min(1000-w-8,x-w/2)),by=y-44-lines.length*15;const box=el('g',{class:'tip',transform:`translate(${bx},${by})`},g);
+  const k=1/tokScale();const bx=Math.max(8,Math.min(W-w/k-8,x-w/2/k)),by=y-(44+lines.length*15)/k;const box=el('g',{class:'tip',transform:`translate(${bx},${by}) scale(${(1/k).toFixed(4)})`},g);
   el('rect',{width:w,height:lines.length*15+10,rx:8},box);lines.forEach((l,i)=>el('text',{x:10,y:16+i*15},box).textContent=l.length>68?l.slice(0,67)+'…':l)}
  function bind(t,name){const svg=$('mapSvg');
   t.addEventListener('pointerenter',()=>{hover=name;render(S_)});t.addEventListener('pointerleave',()=>{if(!drag){hover=null;render(S_)}});
   t.addEventListener('pointerdown',e=>{drag={name,g:t};t.classList.add('drag');t.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation()});
-  t.addEventListener('pointermove',e=>{if(!drag||drag.g!==t)return;const p=svgPoint(svg,e);t._x=p.x;t._y=p.y;t.setAttribute('transform',`translate(${p.x},${p.y})`);highlight(nearest(S_,p))});
-  t.addEventListener('pointerup',async e=>{if(!drag||drag.g!==t)return;const p=svgPoint(svg,e);const dest=nearest(S_,p);t.classList.remove('drag');drag=null;highlight(null);hover=null;
+  t.addEventListener('pointermove',e=>{if(!drag||drag.g!==t)return;const p=viewPoint(svg,e);t._x=p.x;t._y=p.y;t.setAttribute('transform',`translate(${p.x},${p.y}) scale(${tokScale().toFixed(4)})`);highlight(nearest(S_,p));layoutLabels()});
+  t.addEventListener('pointerup',async e=>{if(!drag||drag.g!==t)return;const p=viewPoint(svg,e);const dest=nearest(S_,p);t.classList.remove('drag');drag=null;highlight(null);if(!mobile())hover=null;
    if(dest&&dest!==t.dataset.place){const r=await App.api('/god/move',{name,place:dest});note(r.last_god);App.render(r)}else render(S_)});
-  t.addEventListener('click',e=>e.stopPropagation())}
+  t.addEventListener('click',e=>{e.stopPropagation();if(mobile()){hover=hover===name?null:name;render(S_)}})}
  function nearest(s,p){let best=null,bd=1e9;for(const [n,d] of Object.entries(s.map)){const dd=Math.hypot(d.x-p.x,d.y+30-p.y);if(dd<95){if(dd<bd){bd=dd;best=n}}}return best}
  function highlight(n){document.querySelectorAll('.node').forEach(x=>x.classList.toggle('hot',x.dataset.place===n))}
  document.addEventListener('keydown',e=>{if(e.key==='Escape'){selected=null;showPlace(S_)}});
  function live(){try{const es=new EventSource('/events');es.onmessage=ev=>{const m=JSON.parse(ev.data);if(S_&&m.id!==S_.id)return;S_=Object.assign(S_||{},m);render(S_);const st=document.getElementById('statusText');if(st&&!m.current)st.textContent=`Day ${m.day} · ${({idle:'Not started',running:'Running',paused:'Paused',done:'The year is over',stopped:'Stopped'})[m.status]||m.status}`;else if(st){const who=m.current.split(', ');st.innerHTML=who.length>2?`<b>${who.length} people</b> are speaking`:`<b>${esc(m.current)}</b> ${who.length>1?'are':'is'} speaking`}};es.onerror=()=>{es.close();setTimeout(live,3000)}}catch(e){setTimeout(live,3000)}}
  live();
- return {render,close:()=>{selected=null;showPlace(S_)}}})();
+ return {render,close:()=>{selected=null;showPlace(S_)},resetView,view:()=>({...view})}})();
