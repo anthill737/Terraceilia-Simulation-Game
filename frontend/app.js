@@ -7,7 +7,7 @@ async function api(p,b){const r=await fetch(p,{method:b?'POST':'GET',headers:{'C
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const STATUS={idle:'Not started',running:'Running',paused:'Paused',done:'The year is over',stopped:'Stopped',draft:'Draft'};
 const hhmm=t=>{const d=new Date((t||0)*1000);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
-const mobile=()=>window.matchMedia('(max-width:820px)').matches;
+const mobile=()=>window.matchMedia('(max-width:820px),(max-height:520px)').matches;
 // the poll redraws every sheet; never redraw the one someone is typing into
 const typing=root=>!!root&&root.contains(document.activeElement)&&/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
 let chronShown=false;
