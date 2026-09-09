@@ -33,6 +33,7 @@ const MapView=(()=>{
   const base=pal.ground||'#2a4a33',mid=pal.mid||shade(base,.72),deep=pal.deep||shade(base,.40);
   const g1=el('radialGradient',{id:'ground',cx:'50%',cy:'45%',r:'75%'},d);el('stop',{offset:'0%','stop-color':base},g1);el('stop',{offset:'55%','stop-color':mid},g1);el('stop',{offset:'100%','stop-color':deep},g1);
   const cp=el('clipPath',{id:'mapClip'},d);el('rect',{x:0,y:0,width:W,height:H},cp);
+  const bc=el('clipPath',{id:'boxClip'},d);el('rect',{id:'boxRect',x:0,y:0,width:W,height:H},bc);      // the visible box, whatever its shape
   const vig=el('radialGradient',{id:'vig',cx:'50%',cy:'50%',r:'72%'},d);el('stop',{offset:'55%','stop-color':'#000','stop-opacity':0},vig);el('stop',{offset:'100%','stop-color':'#000','stop-opacity':.6},vig);
   const hill=el('linearGradient',{id:'hill',x1:0,y1:0,x2:0,y2:1},d);el('stop',{offset:'0%','stop-color':'#3d4658'},hill);el('stop',{offset:'100%','stop-color':'#1c222c'},hill);
   const hg=el('linearGradient',{id:'hillgen',x1:0,y1:0,x2:0,y2:1},d);el('stop',{offset:'0%','stop-color':shade(base,2.05)},hg);el('stop',{offset:'100%','stop-color':shade(base,1.05)},hg);
@@ -166,8 +167,8 @@ const MapView=(()=>{
  function buildBase(s){const svg=$('mapSvg');svg.innerHTML='';const m=s.map;const st=styleOf(s);sky=st.sky||'day';
   defs(svg,st);
   // the space around a map that does not fill its box is the map's own ground, not the page
-  const pal=st.palette||{};const deep=pal.deep||shade(pal.ground||'#2a4a33',.40);svg.parentNode.style.background=deep;
-  const vp=el('g',{id:'viewport','clip-path':'url(#mapClip)'},svg);el('rect',{x:0,y:0,width:W,height:H,fill:deep},vp);
+  svg.parentNode.style.background='';                                                          // a letterbox, when there is one, is the page
+  const vp=el('g',{id:'viewport','clip-path':'url(#boxClip)'},svg);
   const vw=el('g',{id:'view'},vp);
   terrain(vw,m,s);
   const roads=el('g',{id:'roads'},vw);const seen=new Set();
@@ -189,21 +190,36 @@ const MapView=(()=>{
   const fr=el('g',{id:'frame','pointer-events':'none'},svg);el('rect',{x:6,y:6,width:988,height:768,rx:14,fill:'none',stroke:'#3a3222','stroke-width':3},fr);el('rect',{x:10,y:10,width:980,height:760,rx:12,fill:'none',stroke:'#7a6a44','stroke-width':1,opacity:.6},fr);
   const dtl=$('dayTitle');if(dtl)dtl.textContent=s.map_name||'Terraceilia';
   const cr=el('g',{transform:'translate(950,700)'},fr);el('circle',{r:22,fill:'none',stroke:'#7a6a44','stroke-width':1.5},cr);el('path',{d:'M0 -20 L5 0 L0 20 L-5 0 Z',fill:'#c9b28a'},cr);el('path',{d:'M-20 0 L0 5 L20 0 L0 -5 Z',fill:'#7a6a44'},cr);el('text',{y:-26,'text-anchor':'middle',class:'sub'},cr).textContent='N';
-  if(!svg._viewBound){svg._viewBound=true;bindView(svg);if(window.ResizeObserver)new ResizeObserver(()=>applyView()).observe(svg.parentNode)}
-  svg.addEventListener('click',()=>{if(pan&&pan.moved)return;selected=null;showPlace(S_)});view={k:1,tx:1e-9,ty:0};applyView();built=true;tokens={}}
+  if(!svg._viewBound){svg._viewBound=true;bindView(svg);if(window.ResizeObserver)new ResizeObserver(()=>{if(view.user)applyView();else resetView()}).observe(svg.parentNode)}
+  svg.addEventListener('click',()=>{if(pan&&pan.moved)return;selected=null;showPlace(S_)});view={k:1,tx:0,ty:0,user:false,homed:false};resetView();built=true;tokens={}}
 
  // ---------- pan and zoom. Wheel to zoom and drag to pan on the desktop, pinch and drag on the phone, Reset to come back.
  // Tokens and labels are counter scaled so they read the same at every zoom.
- const KMIN=1,KMAX=5;
- function clampView(){const k=view.k;view.k=Math.max(KMIN,Math.min(KMAX,k));view.tx=Math.max(W-W*view.k,Math.min(0,view.tx));view.ty=Math.max(H-H*view.k,Math.min(0,view.ty))}
- function layoutBar(){const bar=$('dayBar'),svg=$('mapSvg');if(!bar||!svg)return;const r=svg.getBoundingClientRect(),m=svg.parentNode.getBoundingClientRect();
-  const left=(r.width-W*U)/2+6*U,top=(r.height-H*U)/2+6*U;bar.style.left=left.toFixed(1)+'px';bar.style.top=top.toFixed(1)+'px';bar.style.width=(988*U).toFixed(1)+'px';bar.style.display=r.width?'':'none'}
- function applyView(){clampView();const v=$('view');if(!v)return;U=unit();v.setAttribute('transform',`translate(${view.tx.toFixed(2)},${view.ty.toFixed(2)}) scale(${view.k.toFixed(4)})`);
+ // ---------- where the view rests. On a phone in portrait the art covers the whole box, centered on the middle of the
+ // people; a phone on its side and the desktop show the whole map. Pinch runs from that resting level out to the fit and in to
+ // five times it. Any letterbox that is ever visible shows the page behind it, never the map's ground.
+ const KMIN=1;let home={k:1,tx:0,ty:0};
+ const kmax=()=>5*home.k;
+ function boxUnits(){const svg=$('mapSvg');const r=svg?svg.getBoundingClientRect():{width:W*U,height:H*U};const bw=(r.width||W*U)/U,bh=(r.height||H*U)/U;return {x0:(W-bw)/2,y0:(H-bh)/2,w:bw,h:bh}}
+ const portraitPhone=()=>{const b=boxUnits();return mobile()&&b.h>b.w};
+ const coverK=()=>{const b=boxUnits();return Math.max(b.w/W,b.h/H)};
+ function centroid(){const ts=Object.values(tokens).filter(t=>t.isConnected&&t._x!=null);if(ts.length)return {x:ts.reduce((a,t)=>a+ +t._x,0)/ts.length,y:ts.reduce((a,t)=>a+ +t._y,0)/ts.length};
+  const ns=Object.values((S_&&S_.map)||{});if(ns.length)return {x:ns.reduce((a,d)=>a+d.x,0)/ns.length,y:ns.reduce((a,d)=>a+d.y,0)/ns.length+70};return {x:W/2,y:H/2}}
+ function homeView(){if(!portraitPhone())return {k:1,tx:0,ty:0};const b=boxUnits(),k=coverK(),c=centroid();return {k,tx:b.x0+b.w/2-c.x*k,ty:b.y0+b.h/2-c.y*k}}
+ function clampView(){const b=boxUnits();view.k=Math.max(KMIN,Math.min(kmax(),view.k));const aw=W*view.k,ah=H*view.k;
+  view.tx=aw>=b.w-0.5?Math.max(b.x0+b.w-aw,Math.min(b.x0,view.tx)):b.x0+(b.w-aw)/2;
+  view.ty=ah>=b.h-0.5?Math.max(b.y0+b.h-ah,Math.min(b.y0,view.ty)):b.y0+(b.h-ah)/2}
+ const atHome=()=>Math.abs(view.k-home.k)<0.005&&Math.abs(view.tx-home.tx)<1&&Math.abs(view.ty-home.ty)<1;
+ function applyView(){const v=$('view');if(!v)return;U=unit();clampView();v.setAttribute('transform',`translate(${view.tx.toFixed(2)},${view.ty.toFixed(2)}) scale(${view.k.toFixed(4)})`);
+  const b=boxUnits();const br=$('boxRect');if(br){br.setAttribute('x',b.x0.toFixed(1));br.setAttribute('y',b.y0.toFixed(1));br.setAttribute('width',b.w.toFixed(1));br.setAttribute('height',b.h.toFixed(1))}
+  const fr=$('frame');if(fr)fr.style.opacity=view.k>1.001?'0':'';
   const sc=tokScale();const inv=sc.toFixed(4);document.querySelectorAll('.node .nmw').forEach(g=>g.setAttribute('transform',`translate(0,${(44*(1-sc)).toFixed(1)}) scale(${inv})`));
   for(const n in tokens){const t=tokens[n];t.setAttribute('transform',`translate(${(+t._x||0).toFixed(1)},${(+t._y||0).toFixed(1)}) scale(${inv})`)}
-  const rb=$('mapReset');if(rb)rb.style.display=(view.k>1.001||Math.abs(view.tx)>1||Math.abs(view.ty)>1)?'':'none';layoutBar();layoutLabels()}
- function zoomAt(px,py,factor){const k0=view.k,k1=Math.max(KMIN,Math.min(KMAX,k0*factor));if(k1===k0)return;view.tx=px-(px-view.tx)*(k1/k0);view.ty=py-(py-view.ty)*(k1/k0);view.k=k1;applyView()}
- function resetView(){view={k:1,tx:0,ty:0};applyView()}
+  const rb=$('mapReset');if(rb)rb.style.display=atHome()?'none':'';layoutLabels()}
+ function zoomAt(px,py,factor){const k0=view.k,k1=Math.max(KMIN,Math.min(kmax(),k0*factor));if(k1===k0)return;view.tx=px-(px-view.tx)*(k1/k0);view.ty=py-(py-view.ty)*(k1/k0);view.k=k1;view.user=true;applyView()}
+ function resetView(){U=unit();const hv=homeView();view={k:hv.k,tx:hv.tx,ty:hv.ty,user:false,homed:Object.keys(tokens).length>0};clampView();home={k:view.k,tx:view.tx,ty:view.ty};applyView()}
+ function dblTap(px,py){if(atHome())zoomAt(px,py,2);else resetView()}
+ let lastTap=null;
  function bindView(svg){
   svg.addEventListener('wheel',e=>{e.preventDefault();const p=svgPoint(svg,e);zoomAt(p.x,p.y,e.deltaY<0?1.15:1/1.15)},{passive:false});
   svg.addEventListener('pointerdown',e=>{if(drag)return;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
@@ -211,10 +227,12 @@ const MapView=(()=>{
    const p=svgPoint(svg,e);pan={x:p.x,y:p.y,tx:view.tx,ty:view.ty,moved:false,id:e.pointerId};try{svg.setPointerCapture(e.pointerId)}catch(_){}});
   svg.addEventListener('pointermove',e=>{if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
    if(pinch&&pointers.size===2){const [a,b]=[...pointers.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(!d||!pinch.d)return;
-    const mid=svgPoint(svg,{clientX:(a.x+b.x)/2,clientY:(a.y+b.y)/2});const k1=Math.max(KMIN,Math.min(KMAX,pinch.k*d/pinch.d));zoomAt(mid.x,mid.y,k1/view.k);return}
+    const mid=svgPoint(svg,{clientX:(a.x+b.x)/2,clientY:(a.y+b.y)/2});const k1=Math.max(KMIN,Math.min(kmax(),pinch.k*d/pinch.d));zoomAt(mid.x,mid.y,k1/view.k);return}
    if(!pan||pan.id!==e.pointerId||drag)return;const p=svgPoint(svg,e);const dx=p.x-pan.x,dy=p.y-pan.y;if(Math.abs(dx)+Math.abs(dy)>3)pan.moved=true;
-   if(pan.moved){view.tx=pan.tx+dx;view.ty=pan.ty+dy;applyView()}});
-  const end=e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;if(pan&&pan.id===e.pointerId){const moved=pan.moved;setTimeout(()=>{pan=null},0);if(!moved)pan=null}};
+   if(pan.moved){view.tx=pan.tx+dx;view.ty=pan.ty+dy;view.user=true;applyView()}});
+  const end=e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;if(pan&&pan.id===e.pointerId){const moved=pan.moved;setTimeout(()=>{pan=null},0);if(!moved)pan=null;
+   if(!moved&&e.type==='pointerup'){const now=Date.now();const p=svgPoint(svg,e);
+    if(lastTap&&now-lastTap.t<350&&Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<30){lastTap=null;dblTap(p.x,p.y)}else lastTap={t:now,x:e.clientX,y:e.clientY}}}};
   svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);svg.addEventListener('pointerleave',e=>{if(!e.buttons)end(e)});
   const rb=$('mapReset');if(rb)rb.onclick=e=>{e.stopPropagation();resetView()}}
 
@@ -314,7 +332,7 @@ const MapView=(()=>{
     t.querySelector('.lbl').style.display='';t.querySelector('.act').style.display=(!mobile()||hover===c.name)?'':'none';
     t.dataset.place=pl;t.dataset.action=acted[c.name]||(a?a.what:'');t.dataset.info=`${c.name} · ${c.trade} · ${c.hp}/${c.hp_max} hp · ${c.gold} gold · ${c.standing}`});
   for(const n in tokens)if(!live.has(n)){tokens[n].remove();delete tokens[n]}
-  kick();if(U!==unit())applyView();else{layoutBar();layoutLabels()}
+  kick();if(!view.user&&!view.homed&&Object.keys(tokens).length)resetView();else if(U!==unit())applyView();else layoutLabels();
   if(hover&&tokens[hover])tip(tokens[hover]);else $('tips').innerHTML='';
   if(selected)showPlace(s)}
  function tip(t){const g=$('tips');g.innerHTML='';const m=/translate\(([-\d.]+),([-\d.]+)\)/.exec(t.getAttribute('transform'));if(!m)return;const x=+m[1],y=+m[2];
@@ -333,4 +351,4 @@ const MapView=(()=>{
  document.addEventListener('keydown',e=>{if(e.key==='Escape'){selected=null;showPlace(S_)}});
  function live(){try{const es=new EventSource('/events');es.onmessage=ev=>{const m=JSON.parse(ev.data);if(S_&&m.id!==S_.id)return;S_=Object.assign(S_||{},m);render(S_);const st=document.getElementById('statusText');if(st&&!m.current)st.textContent=`Day ${m.day} · ${({idle:'Not started',running:'Running',paused:'Paused',done:'The year is over',stopped:'Stopped'})[m.status]||m.status}`;else if(st){const who=m.current.split(', ');st.innerHTML=who.length>2?`<b>${who.length} people</b> are speaking`:`<b>${esc(m.current)}</b> ${who.length>1?'are':'is'} speaking`}};es.onerror=()=>{es.close();setTimeout(live,3000)}}catch(e){setTimeout(live,3000)}}
  live();
- return {render,close:()=>{selected=null;showPlace(S_)},resetView,view:()=>({...view})}})();
+ return {render,close:()=>{selected=null;showPlace(S_)},resetView,view:()=>({...view}),home:()=>({...home}),coverK,boxUnits}})();

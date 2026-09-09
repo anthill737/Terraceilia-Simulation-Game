@@ -282,12 +282,14 @@ You are not a player, but you are not powerless.
   as the work resolves. Skippers show idle, the sick rest at home, emergencies move people at once.
   A travel action starts the walk the moment it is posted; when the engine settles the round the walk
   is finished to wherever they actually got. No token ever jumps: any change of place walks the path,
-  never under two seconds and longer for longer paths. The map fills the space it is given, keeps its
-  shape, and what is left over is its own ground; rain, snow and fog fall inside it only. Names and
-  activity labels move aside from each other with a short leader line. Scroll to zoom and drag to
-  pan on the desktop, pinch and drag on the phone, and Reset view comes back; tokens and labels read
-  the same at every zoom. The day, the season, the weather and the stores sit in a thin bar along
-  the map's top edge.
+  never under two seconds and longer for longer paths. The map fills the space it is given and keeps
+  its shape; on a phone in portrait the art covers the whole box, centered on the people, and any
+  letterbox that is ever visible is the page behind it. Rain, snow and fog fall inside the map only.
+  Names and activity labels move aside from each other with a short leader line. Scroll to zoom and
+  drag to pan on the desktop; on the phone pinch from the resting view out to the whole map and in to
+  five times, double tap for 2x on the spot, drag to pan, and Reset view comes back; tokens and labels
+  read the same at every zoom. The day, the season, the weather and the stores sit in a thin bar
+  pinned to the top of the map's box.
   It is driven by the engine's own record of what each person is doing, so a page opened halfway
   through shows the right stage, on a phone as much as on a desktop.
 - **Wreck and restore.** Click a place to see what is there. Destroy a fixture, restore one, or set
