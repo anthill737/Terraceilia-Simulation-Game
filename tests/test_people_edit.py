@@ -20,6 +20,7 @@ class PeopleEditTests(unittest.TestCase):
         server.refresh_versions = lambda: None
         self.app = server.App()
         g = self.app.run.g; w = g.world; rng = random.Random(7)
+        g.draft = False; g.dir = self.tmp / g.id; w.created = True       # a game in play, not a draft being chosen
         for i, n in enumerate(("Bett", "Osgar")):
             w.characters[n] = engine.roll_character(n, i + 1, rng, list(w.map))
         g.seats = [{"name": "World", "provider": "Claude Code", "model": "claude-fable-5-1", "color": "#FFFFFF"},
