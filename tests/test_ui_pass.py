@@ -70,7 +70,7 @@ class Sheets(unittest.TestCase):
 
     def test_the_bio_is_one_form_with_four_textareas(self) -> None:
         bio = JS[JS.index("function paneBio"):JS.index("// ---- Body")]
-        self.assertEqual(bio.count("<textarea"), 4); self.assertEqual(bio.count('rows="3"'), 4); self.assertIn('id="b_pastime"', bio); self.assertIn('<div class="row end">', bio)
+        self.assertEqual(bio.count("<textarea"), 6, "four for the life, two under How they talk"); self.assertEqual(bio.count('rows="3"'), 6); self.assertIn('id="b_pastime"', bio); self.assertIn('<div class="row end">', bio); self.assertIn("How they talk", bio)
         self.assertLess(bio.index("<textarea"), bio.index('id="b_save"'))
 
     def test_the_world_sheet_is_the_region_and_the_map_is_locked_once_started(self) -> None:

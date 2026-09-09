@@ -226,10 +226,11 @@ class TouchedTests(unittest.TestCase):
         def fake_round(seats, instruction, label, on_reply, reactions=True):
             rounds.append((label, tuple(sorted(g.seats[i]["name"] for i in seats)),
                            instruction(seats[0]) if callable(instruction) else instruction, reactions))
-        r._round = fake_round
+        r._round = fake_round; r.ask = lambda i, prompt, label, provider=None, model=None: None
         return g, w, r, rounds
 
-    def test_two_people_arriving_at_the_same_place_get_one_talk_round(self) -> None:
+    def test_two_people_arriving_at_the_same_place_get_one_social_beat(self) -> None:
+        """A beat is the engine's: it rolls who acts, picks the act, and writes the sentence. No free line is asked of anyone."""
         tmp = Path(tempfile.mkdtemp(prefix="terra-talk-"));
         try:
             g, w, r, rounds = self._run_for_talk(tmp)
@@ -238,17 +239,12 @@ class TouchedTests(unittest.TestCase):
             c["Cuthbert"]["location"] = "The inn"; c["Dimity"]["location"] = "The castle"
             ran = r._talk_round("after work")
             self.assertEqual(len(ran), 1, ran); self.assertEqual(ran[0]["place"], "The mill")
-            self.assertEqual(ran[0]["names"], ["Aldous", "Bett"])
-            self.assertEqual(len(rounds), 1)
-            label, names, instr, reactions = rounds[0]
-            self.assertEqual(names, ("Aldous", "Bett")); self.assertIn("The mill", label)
-            self.assertFalse(reactions, "one round per group per beat, so nothing re-wakes them")
-            self.assertIn("You are at The mill with Bett, and nobody else is close enough to hear.", instr)
-            self.assertIn("No ACTION line.", instr)
+            self.assertEqual(ran[0]["names"], ["Aldous", "Bett"]); self.assertIn("acts", ran[0])
+            self.assertEqual(rounds, [], "nobody is asked for chatter; the engine picks what passes between them")
             self.assertEqual(ran[0]["header"], "at The mill: Aldous, Bett", "four or fewer stand together as one")
-            self.assertNotIn("Cuthbert", " ".join(x[1][0] for x in rounds))
             self.assertEqual(r._talk_round("after work"), [], "the same group at the same beat is not asked twice")
-            self.assertEqual(len(rounds), 1)
+            for e in g.transcript:
+                if e["kind"] == "social": self.assertEqual(e["place"], "The mill"); self.assertTrue(set(e["heard"]) <= {"Aldous", "Bett"})
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -266,7 +262,7 @@ class TouchedTests(unittest.TestCase):
         def fake_round(seats, instruction, label, on_reply, reactions=True):
             rounds.append((label, tuple(sorted(g.seats[i]["name"] for i in seats))))
             for i in seats: on_reply(i, f"A word from {g.seats[i]['name']}.")
-        r._round = fake_round
+        r._round = fake_round; r.ask = lambda i, prompt, label, provider=None, model=None: None
         return g, w, r, rounds
 
     def test_twelve_at_the_inn_break_into_knots_of_two_to_four(self) -> None:
@@ -277,16 +273,17 @@ class TouchedTests(unittest.TestCase):
             before = len(g.transcript)
             ran = r._talk_round("evening")
             self.assertGreaterEqual(len(ran), 3); self.assertLessEqual(len(ran), 6)
-            self.assertEqual(len(rounds), len(ran), "one round per knot")
+            self.assertEqual(rounds, [], "no chatter round; each knot gets one social beat")
             sizes = [len(x["names"]) for x in ran]
             self.assertTrue(all(2 <= n <= 4 for n in sizes), sizes)
             self.assertEqual(sum(sizes), 12, "everybody is in exactly one knot")
             self.assertEqual(len({n for x in ran for n in x["names"]}), 12, "and nobody is in two")
-            lines = g.transcript[before:]
-            self.assertLessEqual(len(lines), 12, f"at most one line each, got {len(lines)}")
+            lines = [e for e in g.transcript[before:] if e["kind"] == "social"]
+            self.assertLessEqual(len(lines), 24, f"a few acts at most, got {len(lines)}")
             for x in ran:
                 heard = {n for e in lines if e["cluster"] == x["header"] for n in e["heard"]}
-                self.assertTrue(heard <= set(x["names"]), "nobody talks across a knot")
+                self.assertTrue(heard <= set(x["names"]), "nothing passes across a knot")
+                self.assertEqual(len(lines and [e for e in lines if e["cluster"] == x["header"]]), len(x["acts"]), "one chronicle sentence per act")
             self.assertEqual(len({x["header"] for x in ran}), len(ran), "each knot gets its own header")
             for x in ran:
                 self.assertTrue(x["header"].startswith("at The inn, by "), x["header"])
@@ -370,7 +367,7 @@ class TouchedTests(unittest.TestCase):
             for beat in ("after work", "after the afternoon", "evening"):
                 self.assertEqual(len(r._talk_round(beat)), 1, beat)
                 self.assertEqual(r._talk_round(beat), [], f"{beat} twice is still one round")
-            self.assertEqual(len(rounds), 3, [x[0] for x in rounds])
+            self.assertEqual(rounds, [])
             self.assertEqual([x["beat"] for x in r.talks], ["after work", "after the afternoon", "evening"])
             w.day += 1
             self.assertEqual(len(r._talk_round("after work")), 1, "tomorrow is a new day and a new round")

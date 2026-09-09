@@ -245,6 +245,13 @@ function paneBio(s,c){const places=s.places||[];const f=(id,label,inner)=>`<div 
   ${f('b_fear','Fear',`<textarea id="b_fear" rows="3">${esc(c.fear)}</textarea>`)}
   ${f('b_want','What they want more than anything',`<textarea id="b_want" rows="3">${esc(c.want)}</textarea>`)}
  </div>
+ <div class="ch" style="margin-top:8px">How they talk</div>
+ <div class="form2">
+  ${f('b_vlen','Sentence length',`<select id="b_vlen">${['clipped','plain','rambling'].map(v=>`<option value="${v}" ${v===((c.voice||{}).length||'plain')?'selected':''}>${v}</option>`).join('')}</select>`)}
+  ${f('b_vhabit','One verbal habit',`<input id="b_vhabit" value="${esc((c.voice||{}).habit||'')}">`)}
+  ${f('b_vex','Three lines they might say, one per line',`<textarea id="b_vex" rows="3">${esc(((c.voice||{}).examples||[]).join('\n'))}</textarea>`)}
+  ${f('b_vnever','What they never talk about',`<textarea id="b_vnever" rows="3">${esc((c.voice||{}).never||'')}</textarea>`)}
+ </div>
  <div class="row end">${(c.items||[]).length?`<span class="small" title="Things they made or found">Keeps: ${c.items.map(esc).join(', ')}</span>`:''}<button type="button" class="btn" id="b_reroll" title="Roll a new measured want for them">New want</button><span class="small">A changed life or model starts them fresh on their next turn.</span><button class="primary" id="b_save">Save</button></div>`}
 
 // ---- Body, shown as Health. Condition and wounds, the four needs as equal bars, then the numbers as one aligned list. What a word means is in its tooltip.
@@ -314,7 +321,10 @@ function paneDuties(s,c){const defs=s.duty_defs||{};const mine=new Set(c.duties|
 // ---- Log
 function paneLog(s,c){const rx=rxName(c.name);
  const body=t=>{const i=(t||'').search(/\nPROSPERITY|\nSTANDINGS/);return i>0?t.slice(0,i):(t||'')};
- const rows=[];
+ const rows=[];const wt=(f,t)=>`${f>=0?'+':''}${f} feeling${t?`, ${t>=0?'+':''}${t} trust`:''}`;
+ for(const a of (s.social||[])){if(a.actor!==c.name&&a.target!==c.name)continue;const gave=a.actor===c.name;const other=gave?a.target:a.actor;
+  const text=`<span class="sk">${gave?'gave':'got'}</span> ${esc(a.text)}${a.line?` <span class="sq">${esc(a.line)}</span>`:''} <span class="sw">${wt(a.fw,a.tw)}</span> <span class="st">${gave?`${esc(other)} now stands at`:`total from ${esc(other)}`} ${a.total_f}${a.tw||a.total_t?` / ${a.total_t}`:''}${a.stepped?', a step':''}</span>${a.cost?` <span class="sw">${esc(a.cost)}</span>`:''}${a.fight?` <span class="sw">${esc(a.fight)}</span>`:''}`;
+  rows.push({e:{day:a.day,turn:0,kind:'social',speaker:a.actor,place:a.place},text,raw:true})}
  for(const e of (s.transcript||[])){
   if(e.speaker===c.name){rows.push({e,text:e.text});continue}
   if(!['world','system','fate','epilogue','convener','dawn','morning','afternoon','evening'].includes(e.kind))continue;
@@ -323,9 +333,10 @@ function paneLog(s,c){const rx=rxName(c.name);
   rows.push({e,text:hits.length?hits.join(' '):b.slice(0,240)})}
  if(!rows.length)return '<div class="empty">Nothing about them yet. Their days appear here once the year begins.</div>';
  let out='',day=null;
- for(const {e,text} of rows.slice(-250).reverse()){
+ rows.sort((a,b)=>(a.e.day-b.e.day)||((a.e.turn||1e9)-(b.e.turn||1e9)));
+ for(const {e,text,raw} of rows.slice(-250).reverse()){
   if(e.day!==day){day=e.day;out+=`<div class="logday">Day ${day}</div>`}
-  out+=`<div class="logrow ${esc(e.kind)}" style="${e.speaker===c.name?'--c:'+esc(seatColor(c.name)||'var(--faint)'):''}"><div class="lm">${esc(e.speaker)} \u00b7 Day ${e.day??0}, turn ${e.turn}${e.place?' \u00b7 '+esc(e.place):''}</div>${rich(text)}</div>`}
+  out+=`<div class="logrow ${esc(e.kind)}" style="${e.speaker===c.name?'--c:'+esc(seatColor(c.name)||'var(--faint)'):''}"><div class="lm">${esc(e.speaker)} \u00b7 Day ${e.day??0}${e.turn?`, turn ${e.turn}`:''}${e.place?' \u00b7 '+esc(e.place):''}</div>${raw?text:rich(text)}</div>`}
  return out}
 
 // ---- handlers for whichever tab is showing
@@ -336,6 +347,7 @@ function peoWire(s,c){const pane=$('peoPane');
   $('b_save').onclick=async()=>{const st=$('b_state').value;
    const d={new_name:$('b_name').value.trim(),trade:$('b_trade').value,home:$('b_home').value,location:$('b_loc').value,
     personality:$('b_pers').value,secret:$('b_secret').value,fear:$('b_fear').value,want:$('b_want').value,pastime:$('b_pastime').value,
+    voice:{length:$('b_vlen').value,habit:$('b_vhabit').value,examples:$('b_vex').value.split('\n').map(x=>x.trim()).filter(Boolean),never:$('b_vnever').value},
     ...pickVal($('b_prov'),$('b_model'),$('b_custom'))};
    if(st==='dead')d.hp=0;
    if(st==='gone')d.gone=true;

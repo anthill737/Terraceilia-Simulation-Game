@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agents import ASK, PROVIDERS, clean_copilot, render_claude_event, ensure_codex_trust
 from engine import (GAMES, NAMES, World, roll_character, now_id, map_text, extract_json, strip_json, action_line,  # noqa: F401
-                    thought_line, note_log, whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES)
+                    thought_line, note_log, whisper_targets, visible_text, urges, mentions, validate_map, strip_dashes, cap_speech, cap_outcomes, touched_text, starting_ledger, season_of, DUTIES, SOCIAL, clean_voice, sentences)
 from prompts import DEFAULT_WORLD, PLAYER_RULES, WORLD_RULES, map_prompt
 
 import runner
@@ -17,6 +17,18 @@ TAIL = 400
 CODEX_PROVIDER = "Codex"
 CODEX_DEFAULT = "gpt-5.6-luna"
 PROBE_PROMPT = "Reply with exactly the single word: ready"
+
+def clean_line(text: str | None) -> str | None:
+    """One sentence, in plain words, or None: no ACTION or THOUGHT line, no name in front, no quotes, no PASS, no dashes."""
+    if not text: return None
+    lines = [ln.strip() for ln in strip_dashes(text).split("\n") if ln.strip() and not re.match(r"^\s*(ACTION|THOUGHT)\s*:", ln, re.I)]
+    if not lines: return None
+    quotes = '"\u201c\u201d\''
+    ln = re.sub(r"^[A-Z][\w' -]{0,30}:\s*", "", lines[0].strip()).strip().strip(quotes).strip()
+    if not ln or ln.upper().rstrip(".") == "PASS" or ln.startswith("```"): return None
+    first = sentences(ln)[0] if sentences(ln) else ln
+    return first.strip().strip(quotes).strip()[:240] or None
+
 
 # ---------------------------------------------------------------- a game (persisted)
 class Game:
@@ -463,9 +475,9 @@ class Run:
         with self.lock:
             g = self.g; g.turn += 1; w = g.world
             color = next((x.get("color") for x in g.seats if x["name"] == speaker), None)
-            place = w.characters.get(speaker, {}).get("location") if kind == "speech" else None
+            place = w.characters.get(speaker, {}).get("location") if kind in ("speech", "social") else None
             heard = None
-            if kind == "speech":
+            if kind in ("speech", "social"):
                 # a knot in a crowded room is heard by the knot, not by the room
                 heard = sorted((n for n in audience if n != speaker and n in w.characters), key=lambda n: w.characters[n]["seat"]) if audience is not None else w.heard_by(speaker, text)
             e = {"turn": g.turn, "speaker": speaker, "text": text, "kind": kind, "cluster": cluster, "time": dt.datetime.now().strftime("%H:%M:%S"), "day": w.day, "phase": w.phase, "color": color, "place": place, "heard": heard}
@@ -474,7 +486,7 @@ class Run:
         for i, seat in seats:   # file writes outside the lock
             vis = visible_text(e, seat["name"], locs.get(seat["name"]) if seat["name"] != "World" else None)
             if vis is None: continue
-            line = "You said" if speaker == seat["name"] else f"{speaker} said"
+            line = ("You" if speaker == seat["name"] else speaker) if kind == "social" else ("You said" if speaker == seat["name"] else f"{speaker} said")
             with (g.seat_dir(i) / "memory.md").open("a", encoding="utf-8") as fh:
                 fh.write(f"\n## Day {e['day']}, turn {e['turn']} ({e['time']}), {line}:\n{vis}\n")
         g.save()
@@ -590,7 +602,8 @@ class Run:
         stats = "\n".join(f"- {c['name']}: STR {c['str']} SPD {c['spd']} HP {c['hp_max']} gold {c['gold']}, currently at {c['location']}; wants, in plain terms, {c['goal']['text']}" for c in w.characters.values())
         prompt = "\n".join([WORLD_RULES, f"\nThe world:\n{g.world_text}\n", "THE MAP (fixed):\n" + map_text(w.map) + "\n", "The engine has rolled these people. Give each a life. Homes must be places on the map.",
             stats, "\nWrite a short opening narration (the valley waking, the early frost, the rider's news) and then a fenced ```json block, exactly this shape:",
-            '```json\n{"people":[{"name":"Name","trade":"miller","home":"The mill","personality":"one line","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything, in their own terms, built around the plain want the engine rolled for them"}],'
+            '```json\n{"people":[{"name":"Name","trade":"miller","home":"The mill","personality":"one line","secret":"one line, only they know it","fear":"one line","want":"one line, what they want more than anything, in their own terms, built around the plain want the engine rolled for them",'
+            '"voice":{"length":"clipped or plain or rambling","habit":"one verbal habit, a few words","examples":["three lines they might say","in their own voice","one each"],"never":"what they never talk about"}}],'
             '"relations":[{"a":"Name","b":"OtherName","type":"spouse","feeling":3,"trust":2,"mutual":true,"why":"married twelve years; he drinks, she keeps the ledger"}]}\n```',
             "One entry per name, every name, names exact. Make them different from each other: some rich, some poor, some liked, some feared, some with dangerous secrets that touch other people in this list. "
             "Then give the valley a web of relationships in \"relations\": at least eight, each with a \"why\" (one line of history: how they met, what happened, what is owed), using types spouse, lover, kin, friend, rival, enemy, creditor, debtor, master, servant; feeling and trust run from -5 (hate, would knife them) to 5 (love, trust with their life). "
@@ -612,6 +625,7 @@ class Run:
             c["personality"] = sd(p.get("personality"), "keeps their own counsel")[:200]
             c["secret"] = sd(p.get("secret"), "nothing worth telling")[:200]; c["fear"] = sd(p.get("fear"), "the cold")[:200]
             c["want"] = sd(p.get("want"), "to see spring")[:200]
+            c["voice"] = clean_voice(p.get("voice"), c, self.rng)          # fixed for the game; fate can edit it under Bio
             if p.get("home") in w.map: c["location"] = p["home"]
         w.seed_all_relations(self.rng); w.seed_duties(self.rng); w.seed_pastimes(self.rng)
         for rr in data.get("relations", []) or []:
@@ -739,12 +753,15 @@ class Run:
         return f"You are at {here} with {', '.join(others)}. Say what you say to them, in one to three sentences, before your ACTION line."
 
     def _talk_round(self, beat: str) -> list[dict]:
-        """Wherever two or more people are standing together, one short round: each says one line to the others
-        there. A crowded room is split into knots of two to four first, and nobody talks across a knot. One
-        round per knot per beat, and a seat whose place is empty of others is never woken."""
+        """Wherever two or more people stand together, one social beat: the engine rolls whether each does anything at
+        all, picks the act from the catalog by dials and feeling, applies its weight, and writes the chronicle sentence.
+        An act that carries a line asks the model for exactly one sentence in the person's way of speaking; if nothing
+        usable comes back, the act still happened. A crowded room is split into knots of two to four first. One beat per
+        knot per beat name, and a seat whose place is empty of others is never woken."""
         g = self.g; w = g.world
         with self.lock:
             groups = w.groups_here(); seat_of = {g.seats[i]["name"]: i for i in self._able_seats()}
+            touched = {g.seats[i]["name"] for i in self._able_seats() if self._touched(i)}
         ran: list[dict] = []
         for place in sorted(groups):
             names = [n for n in groups[place] if n in seat_of]
@@ -756,18 +773,39 @@ class Run:
                     if key in self.talked: continue
                     self.talked.add(key)
                 head = w.cluster_header(place, knot, ci if len(clusters) > 1 else None)
-                ran.append({"day": w.day, "phase": w.phase, "beat": beat, "place": place, "names": list(knot), "header": head})
-                def instr_for(i: int, knot: tuple = tuple(knot), head: str = head) -> str:
-                    me = g.seats[i]["name"]; others = [n for n in knot if n != me]
-                    return (f"You are {head.split(':')[0]} with {', '.join(others)}, and nobody else is close enough to hear. "
-                            "Say one thing to them, in one to three sentences, or reply exactly PASS. No ACTION line.")
-                self._round([seat_of[n] for n in knot], instr_for, f"{beat}, {head}",
-                            lambda i, t, head=head, knot=list(knot): t and self._say(i, t, cluster=head, audience=knot), reactions=False)
+                with self.lock: acts = w.social_beat(place, list(knot), self.rng, touched); self.version += 1
+                for e in acts:
+                    if self.stop_flag.is_set(): break
+                    act = SOCIAL.get(e["key"], {})
+                    if act.get("line") and e["actor"] in seat_of: e["line"] = self._ask_line(seat_of[e["actor"]], e) or ""
+                    self._record_social(e, list(knot), head)
+                ran.append({"day": w.day, "phase": w.phase, "beat": beat, "place": place, "names": list(knot), "header": head, "acts": [e["key"] for e in acts]})
                 if self.stop_flag.is_set(): break
             if self.stop_flag.is_set(): break
         with self.lock: self.talks.extend(ran); self.version += 1
         self.g.save()
         return ran
+
+    def _line_prompt(self, name: str, e: dict) -> str:
+        """The small prompt for one spoken line: who they are, how they talk, how they feel about the target, and the act."""
+        w = self.g.world; c = w.characters[name]; act = SOCIAL.get(e["key"], {}); target = e["target"]
+        ask = str(act.get("ask", "")).format(a=name, b=target, c="someone who is not here")
+        recent = [x for x in w.social_log if {x["actor"], x["target"]} == {name, target} and x is not e][-3:]
+        return "\n".join([f"You are {name}, {c.get('trade', 'a villager')}, at {c['location']} with {', '.join(n for n in e.get('witnesses', []) + [target])}. Your character: {c.get('personality', '')}",
+                           w.voice_text(name), f"How you feel: {w.feeling_plain(name, target)}.",
+                           ("Lately between you: " + "; ".join(x["text"] for x in recent) + ".") if recent else "",
+                           f"What just happened: {e['text']}", f"{ask} One sentence. Reply with the sentence alone: no name in front, no quotes, no ACTION line, no stage directions."])
+
+    def _ask_line(self, i: int, e: dict) -> str | None:
+        """Exactly one sentence from the seat's model, in the person's way of speaking, or None if nothing usable came back."""
+        g = self.g; w = g.world; seat = g.seats[i]; name = seat["name"]
+        text = self.ask(i, self._line_prompt(name, e), f"day {w.day}, a line to {e['target']}", provider=seat["provider"], model=seat.get("model", ""))
+        return clean_line(text)
+
+    def _record_social(self, e: dict, knot: list[str], head: str) -> None:
+        """The chronicle sentence, with the spoken line under it when there is one."""
+        text = e["text"] + (f'\n"{e["line"]}"' if e.get("line") else "") + (f"\n{e['fight']}" if e.get("fight") else "")
+        self._record(e["actor"], text, "social", cluster=head, audience=knot)
 
     def _morning_phase(self) -> None:
         """Duties. Everyone able with work is asked for WORK, REFUSE, or a free action, which is a skip. The engine settles all of it,

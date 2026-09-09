@@ -78,6 +78,8 @@ input[type=range]{height:auto;padding:0;accent-color:var(--accent)}
 .msg.system .body{color:var(--muted);font-size:var(--fs-b);line-height:1.5}
 .msg.dawn .body,.msg.morning .body,.msg.afternoon .body,.msg.evening .body{color:var(--muted);font-size:var(--fs-b)}
 .msg.dawn .who,.msg.morning .who,.msg.afternoon .who,.msg.evening .who{color:var(--muted)}
+.msg.social .body{color:var(--muted);font-size:var(--fs-b)}.msg.social .who{color:var(--muted)}
+.logrow .sk{color:var(--faint)}.logrow .sq{color:var(--ink)}.logrow .sw{color:var(--muted);font-size:var(--fs-s)}.logrow .st{color:var(--faint);font-size:var(--fs-s)}
 .msg.whisper{border-style:dashed}.msg.whisper .meta:after{content:"  whisper";color:var(--accent)}
 .msg.convener.private{border-style:dashed}.msg.convener.private .meta:after{content:"  only they hear this";color:var(--accent)}
 .men{font-weight:400;color:var(--mc,var(--ink));text-decoration:underline;text-decoration-color:var(--mc,var(--muted));text-underline-offset:2px}
