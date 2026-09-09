@@ -11,6 +11,7 @@ NAMES = json.loads((DATA / "names.json").read_text(encoding="utf-8"))
 EVENTS = json.loads((DATA / "events.json").read_text(encoding="utf-8"))
 DUTIES: dict[str, dict] = {d["key"]: d for d in json.loads((DATA / "duties.json").read_text(encoding="utf-8"))}
 PASTIMES: dict[str, dict] = {d["key"]: d for d in json.loads((DATA / "pastimes.json").read_text(encoding="utf-8"))}
+SOCIAL: dict[str, dict] = {d["key"]: d for d in json.loads((DATA / "social.json").read_text(encoding="utf-8"))}   # what people do to each other, editable
 MAX_DUTIES = 3
 _MAPFILE = json.loads((DATA / "map.json").read_text(encoding="utf-8"))
 BASE_MAP = _MAPFILE["places"]
@@ -355,6 +356,37 @@ def standing_score_for(word: str) -> int:
     return STANDING_MID.get(word, 0)
 
 
+# ---------------------------------------------------------------- a way of speaking: fixed at creation, in every line prompt
+VOICE_LENGTHS = ("clipped", "plain", "rambling")
+VOICE_LENGTH_TEXT = {"clipped": "You talk in clipped sentences, a few words at a time.", "plain": "You talk in plain sentences of ordinary length.",
+                     "rambling": "You ramble; your sentences run on and double back."}
+VOICE_HABITS = ["says aye instead of yes", "answers a question with a question", "names the weather before anything else", "swears by the saints", "calls everyone friend",
+                "trails off before the end", "repeats the last word said to them", "counts things on their fingers as they speak", "calls people by their trade, not their name",
+                "starts with well now", "never says please", "says so it goes when things are bad", "speaks of themselves by name", "laughs before bad news", "ends with you understand"]
+VOICE_EXAMPLES = {"clipped": ["Aye. Cold.", "Not my sack. Yours.", "Say it plain or not at all."],
+                  "plain": ["The bread is short again and the mill knows it.", "I will go when the rain stops.", "You owe me two, not one."],
+                  "rambling": ["I was saying to the miller, and this was before the frost, that the road would go, and now look at it.", "Well now, it is not that I mind, only that nobody asked, and somebody should have.", "The thing about the chapel bell, and I have said this before, is that it never rang right."]}
+VOICE_NEVER = ["their mother", "the winter they nearly died", "money they owe", "the lord", "their own health", "what happened at the ford", "who they loved first", "the chapel"]
+
+
+def roll_voice(c: dict, rng: random.Random) -> dict:
+    """A way of speaking when the World gave none: sentence length from the tongue dial, one habit, three lines, one silence."""
+    tongue = int((c.get("traits") or {}).get("tongue", 3))
+    length = "clipped" if tongue <= 2 else "rambling" if tongue >= 4 else "plain"
+    return {"length": length, "habit": rng.choice(VOICE_HABITS), "examples": list(VOICE_EXAMPLES[length]), "never": rng.choice(VOICE_NEVER)}
+
+
+def clean_voice(v: dict | None, c: dict, rng: random.Random) -> dict:
+    """The World's voice for a person, checked field by field; anything missing is rolled."""
+    base = roll_voice(c, rng)
+    if not isinstance(v, dict): return base
+    length = str(v.get("length", "")).strip().lower()
+    out = {"length": length if length in VOICE_LENGTHS else base["length"], "habit": strip_dashes(str(v.get("habit") or base["habit"]))[:120],
+           "examples": [strip_dashes(str(x))[:160] for x in (v.get("examples") or []) if str(x).strip()][:3] or base["examples"], "never": strip_dashes(str(v.get("never") or base["never"]))[:120]}
+    while len(out["examples"]) < 3: out["examples"].append(VOICE_EXAMPLES[out["length"]][len(out["examples"])])
+    return out
+
+
 def bump_standing(c: dict, delta: int) -> str:
     """Move a person's standing and return the word for it now."""
     c["standing_score"] = max(-9, min(9, int(c.get("standing_score", 0)) + int(delta)))
@@ -444,6 +476,7 @@ class World:
         self.reached: list[dict] = d.get("reached", [])            # wants reached and not yet announced by the World
         self.activities: dict[str, dict] = d.get("activities", {})   # name -> what they are doing now, for the map to play
         self.nothing_lines: list[str] = list(d.get("nothing_lines", []))   # today's duties with nothing to do, one line each
+        self.social_log: list[dict] = list(d.get("social_log", []))     # every social act given and received, with its weight
         self.phase: str = d.get("phase", "morning")                # morning, afternoon, evening
         self.bodies: dict[str, str] = d.get("bodies", {})          # the unburied dead: name -> where they lie
         self.day_report: dict = d.get("day_report", {})            # what dawn found: season, weather, changes, the low and the broken and the sick
@@ -486,6 +519,7 @@ class World:
         if any(not c.get("pastime") for c in self.living()): out.append("pastimes")
         if any(not c.get("goal") for c in self.living()): out.append("wants")
         if any(p not in self.upkeep for p in self.map): out.append("the state of the places")
+        if any(not c.get("voice") for c in self.living()): out.append("ways of speaking")
         return out
 
     def seed_missing(self, rng: random.Random) -> list[str]:
@@ -496,6 +530,9 @@ class World:
             elif what == "pastimes": self.seed_pastimes(rng)
             elif what == "wants": self.seed_wants(rng)
             elif what == "the state of the places": self.seed_places()
+            elif what == "ways of speaking":
+                for c in self.living():
+                    if not c.get("voice"): c["voice"] = roll_voice(c, rng)
             done.append(what)
         return done
 
@@ -505,7 +542,7 @@ class World:
                 "threads": self.threads, "fires": self.fires, "next_thread": self.next_thread,
                 "map_name": self.map_name, "map_generated": self.map_generated, "names": self.names, "style": self.style,
                 "weather": self.weather, "upkeep": self.upkeep, "bodies": self.bodies, "day_report": self.day_report,
-                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase, "reached": self.reached, "nothing_lines": self.nothing_lines, "activities": self.activities}
+                "duties": self.duties, "roster": self.roster, "morning": self.morning, "phase": self.phase, "reached": self.reached, "nothing_lines": self.nothing_lines, "social_log": self.social_log, "activities": self.activities}
 
     # ---- which map this game plays on
     def install_map(self, v: dict) -> None:
@@ -1912,7 +1949,171 @@ class World:
                 f"Your secret, known only to you: {c['secret']}\nYour fear: {c['fear']}\n{self.want_text(name)}\n"
                 + (f"People call you {', '.join(self.titles().get(name, []))}.\n" if self.titles().get(name) else "")
                 + f"Your pastime, what you do with a free afternoon: {PASTIMES[c['pastime']]['label'] if c.get('pastime') in PASTIMES else 'not settled yet'}.\n"
+                + self.voice_text(name) + "\n"
                 + f"YOUR PEOPLE, and how you truly feel about them (act on this):\n{self.relations_text(name)}")
+
+    # ---- social actions: the engine picks what people do to each other when they stand together, from data/social.json.
+    # Most beats produce nothing for most people. An act carries a weight for feeling and one for trust; the weight gathers
+    # on the pair and feeling moves one step only when a total crosses STEP_AT, at most one step a day. Talk alone moves nothing.
+    STEP_AT = 10
+
+    def social_pair(self, a: str, b: str) -> dict:
+        """The running totals on how a feels about b: feeling weight, trust weight, and the day either last stepped."""
+        r = self.rel(a, b); r.setdefault("fw", 0); r.setdefault("tw", 0); r.setdefault("fstep", None); r.setdefault("tstep", None); return r
+
+    def apply_weight(self, giver: str, receiver: str, fw: int, tw: int, why: str) -> dict:
+        """Weight from giver's act lands on how receiver feels about giver. A step happens only when the total crosses
+        STEP_AT either way, and then the total resets; never more than one step a day per pair per scale."""
+        out = {"feeling": 0, "trust": 0, "fw": 0, "tw": 0}
+        if giver not in self.characters or receiver not in self.characters or giver == receiver: return out
+        r = self.social_pair(receiver, giver)
+        for scale, key, stepkey, w in (("feeling", "fw", "fstep", fw), ("trust", "tw", "tstep", tw)):
+            if not w: out[key] = r[key]; continue
+            r[key] = max(-2 * self.STEP_AT, min(2 * self.STEP_AT, int(r[key]) + int(w)))
+            if abs(r[key]) >= self.STEP_AT and r[stepkey] != self.day:
+                step = 1 if r[key] > 0 else -1; before = r[scale]
+                self.set_rel(receiver, giver, **{scale: step}, delta=True, why=why)
+                if r[scale] != before: out[scale] = step
+                r[key] = 0; r[stepkey] = self.day
+            out[key] = r[key]
+        return out
+
+    def owes(self, a: str, b: str) -> bool:
+        """b owes a: a is b's creditor, or b calls a their creditor."""
+        return self.rel(a, b).get("type") == "creditor" or self.rel(b, a).get("type") == "debtor"
+
+    def wronged_by(self, victim: str, actor: str, days: int = 3) -> bool:
+        """actor did something with a negative weight to victim within the last few days."""
+        return any(e["actor"] == actor and e["target"] == victim and e["fw"] < 0 and self.day - e["day"] <= days for e in self.social_log)
+
+    def social_ok(self, actor: str, target: str, act: dict, knot: list[str]) -> bool:
+        """Whether this act can be aimed at this target now: who it may target, and what it needs."""
+        a = self.characters.get(actor); b = self.characters.get(target)
+        if not a or not b or actor == target: return False
+        feel = int(self.rel(actor, target)["feeling"]); tg = act.get("targets", "anyone"); nd = act.get("needs", {}) or {}
+        if tg == "liked" and feel < 1: return False
+        if tg == "disliked" and feel > -1: return False
+        if tg == "owes" and not self.owes(actor, target): return False
+        if tg == "wronged" and not self.wronged_by(target, actor): return False
+        if "feeling_min" in nd and feel < int(nd["feeling_min"]): return False
+        if "feeling_max" in nd and feel > int(nd["feeling_max"]): return False
+        if "temper_min" in nd and int(a.get("traits", {}).get("temper", 3)) < int(nd["temper_min"]): return False
+        if nd.get("absent") and not [c for c in self.living() if c["name"] not in knot]: return False
+        if "meals" in nd and self.ledger.get("meals", 0) < int(nd["meals"]): return False
+        if "gold" in nd and int(a.get("gold", 0)) < int(nd["gold"]): return False
+        if "skill" in nd and not any(int(v) >= int(nd["skill"]) for v in (a.get("skills") or {}).values()): return False
+        if nd.get("low") and int((b.get("needs") or {}).get("spirit", 6)) > 3: return False
+        if nd.get("unwed") and (any(r.get("type") == "spouse" for r in self.relations.get(actor, {}).values()) or any(r.get("type") == "spouse" for r in self.relations.get(target, {}).values())): return False
+        return True
+
+    def act_score(self, actor: str, target: str, act: dict) -> float:
+        """How likely this act is for this actor at this target: the base, the dials, and feeling pulling kind acts
+        up when it is warm and hard acts up when it is cold."""
+        t = self.characters[actor].get("traits", {}); feel = int(self.rel(actor, target)["feeling"])
+        dial = max(-4.0, min(4.0, sum(float(w) * (int(t.get(k, 3)) - 3) for k, w in (act.get("dials") or {}).items())))
+        score = float(act.get("base", 1)) * math.exp(0.35 * dial)
+        fw = int(act.get("feeling", 0))
+        if fw > 0: score *= max(0.15, 1 + 0.3 * feel)
+        elif fw < 0: score *= max(0.15, 1 - 0.3 * feel)
+        return score
+
+    def pick_action(self, actor: str, target: str, rng: random.Random, knot: list[str], pool: list[str] | None = None) -> dict | None:
+        """One act from the catalog (or from the given keys), by dials and feeling toward the target. None if nothing fits."""
+        keys = pool if pool is not None else [k for k, a in SOCIAL.items() if not a.get("reaction")]
+        cands = [(SOCIAL[k], self.act_score(actor, target, SOCIAL[k])) for k in keys if k in SOCIAL and self.social_ok(actor, target, SOCIAL[k], knot)]
+        if not cands: return None
+        total = sum(s for _, s in cands); roll = rng.random() * total
+        for act, s in cands:
+            roll -= s
+            if roll <= 0: return act
+        return cands[-1][0]
+
+    def social_chance(self, name: str, knot: list[str], touched: set[str]) -> float:
+        """Whether this person does anything social at all this beat: their tongue, their spirits, whether something
+        touched them today, and whether someone they have an errand with is standing here."""
+        c = self.characters[name]; t = c.get("traits", {})
+        p = 0.04 + 0.03 * (int(t.get("tongue", 3)) - 3) + 0.015 * (int((c.get("needs") or {}).get("spirit", 6)) - 6)
+        if name in touched: p += 0.12
+        if any(x["name"] in knot for x in self.errands(name)): p += 0.12
+        return max(0.02, min(0.5, p))
+
+    def social_target(self, name: str, knot: list[str], rng: random.Random) -> str | None:
+        others = [n for n in knot if n != name and n in self.characters]
+        if not others: return None
+        errand = {x["name"] for x in self.errands(name)}
+        weights = [1 + abs(int(self.rel(name, o)["feeling"])) + (3 if o in errand else 0) + (2 if self.wronged_by(name, o) else 0) for o in others]
+        roll = rng.random() * sum(weights)
+        for o, w in zip(others, weights):
+            roll -= w
+            if roll <= 0: return o
+        return others[-1]
+
+    def resolve_fight(self, a: str, b: str, rng: random.Random) -> str:
+        """A shove became a fight: dice and strength, the loser hurt, both shaken, both thought less of."""
+        ca, cb = self.characters[a], self.characters[b]
+        ra = rng.randint(1, 6) + int(ca["str"]) // 3; rb = rng.randint(1, 6) + int(cb["str"]) // 3
+        loser = cb if ra >= rb else ca; winner = ca if loser is cb else cb
+        loser["hp"] = max(1, int(loser["hp"]) - rng.randint(1, 2))
+        for c in (ca, cb):
+            c.setdefault("needs", fresh_needs())["spirit"] = max(0, int(c["needs"].get("spirit", 6)) - 1); bump_standing(c, -1)
+        txt = f"{a} and {b} came to blows at {ca['location']}; {loser['name']} came off worse."
+        for c in (ca, cb): note_log(c, self.day, txt)
+        return txt
+
+    def do_social(self, actor: str, target: str, act: dict, rng: random.Random, knot: list[str], reaction_to: int | None = None) -> dict:
+        """One act, written to state: its weight on the pair, what it costs or hands over, the escalation price, a fight
+        if it comes to that, and the chronicle sentence. Returns the log entry."""
+        a = self.characters[actor]; b = self.characters[target]; here = a["location"]; nd = act.get("needs", {}) or {}
+        absent = [c["name"] for c in self.living() if c["name"] not in knot]
+        other = rng.choice(absent) if absent else ""
+        skill = max((a.get("skills") or {"the work": 0}).items(), key=lambda kv: kv[1])[0]
+        text = act["sentence"].format(a=actor, b=target, c=other, skill=skill)
+        if "meals" in nd: self.ledger["meals"] = max(0, self.ledger["meals"] - int(nd["meals"]))
+        if "gold" in nd: a["gold"] = max(0, int(a["gold"]) - int(nd["gold"])); b["gold"] = int(b["gold"]) + int(nd["gold"])
+        got = self.apply_weight(actor, target, int(act.get("feeling", 0)), int(act.get("trust", 0)), why=text)
+        self.apply_weight(target, actor, int(act.get("self_feeling", 0)), int(act.get("self_trust", 0)), why=text)
+        entry = {"day": self.day, "phase": self.phase, "place": here, "actor": actor, "target": target, "key": act["key"], "label": act["label"], "text": text,
+                 "line": "", "fw": int(act.get("feeling", 0)), "tw": int(act.get("trust", 0)), "total_f": got["fw"], "total_t": got["tw"],
+                 "feeling": int(self.rel(target, actor)["feeling"]), "trust": int(self.rel(target, actor)["trust"]), "stepped": bool(got["feeling"] or got["trust"]),
+                 "reaction_to": reaction_to, "witnesses": [n for n in knot if n not in (actor, target)], "cost": "", "fight": ""}
+        if act.get("escalation") and not self.wronged_by(actor, target):
+            bump_standing(a, -1); entry["cost"] = f"{actor}'s standing fell; {target} had not earned it"
+            for wname in entry["witnesses"]: self.apply_weight(actor, wname, -2, -1, why=f"saw {text[:-1]}")
+        if act.get("fight") and rng.random() < float(act["fight"]) and int(b.get("traits", {}).get("temper", 3)) >= 3:
+            entry["fight"] = self.resolve_fight(actor, target, rng)
+        note_log(a, self.day, text.replace(actor, "You", 1)); note_log(b, self.day, text)
+        self.social_log.append(entry); del self.social_log[:-600]
+        return entry
+
+    def social_beat(self, place: str, knot: list[str], rng: random.Random, touched: set[str] | None = None) -> list[dict]:
+        """One beat for one knot of people standing together. Each rolls whether they do anything at all; those who do
+        aim one act at one person, and the target may react from the same catalog. Returns the entries, in order."""
+        touched = touched or set(); out: list[dict] = []
+        for name in list(knot):
+            if name not in self.characters or not self.able(self.characters[name]): continue
+            if rng.random() >= self.social_chance(name, knot, touched): continue
+            target = self.social_target(name, knot, rng)
+            if not target: continue
+            act = self.pick_action(name, target, rng, knot)
+            if not act: continue
+            entry = self.do_social(name, target, act, rng, knot); out.append(entry); idx = len(self.social_log) - 1
+            if act.get("reactions") and self.able(self.characters[target]):
+                tt = self.characters[target].get("traits", {})
+                p = 0.45 + (0.2 if int(act.get("feeling", 0)) < 0 and int(tt.get("temper", 3)) >= 4 else 0) + 0.05 * (int(tt.get("tongue", 3)) - 3)
+                if rng.random() < p:
+                    react = self.pick_action(target, name, rng, knot, pool=list(act["reactions"]))
+                    if react: out.append(self.do_social(target, name, react, rng, knot, reaction_to=idx))
+        return out
+
+    def feeling_plain(self, a: str, b: str) -> str:
+        """How a feels about b, in plain words, for a prompt."""
+        r = self.rel(a, b); return f"you {self.FEEL2[int(r['feeling']) + 5]} {b} and {self.TRUST2[int(r['trust']) + 5]} them"
+
+    def voice_text(self, name: str) -> str:
+        v = self.characters[name].get("voice") or roll_voice(self.characters[name], random.Random(name))
+        ex = " ".join(f'"{x}"' for x in (v.get("examples") or [])[:3])
+        return (f"HOW YOU TALK, fixed: {VOICE_LENGTH_TEXT.get(v.get('length', 'plain'), VOICE_LENGTH_TEXT['plain'])} Your habit: {v.get('habit', 'none')}. "
+                f"The way you sound: {ex or 'plain words'}. You never talk about {v.get('never') or 'nothing in particular'}.")
 
     # ---- free actions: a verb from a fixed list, a target, and a resolution by stats, ties and dice. Nothing else moves state.
     VERBS = ("travel", "talk", "give", "take", "steal", "hit", "drive out", "help", "tend", "court", "pray", "trade", "search", "wait")
@@ -2272,11 +2473,11 @@ def visible_text(entry: dict, viewer: str, viewer_place: str | None = None) -> s
     if entry.get("kind") == "convener":
         ms = mentions(entry.get("text", ""))
         if ms and v != "world" and v not in ms: return None
-    if (entry.get("kind") == "speech" and v not in ("world", sp) and viewer_place is not None
+    if (entry.get("kind") in ("speech", "social") and v not in ("world", sp) and viewer_place is not None
             and bool(entry.get("place")) and entry["place"] != viewer_place):
         return None                                                               # said somewhere else; none of it travelled
     aud = entry.get("heard")
-    if entry.get("kind") == "speech" and entry.get("cluster") and isinstance(aud, list) and v not in ("world", sp):
+    if entry.get("kind") in ("speech", "social") and entry.get("cluster") and isinstance(aud, list) and v not in ("world", sp):
         if v not in {a.lower() for a in aud}: return None                         # one knot of a crowded room; the others did not hear it
     keep = []
     for ln in entry.get("text", "").split("\n"):
@@ -2300,7 +2501,7 @@ def touched_text(entry: dict, me: str, my_place: str, ties: list[str]) -> str | 
     someone they have a tie with. Speech and the convener's words go through the usual sight rules. Engine notes never reach a person."""
     kind = entry.get("kind")
     if kind == "system": return None
-    if kind in ("speech", "convener"):
+    if kind in ("speech", "convener", "social"):
         return visible_text(entry, me, my_place)
     text = entry.get("text", "")
     cut = re.search(r"\n(?:PROSPERITY|STANDINGS|WHO IS WHERE)\b", text)

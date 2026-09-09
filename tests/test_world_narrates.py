@@ -127,7 +127,7 @@ class WorldTests(unittest.TestCase):
         r._world_phase()
         self.assertEqual((a["gold"], b["gold"]), (4, 1)); self.assertEqual(w.characters["P4"]["gold"], before_p4, "the World's invention moved nothing")
         world = next(e for e in g.transcript if e["kind"] == "world"); self.assertIn("gave P1 1 gold", world["text"]); self.assertNotIn("30 gold", world["text"])
-        eng = next(e for e in g.transcript if e["kind"] == "system"); self.assertIn("dropped", eng["text"]); self.assertIn("P4", eng["text"])
+        eng = next(e for e in g.transcript if e["kind"] == "system" and e["text"].startswith("Adjustments")); self.assertIn("dropped", eng["text"]); self.assertIn("P4", eng["text"])
 
     def test_with_no_narration_the_engine_lines_stand(self) -> None:
         w = self.w; r = self.r; g = r.g; g.drama = 0; w.pending = [{"who": "P0", "text": "I pray", "turn": 1}]

@@ -198,6 +198,29 @@ thaw) and the weather is rolled from it each morning: cold burns wood and warmth
 and nothing grows in winter. The engine runs all of this at dawn, before anyone speaks, and writes a
 line into the chronicle with the season, the weather, and what is low, broken, sick, or burning.
 
+### Social actions
+
+When people stand together the engine, not the model, decides what passes between them, from the
+catalog in `data/social.json`: about twenty acts (small talk, a joke, teasing, gossip, a compliment,
+a boast, a complaint, sharing food, a gift, a favour asked or refused, help, comfort, teaching, a
+flirt, a proposal, an apology, an accusation, a slight, an insult, a threat, a shove) and the
+reactions to them (laugh, ignore, thank, snap back, shove back). Each act carries a weight for
+feeling and a weight for trust, says who it can target, which dials make it likely, and whether it
+usually comes with a spoken line. Each person rolls whether they do anything at all this beat, from
+their tongue, their spirits, whether anything touched them, and whether someone they have an errand
+with is standing there; most beats produce nothing for most people. Weight gathers on the pair and
+feeling moves one step only when the total crosses ten either way, then resets; trust the same on
+its own total; never more than one step a day per pair. Five compliments move feeling one step; one
+insult and a shove move it one step the other way. Talk alone moves nothing. Insult, threat and
+shove are rare, need a hot temper and a cold feeling, cost the actor standing with anyone who saw it
+unless the target had it coming, and a shove can start a fight the engine settles with dice and
+health. When an act carries a line the model is asked for exactly one sentence in the person's way
+of speaking; if nothing usable comes back the act still happened. Every person gets a way of
+speaking at creation, fixed for the game (sentence length, one habit, three example lines, what
+they never talk about); it is in every prompt and fate can edit it under Bio, "How they talk". The
+Log tab shows each person's acts given and received per day with the weight beside each and the
+running total per pair. The drama dial touches only how often events happen and how hard they hit.
+
 ### Jobs
 
 The valley's work is split into fifteen named jobs in `data/duties.json`: mill, fields, hunt, fish,
